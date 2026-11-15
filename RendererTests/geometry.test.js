@@ -91,6 +91,22 @@ test('读数里两点连写表示距离，三点连写表示角度', () => {
   close(spec.readouts[0].evaluate(moved), Math.hypot(2, 4));
 });
 
+test('先引用后定义的元素会自动排序', () => {
+  const result = parse({
+    elements: [
+      { type: 'point', id: 'C', x: 3, y: 3, on: 'c' },
+      { type: 'segment', id: 'OC', through: ['O', 'C'] },
+      { type: 'point', id: 'O', x: 0, y: 0, fixed: true },
+      { type: 'circle', id: 'c', center: 'O', radius: 2 },
+    ],
+  });
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(result.value.elements.map((e) => e.id), ['O', 'c', 'C', 'OC']);
+  close(core.computeGeometry(result.value, null).measures.OC, 2);
+  // 真正的循环引用仍然报错
+  assert.equal(parse({ elements: [{ type: 'midpoint', id: 'M', of: ['N', 'N'] }, { type: 'midpoint', id: 'N', of: ['M', 'M'] }] }).ok, false);
+});
+
 test('交点和圆', () => {
   const result = parse({
     elements: [

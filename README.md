@@ -59,6 +59,18 @@ API Key 只存在设备的钥匙串里，App 直接请求服务商的接口，�
 - `StudyKit/`：不依赖界面的代码（数据模型、三种协议、SSE 解析、内置提示词）和测试
 - `Renderer/`：WebView 里运行的渲染器（Markdown、公式、化学式、代码、坐标图）和第三方库
 - `RendererTests/`：渲染器的 Node 测试，运行方法是 `node --test RendererTests/*.test.js`
+- `tools/eval/`：用真实模型测试组件，见下一节
+
+## 用真实模型测试组件
+
+`tools/eval/run.js` 会用 App 的内置提示词（`StudyKit/Sources/StudyKit/Prompts/`）去问 `cases.json` 里的题目，检查每个回答里的组件格式是否正确，以及该用组件时用了、不该用时没用。只支持 OpenAI 兼容接口，Key 只从环境变量读取：
+
+```sh
+STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
+  node tools/eval/run.js --model deepseek-flash --model grok-4.7 [--only geo-] [--simple]
+```
+
+回答原文和汇总保存在 `tools/eval/results/`，这个目录不提交到仓库。改了提示词或组件格式之后，都应该跑一遍。
 
 ## 里程碑
 

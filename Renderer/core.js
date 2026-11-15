@@ -990,6 +990,41 @@
     return result;
   }
 
+  /** 元素引用到的其他元素 id。 */
+  function dependenciesOf(e) {
+    if (!e || typeof e !== 'object') return [];
+    const ids = [];
+    ['on', 'from', 'to', 'center'].forEach((field) => {
+      if (typeof e[field] === 'string') ids.push(e[field]);
+    });
+    if (typeof e.through === 'string') ids.push(e.through);
+    ['of', 'through', 'vertices', 'points'].forEach((field) => {
+      if (Array.isArray(e[field])) e[field].forEach((id) => { if (typeof id === 'string') ids.push(id); });
+    });
+    return ids;
+  }
+
+  /**
+   * 模型有时先引用、后定义（例如先写圆上的点，再写圆）。按依赖关系重新排序，
+   * 尽量保持原来的顺序；有循环引用或引用不存在的元素时，交给后面的校验报错。
+   */
+  function sortByDependencies(rawElements) {
+    const ids = new Set(rawElements.map((e) => e && e.id));
+    const placed = new Set();
+    const result = [];
+    let remaining = rawElements.slice();
+    while (remaining.length) {
+      const next = remaining.findIndex((e) =>
+        dependenciesOf(e).every((id) => placed.has(id) || !ids.has(id) || id === (e && e.id)));
+      if (next < 0) return result.concat(remaining);
+      const element = remaining[next];
+      result.push(element);
+      placed.add(element && element.id);
+      remaining = remaining.slice(0, next).concat(remaining.slice(next + 1));
+    }
+    return result;
+  }
+
   function parseGeometrySpec(source) {
     try {
       const raw = parseJSONObject(source, '几何图');
@@ -997,7 +1032,7 @@
       if (raw.elements.length > 40) throw new Error('几何图的元素最多 40 个');
 
       const kinds = {};
-      const elements = raw.elements.map((e, i) => {
+      const elements = sortByDependencies(raw.elements).map((e, i) => {
         if (!e || typeof e !== 'object') throw new Error('第 ' + (i + 1) + ' 个元素格式不对');
         const kind = e.type;
         if (!GEOMETRY_KINDS.includes(kind)) throw new Error('第 ' + (i + 1) + ' 个元素的 type 不认识：' + kind);
@@ -1146,6 +1181,67 @@
     }
   }
 
+  // ---------- 图表 ----------
+
+  const CHART_TYPES = ['bar', 'line', 'pie'];
+
+  function parseChartSpec(source) {
+    try {
+      const raw = parseJSONObject(source, '图表');
+      const type = raw.type || 'bar';
+      if (!CHART_TYPES.includes(type)) throw new Error('图表的 type 应该是 bar、line 或 pie');
+      if (!Array.isArray(raw.labels) || !raw.labels.length) throw new Error('图表缺少 labels');
+      if (raw.labels.length > 60) throw new Error('图表的类别最多 60 个');
+      const labels = raw.labels.map((l) => String(l === null || l === undefined ? '' : l));
+      if (!Array.isArray(raw.datasets) || !raw.datasets.length) throw new Error('图表缺少 datasets');
+      if (raw.datasets.length > 8) throw new Error('图表的数据组最多 8 组');
+      if (type === 'pie' && raw.datasets.length !== 1) throw new Error('饼图只能有 1 组数据');
+
+      const datasets = raw.datasets.map((d, i) => {
+        const what = '第 ' + (i + 1) + ' 组数据';
+        if (!d || !Array.isArray(d.data)) throw new Error(what + '缺少 data');
+        if (d.data.length !== labels.length) {
+          throw new Error(what + '有 ' + d.data.length + ' 个数，但 labels 有 ' + labels.length + ' 个');
+        }
+        const data = d.data.map((v) => {
+          if (v === null) return null;
+          const n = typeof v === 'number' ? v : Number(v);
+          if (!Number.isFinite(n)) throw new Error(what + '里有不是数字的值：' + v);
+          if (type === 'pie' && n < 0) throw new Error('饼图的数据不能是负数');
+          return n;
+        });
+        return { label: typeof d.label === 'string' ? d.label.trim() : '', data };
+      });
+
+      return {
+        ok: true,
+        value: {
+          type,
+          title: optionalLabel(raw.title),
+          labels,
+          datasets,
+          xLabel: optionalLabel(raw.xLabel),
+          yLabel: optionalLabel(raw.yLabel),
+          unit: optionalLabel(raw.unit),
+          stacked: raw.stacked === true && type === 'bar',
+        },
+      };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  function chartToText(spec) {
+    const unit = spec.unit ? '（' + spec.unit + '）' : '';
+    const lines = ['【图表' + (spec.title ? '：' + spec.title : '') + '】'];
+    const header = [spec.xLabel || '类别'].concat(spec.datasets.map((d, i) => (d.label || '数据 ' + (i + 1)) + unit));
+    lines.push(header.join(' | '));
+    spec.labels.forEach((label, k) => {
+      lines.push([label].concat(spec.datasets.map((d) => (d.data[k] === null ? '—' : formatNumber(d.data[k], 4)))).join(' | '));
+    });
+    return lines.join('\n');
+  }
+
   // ---------- 组件注册表 ----------
   //
   // 每种组件在这里登记：名称、解析校验函数、复制消息时的文字形式。
@@ -1169,6 +1265,7 @@
         return '[几何图：' + (spec.title || shapes.join('、') || '点和线') + ']';
       },
     },
+    chart: { label: '图表', parse: parseChartSpec, toText: chartToText },
     quiz: { label: '测验', parse: parseQuizSpec, toText: quizToText },
     steps: { label: '分步讲解', parse: parseStepsSpec, toText: stepsToText },
   };
@@ -1244,6 +1341,7 @@
     parseStepsSpec,
     parseGeometrySpec,
     computeGeometry,
+    parseChartSpec,
     evaluateNumberInput,
     isNumberCorrect,
     componentTypes,
