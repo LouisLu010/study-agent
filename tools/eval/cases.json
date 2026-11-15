@@ -2,56 +2,170 @@
   {
     "id": "graph-parabola",
     "prompt": "画出 y = x^2 - 4x + 3 的图像，并标出它与 x 轴的交点和顶点。",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "steps"
+    ]
   },
   {
     "id": "graph-exp-log",
     "prompt": "比较 y = 2^x 和 y = log₂x 的图像，它们有什么关系？",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "quiz"
+    ]
   },
   {
     "id": "graph-sin-cos",
     "prompt": "y = sin x 和 y = cos x 在 [0, 2π] 上的图像有什么区别？画图说明。",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "quiz"
+    ]
   },
   {
     "id": "graph-asymptote",
     "prompt": "为什么 y = 1/x 的图像有渐近线？",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "quiz",
+      "steps"
+    ]
   },
   {
     "id": "graph-physics-vt",
     "prompt": "一个物体从静止开始做匀加速直线运动，加速度是 2 m/s²。画出前 5 秒的 v-t 图像和 x-t 图像。",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ]
   },
   {
     "id": "graph-tangent",
     "prompt": "求曲线 y = x³ 在点 (1, 1) 处的切线方程，并画图。",
-    "expect": ["graph"]
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "steps"
+    ]
   },
   {
     "id": "param-quadratic",
     "prompt": "二次函数 y = ax² + bx + c 中，a、b、c 分别对图像有什么影响？",
-    "expect": ["graph"],
-    "needsParams": true
+    "expect": [
+      "graph"
+    ],
+    "needsParams": true,
+    "allow": [
+      "quiz"
+    ]
   },
   {
     "id": "param-sine",
     "prompt": "y = A sin(ωx + φ) 中的 A、ω、φ 分别控制什么？我想直观地看一看。",
-    "expect": ["graph"],
-    "needsParams": true
+    "expect": [
+      "graph"
+    ],
+    "needsParams": true,
+    "allow": [
+      "quiz"
+    ]
   },
   {
     "id": "param-linear",
     "prompt": "一次函数 y = kx + b 的 k 和 b 变化时，直线怎么变？",
-    "expect": ["graph"],
-    "needsParams": true
+    "expect": [
+      "graph"
+    ],
+    "needsParams": true,
+    "allow": [
+      "quiz"
+    ]
   },
   {
     "id": "param-projectile",
     "prompt": "平抛运动中，初速度越大，物体落地时的水平距离越远吗？能让我自己调初速度看看轨迹吗？（g 取 10 m/s²，抛出点高 20 m）",
-    "expect": ["graph"],
-    "needsParams": true
+    "expect": [
+      "graph"
+    ],
+    "needsParams": true,
+    "allow": [
+      "quiz",
+      "steps"
+    ]
+  },
+  {
+    "id": "quiz-derivative",
+    "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
+    "expect": [
+      "quiz"
+    ],
+    "allow": [
+      "graph"
+    ]
+  },
+  {
+    "id": "quiz-chem-mole",
+    "prompt": "出几道物质的量（摩尔）计算的练习题，高一水平。",
+    "expect": [
+      "quiz"
+    ],
+    "allow": [
+      "steps"
+    ]
+  },
+  {
+    "id": "quiz-physics",
+    "prompt": "考考我牛顿第二定律，出两道选择题。",
+    "expect": [
+      "quiz"
+    ]
+  },
+  {
+    "id": "steps-equation",
+    "prompt": "解方程组：2x + 3y = 12，x - y = 1。请详细写出步骤。",
+    "expect": [
+      "steps"
+    ],
+    "allow": [
+      "graph"
+    ]
+  },
+  {
+    "id": "steps-integral",
+    "prompt": "计算 ∫ x·eˣ dx，我不太会分部积分。",
+    "expect": [
+      "steps"
+    ],
+    "allow": [
+      "graph"
+    ]
+  },
+  {
+    "id": "steps-proof",
+    "prompt": "证明：√2 是无理数。",
+    "expect": [
+      "steps"
+    ]
+  },
+  {
+    "id": "steps-physics",
+    "prompt": "一个质量 2 kg 的物体放在倾角 30° 的光滑斜面上，由静止下滑 4 m，求到达底端时的速度。（g = 10 m/s²）",
+    "expect": [
+      "steps"
+    ],
+    "allow": [
+      "graph",
+      "geometry"
+    ]
   },
   {
     "id": "none-prime",
@@ -76,12 +190,18 @@
   {
     "id": "none-balance",
     "prompt": "配平这个化学方程式：Fe + O2 → Fe3O4",
-    "expect": []
+    "expect": [],
+    "allow": [
+      "steps"
+    ]
   },
   {
     "id": "none-pythagoras",
     "prompt": "勾股定理的内容是什么？",
     "expect": [],
-    "allow": ["geometry", "graph"]
+    "allow": [
+      "geometry",
+      "graph"
+    ]
   }
 ]

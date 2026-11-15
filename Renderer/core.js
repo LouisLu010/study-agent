@@ -201,8 +201,15 @@
   const BUILTIN_NAMES = Object.keys(FUNCTIONS).concat(Object.keys(MULTI_ARG_FUNCTIONS), Object.keys(CONSTANTS), ['x']);
 
   /** 可以用作参数名的名字：字母开头，不能和 x、常数、函数重名。 */
+  // 参数名可以用希腊字母（ω、φ、θ…），π 是常数除外。
+  const GREEK = 'α-ωΑ-Ω';
+  const NAME_START = new RegExp('[A-Za-z' + GREEK + ']');
+  const NAME_CHAR = new RegExp('[A-Za-z0-9' + GREEK + ']');
+  const PARAM_NAME = new RegExp('^[A-Za-z' + GREEK + '][A-Za-z0-9' + GREEK + ']*$');
+  const PLACEHOLDER = new RegExp('\\{([A-Za-z' + GREEK + '][A-Za-z0-9' + GREEK + ']*)\\}', 'g');
+
   function isValidParamName(name) {
-    return typeof name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(name) && !BUILTIN_NAMES.includes(name);
+    return typeof name === 'string' && PARAM_NAME.test(name) && !BUILTIN_NAMES.includes(name);
   }
 
   function tokenize(source, variables, aliases) {
@@ -214,7 +221,7 @@
       .replace(/[×·]/g, '*')
       .replace(/−/g, '-')
       // 模型偶尔把实时公式的写法 {a} 用到表达式里，当作 a。
-      .replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, '($1)');
+      .replace(PLACEHOLDER, '($1)');
     let i = 0;
     while (i < text.length) {
       const ch = text[i];
@@ -227,9 +234,9 @@
         if (Number.isNaN(value)) throw new Error('数字格式不对：' + text.slice(i, j));
         tokens.push({ type: 'number', value });
         i = j;
-      } else if (/[A-Za-zπ]/.test(ch)) {
+      } else if (NAME_START.test(ch)) {
         let j = i;
-        while (j < text.length && /[A-Za-z0-9π]/.test(text[j])) j++;
+        while (j < text.length && NAME_CHAR.test(text[j])) j++;
         // 把连在一起的字母拆成已知的名字，例如 "xsin" → x、sin。
         let word = text.slice(i, j);
         while (word) {
@@ -505,7 +512,7 @@
    * 例如 "y = {a}x^2 + {b}x" 在 b = -2 时得到 "y = 1x^2 - 2x"。
    */
   function fillFormula(template, params, scope) {
-    let text = template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (match, name) => {
+    let text = template.replace(PLACEHOLDER, (match, name) => {
       const param = params.find((p) => p.name === name);
       if (!param) return match;
       return formatNumber(scope[name], decimalsForStep(param.step));
@@ -556,8 +563,7 @@
    */
   function parseGraphSpec(source) {
     try {
-      const raw = JSON.parse(source);
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('坐标图描述应该是一个 JSON 对象');
+      const raw = parseJSONObject(source, '坐标图');
 
       const params = parseParams(raw.params);
       const names = params.map((p) => p.name);
@@ -631,6 +637,224 @@
     }
   }
 
+  // ---------- 测验 ----------
+
+  // ---------- 宽松的 JSON ----------
+  //
+  // 模型写的 JSON 常见两类错误：
+  //   1. 文字里直接用了英文双引号，例如 "这是"偶函数"的定义"；
+  //   2. LaTeX 的反斜杠没有写成两个。"\;" 这类会直接报错，
+  //      而 "\frac"、"\times"、"\rho" 不会报错，却被解析成换页符、制表符、回车。
+  // 这里先修复第 2 类，解析失败时再逐个转义出错位置前面那个引号。
+
+  const VALID_ESCAPES = '"\\/bfnrtu';
+  // \n 后面跟这些字母时多半是 LaTeX 命令（\neq、\nabla、\nu…），而不是换行。
+  const LATEX_AFTER_N = /^(eq|e\b|abla|u\b|ot|eg|i\b|exists|leq|geq|parallel|mid|subset|supset|sim|cong|rightarrow|leftarrow|Rightarrow|Leftarrow|ewline|ormalsize)/;
+
+  function fixEscapes(source) {
+    let out = '';
+    let inString = false;
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+      if (!inString) {
+        if (ch === '"') inString = true;
+        out += ch;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+        out += ch;
+        continue;
+      }
+      if (ch !== '\\') {
+        out += ch;
+        continue;
+      }
+      const next = source[i + 1];
+      const rest = source.slice(i + 2);
+      let latex = false;
+      if (next === undefined || !VALID_ESCAPES.includes(next)) latex = true;
+      else if ((next === 'f' || next === 'b') && /^[a-zA-Z]/.test(rest)) latex = true; // \frac \beta
+      else if ((next === 't' || next === 'r') && /^[a-zA-Z]/.test(rest)) latex = true; // \times \rho
+      else if (next === 'n' && LATEX_AFTER_N.test(rest)) latex = true; // \neq \nabla
+      else if (next === 'u' && !/^[0-9a-fA-F]{4}/.test(rest)) latex = true; // \underline
+      if (latex) {
+        out += '\\\\';
+      } else {
+        out += ch + next;
+        i++;
+      }
+    }
+    return out;
+  }
+
+  function parseLooseJSON(source) {
+    let text = fixEscapes(String(source));
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        const match = /position (\d+)/.exec(error.message);
+        if (!match) throw error;
+        const position = Number(match[1]);
+        // 往前找最近的一个没转义的引号：它多半是文字里的引号，把字符串提前结束了。
+        let quote = position - 1;
+        while (quote >= 0 && !(text[quote] === '"' && text[quote - 1] !== '\\')) quote--;
+        // 引号后面紧跟的是 JSON 结构符号时，说明它本来就是字符串的结尾，没法修复。
+        if (quote <= 0 || /^\s*[,:}\]]/.test(text.slice(quote + 1))) throw error;
+        text = text.slice(0, quote) + '\\"' + text.slice(quote + 1);
+      }
+    }
+    return JSON.parse(text);
+  }
+
+  function requireText(value, what) {
+    if (typeof value !== 'string' || !value.trim()) throw new Error(what + '不能为空');
+    return value.trim();
+  }
+
+  function parseJSONObject(source, what) {
+    const raw = parseLooseJSON(source);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(what + '描述应该是一个 JSON 对象');
+    return raw;
+  }
+
+  /** 选择题的答案：字母 "B"、["A", "C"]，或从 0 开始的序号。返回排好序的序号数组。 */
+  function parseChoiceAnswer(answer, optionCount, what) {
+    const list = Array.isArray(answer) ? answer : [answer];
+    if (!list.length) throw new Error(what + '缺少答案');
+    const indexes = list.map((item) => {
+      let index;
+      if (typeof item === 'number' && Number.isInteger(item)) index = item;
+      else if (typeof item === 'string' && /^[A-Za-z]$/.test(item.trim())) index = item.trim().toUpperCase().charCodeAt(0) - 65;
+      else throw new Error(what + '的答案应该写成选项字母，例如 "B"');
+      if (index < 0 || index >= optionCount) throw new Error(what + '的答案超出了选项范围');
+      return index;
+    });
+    return [...new Set(indexes)].sort((a, b) => a - b);
+  }
+
+  /** 数值填空：用户可以写 0.5、1/2、sqrt(2) 这样的式子。 */
+  function evaluateNumberInput(text) {
+    if (typeof text !== 'string' || !text.trim()) return NaN;
+    try {
+      // 允许全角符号和中文逗号小数点之类的常见写法。
+      const normalized = text.trim().replace(/，/g, ',').replace(/。/g, '.').replace(/／/g, '/').replace(/,/g, '');
+      return compileExpression(normalized)(NaN);
+    } catch (error) {
+      return NaN;
+    }
+  }
+
+  /** 数值答案是否正确。默认允许 1% 的相对误差。 */
+  function isNumberCorrect(value, question) {
+    if (!Number.isFinite(value)) return false;
+    const tolerance = question.tolerance !== null
+      ? question.tolerance
+      : Math.max(1e-9, Math.abs(question.answer) * 0.01);
+    return Math.abs(value - question.answer) <= tolerance + 1e-12;
+  }
+
+  function parseQuizSpec(source) {
+    try {
+      const raw = parseJSONObject(source, '测验');
+      if (!Array.isArray(raw.questions) || !raw.questions.length) throw new Error('测验里没有题目');
+      if (raw.questions.length > 10) throw new Error('测验最多 10 道题');
+      const questions = raw.questions.map((q, i) => {
+        const what = '第 ' + (i + 1) + ' 题';
+        if (!q || typeof q !== 'object') throw new Error(what + '格式不对');
+        const question = requireText(q.question, what + '的题目');
+        const explanation = typeof q.explanation === 'string' ? q.explanation.trim() : '';
+        const type = q.type || (Array.isArray(q.options) ? 'choice' : 'number');
+        if (type === 'choice') {
+          if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 8) {
+            throw new Error(what + '要有 2 到 8 个选项');
+          }
+          const options = q.options.map((o, k) => requireText(String(o === undefined || o === null ? '' : o), what + '的选项 ' + (k + 1)));
+          const answer = parseChoiceAnswer(q.answer, options.length, what);
+          const optionExplanations = Array.isArray(q.optionExplanations)
+            ? options.map((_, k) => (typeof q.optionExplanations[k] === 'string' ? q.optionExplanations[k].trim() : ''))
+            : options.map(() => '');
+          return {
+            type: 'choice',
+            question,
+            options,
+            answer,
+            multiple: answer.length > 1 || q.multiple === true,
+            explanation,
+            optionExplanations,
+          };
+        }
+        if (type === 'number') {
+          const answer = toNumber(q.answer, what + '的答案');
+          const tolerance = q.tolerance === undefined ? null : toNumber(q.tolerance, what + '的误差');
+          if (tolerance !== null && tolerance < 0) throw new Error(what + '的误差不能是负数');
+          return {
+            type: 'number',
+            question,
+            answer,
+            tolerance,
+            unit: typeof q.unit === 'string' ? q.unit.trim() : '',
+            explanation,
+          };
+        }
+        throw new Error(what + '的题型应该是 choice 或 number');
+      });
+      return { ok: true, value: { title: typeof raw.title === 'string' ? raw.title.trim() : '', questions } };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  const LETTERS = 'ABCDEFGH';
+
+  function quizToText(spec) {
+    const lines = ['【测验' + (spec.title ? '：' + spec.title : '') + '】'];
+    spec.questions.forEach((q, i) => {
+      lines.push((i + 1) + '. ' + q.question);
+      if (q.type === 'choice') {
+        q.options.forEach((o, k) => lines.push('   ' + LETTERS[k] + '. ' + o));
+        lines.push('   答案：' + q.answer.map((k) => LETTERS[k]).join('、'));
+      } else {
+        lines.push('   答案：' + formatNumber(q.answer, 4) + (q.unit ? ' ' + q.unit : ''));
+      }
+      if (q.explanation) lines.push('   解析：' + q.explanation);
+    });
+    return lines.join('\n');
+  }
+
+  // ---------- 分步讲解 ----------
+
+  function parseStepsSpec(source) {
+    try {
+      const raw = parseJSONObject(source, '分步讲解');
+      if (!Array.isArray(raw.steps) || raw.steps.length < 2) throw new Error('分步讲解至少要有 2 步');
+      if (raw.steps.length > 15) throw new Error('分步讲解最多 15 步');
+      const steps = raw.steps.map((s, i) => {
+        const what = '第 ' + (i + 1) + ' 步';
+        // 允许直接写成字符串
+        if (typeof s === 'string') return { title: '', content: requireText(s, what + '的内容') };
+        if (!s || typeof s !== 'object') throw new Error(what + '格式不对');
+        return {
+          title: typeof s.title === 'string' ? s.title.trim() : '',
+          content: requireText(s.content, what + '的内容'),
+        };
+      });
+      return { ok: true, value: { title: typeof raw.title === 'string' ? raw.title.trim() : '', steps } };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  function stepsToText(spec) {
+    const lines = ['【分步讲解' + (spec.title ? '：' + spec.title : '') + '】'];
+    spec.steps.forEach((s, i) => {
+      lines.push('第 ' + (i + 1) + ' 步' + (s.title ? '：' + s.title : ''));
+      lines.push(s.content);
+    });
+    return lines.join('\n');
+  }
+
   // ---------- 组件注册表 ----------
   //
   // 每种组件在这里登记：名称、解析校验函数、复制消息时的文字形式。
@@ -646,6 +870,8 @@
         return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + params + ']';
       },
     },
+    quiz: { label: '测验', parse: parseQuizSpec, toText: quizToText },
+    steps: { label: '分步讲解', parse: parseStepsSpec, toText: stepsToText },
   };
 
   function componentTypes() {
@@ -715,6 +941,10 @@
     fillFormula,
     formatNumber,
     decimalsForStep,
+    parseQuizSpec,
+    parseStepsSpec,
+    evaluateNumberInput,
+    isNumberCorrect,
     componentTypes,
     componentLabel,
     parseComponent,

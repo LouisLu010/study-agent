@@ -167,7 +167,8 @@
     post,
     escapeHTML,
     renderInline: (text) => md.renderInline(text || '', { streaming: false }),
-    renderMarkdown: (text) => md.render(text || '', { streaming: false, options, componentIndex: 0 }),
+    // 组件内部的文字（测验题目、分步讲解）：不能再嵌套组件，组件代码块按普通代码显示。
+    renderMarkdown: (text) => md.render(text || '', { streaming: false, options, componentIndex: 0, noComponents: true }),
   };
   // 等后面的扩展脚本（组件）都注册完再通知 Swift。
   document.addEventListener('DOMContentLoaded', () => post('ready', true));

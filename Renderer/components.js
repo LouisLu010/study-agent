@@ -79,6 +79,7 @@
   function register(type, definition) {
     definitions[type] = definition;
     renderer.fenceHandlers[type] = (content, env) => {
+      if (env.noComponents) return null;
       // 组件键按出现顺序编号，用来对应保存的组件状态。
       const key = 'c' + env.componentIndex++;
       const result = core.parseComponent(type, content);
