@@ -111,7 +111,8 @@ final class GenerationCenter {
         let request = ChatRequest(
             model: model.modelID,
             systemPrompt: SystemPrompt.compose(
-                customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? ""
+                customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? "",
+                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
             ),
             messages: conversation.chatHistory(),
             reasoningEffort: model.reasoningEffort

@@ -13,8 +13,17 @@ struct MessageWebView: UIViewRepresentable {
     let messageID: UUID
     let content: String
     let isStreaming: Bool
+    /// 这条消息保存的组件状态（JSON）。只在 WebView 首次渲染时传给渲染器，之后由渲染器自己维护。
+    var componentStateJSON: String = ""
+    /// 组件格式有误时，提示卡片上是否显示"重新生成"按钮。
+    var canRegenerate: Bool = false
     @Binding var height: CGFloat
     var onFormulaTap: (String) -> Void = { _ in }
+    /// 组件状态变化。state 为 nil 表示复位。
+    var onComponentState: (String, Any?) -> Void = { _, _ in }
+    /// 组件里的"问问 AI"按钮。
+    var onAsk: (String) -> Void = { _ in }
+    var onRegenerate: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -50,6 +59,7 @@ struct MessageWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
         context.coordinator.update(content: content, isStreaming: isStreaming)
+        context.coordinator.updateCanRegenerate(canRegenerate)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -61,12 +71,15 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate"]
 
         var parent: MessageWebView?
         weak var webView: WKWebView?
 
         private var isReady = false
+        /// 页面加载后是否已经把保存的组件状态交给渲染器。
+        private var didSendInitialOptions = false
+        private var sentCanRegenerate: Bool?
         private var rendered: (content: String, isStreaming: Bool)?
         private var pending: (content: String, isStreaming: Bool)?
         private var throttleTask: Task<Void, Never>?
@@ -76,7 +89,21 @@ struct MessageWebView: UIViewRepresentable {
                   let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Renderer")
             else { return }
             isReady = false
+            didSendInitialOptions = false
+            sentCanRegenerate = nil
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        }
+
+        func updateCanRegenerate(_ value: Bool) {
+            guard isReady, didSendInitialOptions, sentCanRegenerate != value, let webView else { return }
+            sentCanRegenerate = value
+            webView.callAsyncJavaScript(
+                "window.StudyRenderer.setOptions({ canRegenerate })",
+                arguments: ["canRegenerate": value],
+                in: nil,
+                in: .page,
+                completionHandler: nil
+            )
         }
 
         func update(content: String, isStreaming: Bool) {
@@ -110,13 +137,37 @@ struct MessageWebView: UIViewRepresentable {
             guard let webView, let next = pending else { return }
             pending = nil
             rendered = next
-            webView.callAsyncJavaScript(
-                "window.StudyRenderer.render(text, streaming)",
-                arguments: ["text": next.content, "streaming": next.isStreaming],
-                in: nil,
-                in: .page,
-                completionHandler: nil
-            )
+
+            if didSendInitialOptions {
+                webView.callAsyncJavaScript(
+                    "window.StudyRenderer.render(text, streaming)",
+                    arguments: ["text": next.content, "streaming": next.isStreaming],
+                    in: nil,
+                    in: .page,
+                    completionHandler: nil
+                )
+            } else {
+                // 第一次渲染时带上保存的组件状态，组件据此恢复滑块位置、测验答案等。
+                didSendInitialOptions = true
+                let canRegenerate = parent?.canRegenerate ?? false
+                sentCanRegenerate = canRegenerate
+                webView.callAsyncJavaScript(
+                    """
+                    let state = {};
+                    try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
+                    window.StudyRenderer.render(text, streaming, { state, canRegenerate });
+                    """,
+                    arguments: [
+                        "text": next.content,
+                        "streaming": next.isStreaming,
+                        "stateJSON": parent?.componentStateJSON ?? "",
+                        "canRegenerate": canRegenerate,
+                    ],
+                    in: nil,
+                    in: .page,
+                    completionHandler: nil
+                )
+            }
         }
 
         func receive(name: String, body: Any) {
@@ -141,6 +192,17 @@ struct MessageWebView: UIViewRepresentable {
             case "copy":
                 if let text = body as? String {
                     UIPasteboard.general.string = text
+                }
+            case "state":
+                guard let payload = body as? [String: Any], let key = payload["key"] as? String else { return }
+                parent?.onComponentState(key, payload["state"])
+            case "ask":
+                if let text = body as? String, !text.isEmpty {
+                    parent?.onAsk(text)
+                }
+            case "regenerate":
+                if parent?.canRegenerate == true {
+                    parent?.onRegenerate()
                 }
             default:
                 break

@@ -9,13 +9,20 @@ struct MessageRow: View {
     var canEdit = false
     var onRegenerate: () -> Void = {}
     var onEdit: () -> Void = {}
+    /// 组件里的"问问 AI"按钮：以用户的名义发一条消息。
+    var onAsk: (String) -> Void = { _ in }
 
     var body: some View {
         switch message.role {
         case .user:
             UserMessageView(message: message, canEdit: canEdit, onEdit: onEdit)
         case .assistant:
-            AssistantMessageView(message: message, canRegenerate: canRegenerate, onRegenerate: onRegenerate)
+            AssistantMessageView(
+                message: message,
+                canRegenerate: canRegenerate,
+                onRegenerate: onRegenerate,
+                onAsk: onAsk
+            )
         }
     }
 }
@@ -68,15 +75,23 @@ private struct AssistantMessageView: View {
     let message: Message
     let canRegenerate: Bool
     let onRegenerate: () -> Void
+    let onAsk: (String) -> Void
 
+    @Environment(\.modelContext) private var context
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
     @State private var didCopy = false
 
-    init(message: Message, canRegenerate: Bool, onRegenerate: @escaping () -> Void) {
+    init(
+        message: Message,
+        canRegenerate: Bool,
+        onRegenerate: @escaping () -> Void,
+        onAsk: @escaping (String) -> Void
+    ) {
         self.message = message
         self.canRegenerate = canRegenerate
         self.onRegenerate = onRegenerate
+        self.onAsk = onAsk
         _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
     }
 
@@ -101,8 +116,18 @@ private struct AssistantMessageView: View {
                     messageID: message.id,
                     content: message.content,
                     isStreaming: isStreaming,
+                    componentStateJSON: message.componentStateJSON,
+                    canRegenerate: canRegenerate,
                     height: $webHeight,
-                    onFormulaTap: { tappedFormula = $0 }
+                    onFormulaTap: { tappedFormula = $0 },
+                    onComponentState: { key, state in
+                        message.componentStateJSON = ComponentStateStore.updating(
+                            message.componentStateJSON, key: key, state: state
+                        )
+                        try? context.save()
+                    },
+                    onAsk: onAsk,
+                    onRegenerate: onRegenerate
                 )
                 .frame(height: webHeight)
             }
@@ -152,7 +177,8 @@ private struct AssistantMessageView: View {
     private var actionBar: some View {
         HStack(spacing: 16) {
             Button {
-                UIPasteboard.general.string = message.content
+                // 组件代码块换成可读的文字再复制。
+                UIPasteboard.general.string = PlainTextExporter.plainText(from: message.content)
                 didCopy = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Query(sort: \ChatModel.createdAt) private var models: [ChatModel]
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
+    @AppStorage(AppSettingsKey.simpleMode) private var simpleMode = false
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -38,6 +39,14 @@ struct SettingsView: View {
                                 .tag(model.id.uuidString)
                         }
                     }
+                }
+
+                Section {
+                    Toggle("简洁模式", isOn: $simpleMode)
+                } header: {
+                    Text("回答方式")
+                } footer: {
+                    Text("打开后模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
                 }
 
                 Section {
