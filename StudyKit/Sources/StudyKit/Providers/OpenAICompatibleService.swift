@@ -17,38 +17,86 @@ public struct OpenAICompatibleService: ChatService {
     private struct RequestBody: Encodable {
         struct Message: Encodable {
             let role: String
-            let content: String
+            let content: Content
+        }
+
+        /// 没有图片时 content 是字符串（兼容性最好）；有图片时是内容块数组。
+        enum Content: Encodable {
+            case text(String)
+            case parts([Part])
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                switch self {
+                case let .text(text): try container.encode(text)
+                case let .parts(parts): try container.encode(parts)
+                }
+            }
+        }
+
+        struct Part: Encodable {
+            struct ImageURL: Encodable {
+                let url: String
+            }
+
+            let type: String
+            let text: String?
+            let imageURL: ImageURL?
+
+            enum CodingKeys: String, CodingKey {
+                case type, text
+                case imageURL = "image_url"
+            }
         }
 
         let model: String
         let messages: [Message]
         let stream: Bool
+        let reasoningEffort: String?
+
+        enum CodingKeys: String, CodingKey {
+            case model, messages, stream
+            case reasoningEffort = "reasoning_effort"
+        }
+    }
+
+    private static func content(for message: ChatMessage) -> RequestBody.Content {
+        guard !message.images.isEmpty else { return .text(message.text) }
+        var parts = message.images.map { data in
+            RequestBody.Part(
+                type: "image_url",
+                text: nil,
+                imageURL: .init(url: "data:image/jpeg;base64," + data.base64EncodedString())
+            )
+        }
+        if !message.text.isEmpty {
+            parts.append(.init(type: "text", text: message.text, imageURL: nil))
+        }
+        return .parts(parts)
     }
 
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
         var messages: [RequestBody.Message] = []
-        if let system = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty {
-            messages.append(.init(role: "system", content: system))
+        if let system = request.trimmedSystemPrompt {
+            messages.append(.init(role: "system", content: .text(system)))
         }
-        messages += request.messages.map { .init(role: $0.role.rawValue, content: $0.text) }
+        messages += request.messages.map { .init(role: $0.role.rawValue, content: Self.content(for: $0)) }
 
         var urlRequest = URLRequest(url: baseURL.appending(path: "chat/completions"))
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.httpBody = try JSONEncoder().encode(
-            RequestBody(model: request.model, messages: messages, stream: true)
-        )
+        urlRequest.httpBody = try JSONEncoder().encode(RequestBody(
+            model: request.model,
+            messages: messages,
+            stream: true,
+            reasoningEffort: request.reasoningEffort?.rawValue
+        ))
         return urlRequest
     }
 
     // MARK: - 响应解析
-
-    public enum StreamPayload: Sendable, Equatable {
-        case events([ChatStreamEvent])
-        case done
-    }
 
     private struct StreamChunk: Decodable {
         struct Choice: Decodable {
@@ -80,7 +128,7 @@ public struct OpenAICompatibleService: ChatService {
         }
 
         let bytes = Data(trimmed.utf8)
-        if let message = errorMessage(from: bytes) {
+        if let message = APIErrorMessage.extract(from: bytes) {
             throw ChatServiceError.server(message: message)
         }
 
@@ -103,100 +151,15 @@ public struct OpenAICompatibleService: ChatService {
         return .events(events)
     }
 
-    /// 从错误响应的 JSON 中取出错误信息。兼容 `{"error":{"message":…}}`、`{"error":"…"}` 和 `{"message":…}`。
-    public static func errorMessage(from data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        if let error = object["error"] as? [String: Any] {
-            return (error["message"] as? String) ?? "未知错误"
-        }
-        if let error = object["error"] as? String {
-            return error
-        }
-        if object["choices"] == nil, let message = object["message"] as? String {
-            return message
-        }
-        return nil
-    }
-
     // MARK: - 流式请求
 
     public func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
-        let urlRequest: URLRequest
         do {
-            urlRequest = try makeURLRequest(for: request)
+            return SSEStreaming.stream(session: session, request: try makeURLRequest(for: request)) { event in
+                try Self.decodeStreamData(event.data)
+            }
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
-        }
-
-        let session = session
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let (bytes, response) = try await session.bytes(for: urlRequest)
-                    guard let http = response as? HTTPURLResponse else {
-                        throw ChatServiceError.invalidResponse
-                    }
-                    guard (200..<300).contains(http.statusCode) else {
-                        var body = Data()
-                        for try await byte in bytes {
-                            body.append(byte)
-                            if body.count > 64 * 1024 { break }
-                        }
-                        let message = Self.errorMessage(from: body)
-                            ?? String(decoding: body, as: UTF8.self)
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw ChatServiceError.http(
-                            status: http.statusCode,
-                            message: message.isEmpty ? nil : String(message.prefix(300))
-                        )
-                    }
-
-                    var splitter = LineSplitter()
-                    var parser = SSEParser()
-                    var isDone = false
-
-                    for try await byte in bytes {
-                        guard let line = splitter.append(byte),
-                              let event = parser.feed(line)
-                        else { continue }
-                        if try Self.forward(event, to: continuation) {
-                            isDone = true
-                            break
-                        }
-                    }
-
-                    if !isDone {
-                        if let line = splitter.finish(), let event = parser.feed(line) {
-                            isDone = try Self.forward(event, to: continuation)
-                        }
-                        if !isDone, let event = parser.finish() {
-                            _ = try Self.forward(event, to: continuation)
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    /// 把一个 SSE 事件转发给调用方。返回 `true` 表示收到了结束标记。
-    private static func forward(
-        _ event: SSEEvent,
-        to continuation: AsyncThrowingStream<ChatStreamEvent, any Error>.Continuation
-    ) throws -> Bool {
-        switch try decodeStreamData(event.data) {
-        case .done:
-            return true
-        case let .events(events):
-            for event in events {
-                continuation.yield(event)
-            }
-            return false
         }
     }
 }

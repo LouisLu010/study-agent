@@ -7,6 +7,8 @@ struct ModelFormFields: View {
     @Binding var modelID: String
     @Binding var displayName: String
     @Binding var supportsImages: Bool
+    /// 空字符串表示使用服务商的默认值。
+    @Binding var reasoningEffortRaw: String
 
     var body: some View {
         Section {
@@ -21,6 +23,17 @@ struct ModelFormFields: View {
         Section {
             Toggle("支持图片输入", isOn: $supportsImages)
         }
+
+        Section {
+            Picker("思考强度", selection: $reasoningEffortRaw) {
+                Text("默认").tag("")
+                ForEach(ReasoningEffort.allCases) { effort in
+                    Text(effort.displayName).tag(effort.rawValue)
+                }
+            }
+        } footer: {
+            Text("只对推理模型有效。不支持这个参数的模型可能会报错，这时改回\"默认\"即可。Claude 只有设置了思考强度才会返回思考过程。")
+        }
     }
 }
 
@@ -32,7 +45,8 @@ struct ModelEditView: View {
             ModelFormFields(
                 modelID: $model.modelID,
                 displayName: $model.displayName,
-                supportsImages: $model.supportsImages
+                supportsImages: $model.supportsImages,
+                reasoningEffortRaw: $model.reasoningEffortRaw
             )
         }
         .navigationTitle(model.name.isEmpty ? "模型" : model.name)
@@ -49,11 +63,17 @@ struct AddModelSheet: View {
     @State private var modelID = ""
     @State private var displayName = ""
     @State private var supportsImages = false
+    @State private var reasoningEffortRaw = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                ModelFormFields(modelID: $modelID, displayName: $displayName, supportsImages: $supportsImages)
+                ModelFormFields(
+                    modelID: $modelID,
+                    displayName: $displayName,
+                    supportsImages: $supportsImages,
+                    reasoningEffortRaw: $reasoningEffortRaw
+                )
             }
             .navigationTitle("添加模型")
             .navigationBarTitleDisplayMode(.inline)
@@ -79,6 +99,7 @@ struct AddModelSheet: View {
             displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
             supportsImages: supportsImages
         )
+        model.reasoningEffortRaw = reasoningEffortRaw
         context.insert(model)
         model.provider = provider
         try? context.save()
