@@ -137,6 +137,19 @@ test('解析带参数的坐标图', () => {
   close(spec.readouts[0].values[1]({ a: 1, h: 2, k: 3 }), 3);
 });
 
+test('参数名可以是希腊字母', () => {
+  const result = parseGraphSpec(JSON.stringify({
+    params: [{ name: 'A', min: 0, max: 3, value: 1 }, { name: 'ω', min: 0, max: 3, value: 2 }, { name: 'φ', min: -3, max: 3, value: 0 }],
+    functions: [{ expr: 'A * sin(ω * x + φ)' }],
+    formula: 'y = {A} \\sin({ω}x + {φ})',
+  }));
+  assert.equal(result.ok, true, result.error);
+  close(result.value.functions[0].fn(Math.PI / 4), 1);
+  assert.equal(fillFormula(result.value.formula, result.value.params, { A: 2, ω: 1, φ: -0.5 }), 'y = 2 \\sin(1x - 0.5)');
+  // π 仍然是常数
+  assert.equal(parseGraphSpec('{"params":[{"name":"π","min":0,"max":1}],"functions":[{"expr":"x"}]}').ok, false);
+});
+
 test('参数的初始值超出范围时取边界', () => {
   const result = parseGraphSpec('{"params":[{"name":"a","min":0,"max":2,"value":5}],"functions":[{"expr":"a x"}]}');
   assert.equal(result.ok, true, result.error);
