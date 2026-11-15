@@ -110,6 +110,19 @@ function check(testCase, content, available) {
   blocks.forEach((b) => {
     if (!b.ok) problems.push(b.type + ' 格式有误：' + b.error);
   });
+  const warnings = [];
+  components.forEach((f) => {
+    const result = core.parseComponent(f.language, f.content);
+    if (result.ok && result.value.warnings) result.value.warnings.forEach((w) => warnings.push(f.language + ' ' + w));
+  });
+  // 题目要求能调参数时，至少一个坐标图要带参数。
+  if (testCase.needsParams) {
+    const withParams = components.some((f) => {
+      const result = core.parseComponent(f.language, f.content);
+      return result.ok && result.value.params && result.value.params.length > 0;
+    });
+    if (!withParams) problems.push('坐标图没有参数');
+  }
   // 用 Python 等代码画图，说明模型没按提示词使用组件。
   fences
     .filter((f) => !available.includes(f.language))
@@ -118,7 +131,6 @@ function check(testCase, content, available) {
       if (f.language === 'json' && /"(functions|points|segments)"/.test(f.content)) problems.push('组件写成了 json 代码块');
     });
   // 渲染器也支持 \( \) 和 \[ \]，所以只记为警告，不算失败。
-  const warnings = [];
   const badDelimiters = (proseOnly(content).match(/\\\(|\\\[/g) || []).length;
   if (badDelimiters) warnings.push('用了 \\( 或 \\[ 分隔符 ' + badDelimiters + ' 处');
 
