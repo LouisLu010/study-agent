@@ -310,3 +310,9 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 .steps-content { margin-left: 2.1em; }
 .steps-ask { margin-left: 2.1em; }
 .steps-progress { margin-right: auto; color: var(--secondary); font-size: 0.85em; }
+
+/* 几何图 */
+.geometry-readout { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9em; }
+.geometry-readout > span:first-child { color: var(--secondary); }
+.geometry-footer { display: flex; align-items: center; gap: 8px; }
+.geometry-hint { flex: 1; color: var(--secondary); font-size: 0.8em; }

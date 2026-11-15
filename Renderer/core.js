@@ -855,6 +855,297 @@
     return lines.join('\n');
   }
 
+  // ---------- 几何图 ----------
+  //
+  // 元素按顺序定义，后面的元素只能引用前面已经定义的元素：
+  //   点：point（可拖动或固定，可以用 on 限制在圆或直线上）、midpoint、intersection、foot
+  //   线：segment、line、ray（都由 through 的两个点确定）
+  //   其他：circle（center + through 或 radius）、polygon、angle（points 的中间一个是顶点）
+  // 有数值的元素（线段长度、圆半径、多边形面积、角的度数）可以在读数表达式里按 id 引用。
+
+  const POINT_KINDS = ['point', 'midpoint', 'intersection', 'foot'];
+  const LINEAR_KINDS = ['segment', 'line', 'ray'];
+  const GEOMETRY_KINDS = POINT_KINDS.concat(LINEAR_KINDS, ['circle', 'polygon', 'angle']);
+  const MEASURABLE_KINDS = ['segment', 'circle', 'polygon', 'angle'];
+
+  function dist(p, q) {
+    return Math.hypot(p.x - q.x, p.y - q.y);
+  }
+
+  /** 点 p 在直线 ab 上的垂足。 */
+  function projectToLine(p, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-12) return { x: NaN, y: NaN };
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    return { x: a.x + t * dx, y: a.y + t * dy };
+  }
+
+  /** 直线 ab 和直线 cd 的交点；平行时返回 NaN。 */
+  function intersectLines(a, b, c, d) {
+    const d1x = b.x - a.x;
+    const d1y = b.y - a.y;
+    const d2x = d.x - c.x;
+    const d2y = d.y - c.y;
+    const denom = d1x * d2y - d1y * d2x;
+    if (Math.abs(denom) < 1e-12) return { x: NaN, y: NaN };
+    const t = ((c.x - a.x) * d2y - (c.y - a.y) * d2x) / denom;
+    return { x: a.x + t * d1x, y: a.y + t * d1y };
+  }
+
+  /** ∠ABC 的度数（0 到 180）。 */
+  function angleDegrees(a, b, c) {
+    const v1 = Math.atan2(a.y - b.y, a.x - b.x);
+    const v2 = Math.atan2(c.y - b.y, c.x - b.x);
+    let deg = Math.abs(v1 - v2) * 180 / Math.PI;
+    if (deg > 180) deg = 360 - deg;
+    return deg;
+  }
+
+  function polygonArea(points) {
+    let sum = 0;
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      const q = points[(i + 1) % points.length];
+      sum += p.x * q.y - q.x * p.y;
+    }
+    return Math.abs(sum) / 2;
+  }
+
+  /** 把点放到它所在的圆或直线上（用于 on 约束的初始位置）。 */
+  function snapToObject(p, object, points, circles) {
+    if (object.kind === 'circle') {
+      const center = points[object.center];
+      const r = circles[object.id];
+      const angle = Math.atan2(p.y - center.y, p.x - center.x);
+      return { x: center.x + r * Math.cos(angle), y: center.y + r * Math.sin(angle) };
+    }
+    return projectToLine(p, points[object.through[0]], points[object.through[1]]);
+  }
+
+  /**
+   * 计算所有点的位置和所有元素的数值。
+   * moved 是用户拖动后的点坐标 { 点id: [x, y] }，没给的用描述里的初始位置。
+   */
+  function computeGeometry(spec, moved) {
+    const points = {};
+    const circles = {};
+    const measures = {};
+    const byId = {};
+    spec.elements.forEach((e) => {
+      byId[e.id] = e;
+      switch (e.kind) {
+        case 'point': {
+          const m = moved && moved[e.id];
+          let p = m ? { x: m[0], y: m[1] } : { x: e.x, y: e.y };
+          if (e.on) p = snapToObject(p, byId[e.on], points, circles);
+          points[e.id] = p;
+          break;
+        }
+        case 'midpoint': {
+          const [a, b] = e.of.map((id) => points[id]);
+          points[e.id] = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          break;
+        }
+        case 'intersection': {
+          const [l1, l2] = e.of.map((id) => byId[id]);
+          points[e.id] = intersectLines(points[l1.through[0]], points[l1.through[1]], points[l2.through[0]], points[l2.through[1]]);
+          break;
+        }
+        case 'foot': {
+          const line = byId[e.to];
+          points[e.id] = projectToLine(points[e.from], points[line.through[0]], points[line.through[1]]);
+          break;
+        }
+        case 'segment':
+          measures[e.id] = dist(points[e.through[0]], points[e.through[1]]);
+          break;
+        case 'circle':
+          circles[e.id] = e.radius !== null ? e.radius : dist(points[e.center], points[e.through]);
+          measures[e.id] = circles[e.id];
+          break;
+        case 'polygon':
+          measures[e.id] = polygonArea(e.vertices.map((id) => points[id]));
+          break;
+        case 'angle':
+          measures[e.id] = angleDegrees(points[e.points[0]], points[e.points[1]], points[e.points[2]]);
+          break;
+        default:
+          break;
+      }
+    });
+    Object.assign(measures, computeVirtual(spec, points));
+    return { points, circles, measures };
+  }
+
+  /** 读数里用到的"两点距离"和"三点角度"。 */
+  function computeVirtual(spec, points) {
+    const result = {};
+    (spec.virtualUsed || []).forEach((name) => {
+      const v = spec.virtual[name];
+      const p = v.points.map((id) => points[id]);
+      result[name] = v.kind === 'distance' ? dist(p[0], p[1]) : angleDegrees(p[0], p[1], p[2]);
+    });
+    return result;
+  }
+
+  function parseGeometrySpec(source) {
+    try {
+      const raw = parseJSONObject(source, '几何图');
+      if (!Array.isArray(raw.elements) || !raw.elements.length) throw new Error('几何图里没有任何元素');
+      if (raw.elements.length > 40) throw new Error('几何图的元素最多 40 个');
+
+      const kinds = {};
+      const elements = raw.elements.map((e, i) => {
+        if (!e || typeof e !== 'object') throw new Error('第 ' + (i + 1) + ' 个元素格式不对');
+        const kind = e.type;
+        if (!GEOMETRY_KINDS.includes(kind)) throw new Error('第 ' + (i + 1) + ' 个元素的 type 不认识：' + kind);
+        const id = e.id;
+        if (!isValidParamName(id)) throw new Error('元素的 id 无效：' + id + '（要用字母开头，只能包含字母和数字）');
+        if (kinds[id]) throw new Error('元素 id 重复了：' + id);
+        const what = kind + ' ' + id;
+
+        const ref = (refId, allowed) => {
+          if (!kinds[refId]) throw new Error(what + ' 引用的 ' + refId + ' 不存在（要先定义）');
+          if (!allowed.includes(kinds[refId])) throw new Error(what + ' 引用的 ' + refId + ' 类型不对');
+          return refId;
+        };
+        const refs = (list, count, allowed, field) => {
+          if (!Array.isArray(list) || (count && list.length !== count)) {
+            throw new Error(what + ' 的 ' + field + ' 应该是' + (count ? ' ' + count + ' 个' : '') + 'id 的数组');
+          }
+          return list.map((r) => ref(r, allowed));
+        };
+
+        const element = { kind, id, label: typeof e.label === 'string' ? e.label : null, hidden: e.hidden === true, dashed: e.dashed === true };
+        switch (kind) {
+          case 'point':
+            element.x = toNumber(e.x, what + ' 的 x');
+            element.y = toNumber(e.y, what + ' 的 y');
+            element.fixed = e.fixed === true;
+            element.on = e.on === undefined ? null : ref(e.on, ['circle'].concat(LINEAR_KINDS));
+            break;
+          case 'midpoint':
+            element.of = refs(e.of, 2, POINT_KINDS, 'of');
+            break;
+          case 'intersection':
+            element.of = refs(e.of, 2, LINEAR_KINDS, 'of');
+            break;
+          case 'foot':
+            element.from = ref(e.from, POINT_KINDS);
+            element.to = ref(e.to, LINEAR_KINDS);
+            break;
+          case 'segment':
+          case 'line':
+          case 'ray':
+            element.through = refs(e.through, 2, POINT_KINDS, 'through');
+            if (element.through[0] === element.through[1]) throw new Error(what + ' 的两个点不能相同');
+            break;
+          case 'circle':
+            element.center = ref(e.center, POINT_KINDS);
+            if (e.radius !== undefined) {
+              element.radius = toNumber(e.radius, what + ' 的半径');
+              if (!(element.radius > 0)) throw new Error(what + ' 的半径要大于 0');
+              element.through = null;
+            } else {
+              element.radius = null;
+              element.through = ref(e.through, POINT_KINDS);
+            }
+            break;
+          case 'polygon':
+            element.vertices = refs(e.vertices, 0, POINT_KINDS, 'vertices');
+            if (element.vertices.length < 3) throw new Error(what + ' 至少要有 3 个顶点');
+            break;
+          case 'angle':
+            element.points = refs(e.points, 3, POINT_KINDS, 'points');
+            break;
+          default:
+            break;
+        }
+        kinds[id] = kind;
+        return element;
+      });
+
+      const spec = { title: optionalLabel(raw.title), elements, grid: raw.grid === true };
+      const initial = computeGeometry(spec, null);
+      Object.keys(initial.points).forEach((id) => {
+        const p = initial.points[id];
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error('点 ' + id + ' 算不出位置（例如两条平行线没有交点）');
+      });
+
+      // 读数：表达式里可以按 id 引用线段长度、圆半径、多边形面积、角的度数。
+      // 另外，两个点的 id 连写（AB）表示两点间的距离，三个点连写（ABC）表示 ∠ABC 的度数。
+      const measurable = elements.filter((e) => MEASURABLE_KINDS.includes(e.kind)).map((e) => e.id);
+      const pointIds = elements.filter((e) => POINT_KINDS.includes(e.kind)).map((e) => e.id);
+      const virtual = {};
+      pointIds.forEach((a) => pointIds.forEach((b) => {
+        if (a !== b && !kinds[a + b]) virtual[a + b] = { kind: 'distance', points: [a, b] };
+        if (a !== b && pointIds.length <= 12) {
+          pointIds.forEach((c) => {
+            if (c !== a && c !== b && !kinds[a + b + c]) virtual[a + b + c] = { kind: 'angle', points: [a, b, c] };
+          });
+        }
+      }));
+      const virtualNames = Object.keys(virtual).filter(isValidParamName);
+      spec.virtual = virtual;
+      spec.virtualUsed = [];
+      const warnings = [];
+      const readouts = [];
+      (Array.isArray(raw.readouts) ? raw.readouts : []).forEach((r, i) => {
+        try {
+          if (!r || r.value === undefined) throw new Error('缺少 value');
+          const names = measurable.concat(virtualNames);
+          tokenize(String(r.value), names).forEach((token) => {
+            if (token.type === 'name' && virtual[token.value] && !spec.virtualUsed.includes(token.value)) {
+              spec.virtualUsed.push(token.value);
+            }
+          });
+          Object.assign(initial.measures, computeVirtual(spec, initial.points));
+          const compiled = compileExpression(String(r.value), names);
+          const evaluate = (measures) => compiled(NaN, measures);
+          if (!Number.isFinite(evaluate(initial.measures))) throw new Error('无法计算');
+          readouts.push({
+            label: optionalLabel(r.label) || String(r.value),
+            evaluate,
+            unit: typeof r.unit === 'string' ? r.unit : '',
+            decimals: Number.isInteger(r.decimals) ? Math.min(4, Math.max(0, r.decimals)) : 2,
+          });
+        } catch (error) {
+          warnings.push('跳过了第 ' + (i + 1) + ' 个读数：' + error.message);
+        }
+      });
+      spec.readouts = readouts;
+      spec.warnings = warnings;
+
+      // 显示范围：给了就用，没给就根据所有点和圆自动确定。
+      if (raw.xRange && raw.yRange) {
+        spec.xRange = toRange(raw.xRange, 'xRange');
+        spec.yRange = toRange(raw.yRange, 'yRange');
+      } else {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        const include = (x, y) => {
+          minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        };
+        Object.values(initial.points).forEach((p) => include(p.x, p.y));
+        elements.filter((e) => e.kind === 'circle').forEach((c) => {
+          const center = initial.points[c.center];
+          const r = initial.circles[c.id];
+          include(center.x - r, center.y - r);
+          include(center.x + r, center.y + r);
+        });
+        const size = Math.max(maxX - minX, maxY - minY, 1);
+        const pad = size * 0.2;
+        spec.xRange = [minX - pad, maxX + pad];
+        spec.yRange = [minY - pad, maxY + pad];
+      }
+      return { ok: true, value: spec };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
   // ---------- 组件注册表 ----------
   //
   // 每种组件在这里登记：名称、解析校验函数、复制消息时的文字形式。
@@ -868,6 +1159,14 @@
         const parts = spec.functions.map((f) => f.label || 'y = ' + f.expr);
         const params = spec.params.length ? '（参数 ' + spec.params.map((p) => p.name).join('、') + '）' : '';
         return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + params + ']';
+      },
+    },
+    geometry: {
+      label: '几何图',
+      parse: parseGeometrySpec,
+      toText(spec) {
+        const shapes = spec.elements.filter((e) => e.kind === 'polygon' || e.kind === 'circle').map((e) => e.id);
+        return '[几何图：' + (spec.title || shapes.join('、') || '点和线') + ']';
       },
     },
     quiz: { label: '测验', parse: parseQuizSpec, toText: quizToText },
@@ -943,6 +1242,8 @@
     decimalsForStep,
     parseQuizSpec,
     parseStepsSpec,
+    parseGeometrySpec,
+    computeGeometry,
     evaluateNumberInput,
     isNumberCorrect,
     componentTypes,
