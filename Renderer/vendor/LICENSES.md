@@ -8,3 +8,4 @@
 | [markdown-it](https://github.com/markdown-it/markdown-it) | 14.3.3 | MIT | `markdown-it.min.js` |
 | [highlight.js](https://github.com/highlightjs/highlight.js) | 11.12.0 | BSD-3-Clause | `highlight/` |
 | [JSXGraph](https://github.com/jsxgraph/jsxgraph) | 1.11.1 | MIT 或 LGPL-3.0（双许可，这里按 MIT 使用） | `jsxgraph/` |
+| [Chart.js](https://github.com/chartjs/Chart.js) | 4.6.1 | MIT | `chartjs/` |

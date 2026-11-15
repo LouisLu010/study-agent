@@ -154,6 +154,37 @@
     ]
   },
   {
+    "id": "chart-air",
+    "prompt": "空气的主要成分有哪些？各占多少？",
+    "expect": [
+      "chart"
+    ]
+  },
+  {
+    "id": "chart-experiment",
+    "prompt": "我做了一个实验：不同温度下 100 g 水中能溶解的硝酸钾质量是 20℃ 31.6 g、40℃ 63.9 g、60℃ 110 g、80℃ 169 g。帮我分析一下规律。",
+    "expect": [
+      "chart"
+    ],
+    "allow": [
+      "graph"
+    ]
+  },
+  {
+    "id": "chart-scores",
+    "prompt": "我这学期五次数学考试分别考了 78、85、82、90、94 分，帮我看看成绩趋势。",
+    "expect": [
+      "chart"
+    ]
+  },
+  {
+    "id": "chart-population",
+    "prompt": "比较一下中国、印度、美国、印度尼西亚、巴基斯坦这五个国家的人口（大约数字就行）。",
+    "expect": [
+      "chart"
+    ]
+  },
+  {
     "id": "quiz-derivative",
     "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
     "expect": [
