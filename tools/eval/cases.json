@@ -103,6 +103,57 @@
     ]
   },
   {
+    "id": "geo-triangle-sum",
+    "prompt": "为什么三角形的内角和是 180°？能让我拖动三角形的顶点亲自验证一下吗？",
+    "expect": [
+      "geometry"
+    ],
+    "allow": [
+      "steps"
+    ]
+  },
+  {
+    "id": "geo-inscribed-angle",
+    "prompt": "什么是圆周角定理？同一段弧所对的圆周角为什么都相等？",
+    "expect": [
+      "geometry"
+    ],
+    "allow": [
+      "steps",
+      "quiz"
+    ]
+  },
+  {
+    "id": "geo-median",
+    "prompt": "直角三角形斜边上的中线为什么等于斜边的一半？",
+    "expect": [
+      "geometry"
+    ],
+    "allow": [
+      "steps"
+    ]
+  },
+  {
+    "id": "geo-pythagoras-demo",
+    "prompt": "用图帮我理解勾股定理，最好能自己拖动直角三角形的顶点看看 a² + b² 和 c² 的关系。",
+    "expect": [
+      "geometry"
+    ],
+    "allow": [
+      "steps"
+    ]
+  },
+  {
+    "id": "geo-problem",
+    "prompt": "在 △ABC 中，AB = AC，D 是 BC 的中点。证明 AD ⊥ BC。",
+    "expect": [
+      "steps"
+    ],
+    "allow": [
+      "geometry"
+    ]
+  },
+  {
     "id": "quiz-derivative",
     "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
     "expect": [
