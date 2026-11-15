@@ -37,6 +37,20 @@ import Testing
         ])
     }
 
+    @Test func encodesImagesAsContentParts() throws {
+        let request = try service().makeURLRequest(for: ChatRequest(model: "m", messages: [
+            ChatMessage(role: .user, text: "这是什么", images: [Data([1, 2])]),
+            ChatMessage(role: .assistant, text: "一张图"),
+        ]))
+        let messages = try #require(try bodyJSON(request)["messages"] as? [[String: Any]])
+        let parts = try #require(messages[0]["content"] as? [[String: Any]])
+        #expect(parts.map { $0["type"] as? String } == ["image_url", "text"])
+        let imageURL = try #require(parts[0]["image_url"] as? [String: String])
+        #expect(imageURL["url"] == "data:image/jpeg;base64," + Data([1, 2]).base64EncodedString())
+        // 没有图片的消息仍然用字符串
+        #expect(messages[1]["content"] as? String == "一张图")
+    }
+
     @Test func handlesTrailingSlashInBaseURL() throws {
         let request = try service("https://api.example.com/v1/").makeURLRequest(
             for: ChatRequest(model: "m", messages: [])
