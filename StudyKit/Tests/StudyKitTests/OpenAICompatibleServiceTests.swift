@@ -170,8 +170,22 @@ import Testing
 }
 
 @Suite struct SystemPromptTests {
+    @Test func loadsPromptFiles() {
+        #expect(SystemPrompt.baseRules.contains("mhchem"))
+        #expect(SystemPrompt.componentRules.contains("```graph"))
+        // 提示词文件里的反斜杠是原样的，不是 Swift 字符串里的转义
+        #expect(SystemPrompt.baseRules.contains(#"$\ce{H2SO4}$"#))
+    }
+
+    @Test func includesComponentsUnlessSimpleMode() {
+        let full = SystemPrompt.compose(customInstructions: "")
+        #expect(full == SystemPrompt.baseRules + "\n\n" + SystemPrompt.componentRules)
+        let simple = SystemPrompt.compose(customInstructions: "", simpleMode: true)
+        #expect(simple == SystemPrompt.baseRules)
+    }
+
     @Test func appendsCustomInstructions() {
-        #expect(SystemPrompt.compose(customInstructions: "  ") == SystemPrompt.builtInRules)
-        #expect(SystemPrompt.compose(customInstructions: "我是高二学生").hasSuffix("我是高二学生"))
+        let prompt = SystemPrompt.compose(customInstructions: "  我是高二学生 ", simpleMode: true)
+        #expect(prompt == SystemPrompt.baseRules + "\n\n# 用户的说明\n我是高二学生")
     }
 }

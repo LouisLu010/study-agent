@@ -107,9 +107,22 @@
 
   const afterRenderHooks = [];
 
-  function render(text, streaming) {
+  /**
+   * options：
+   *   state         这条消息保存的组件状态，{ 组件键: 状态 }
+   *   canRegenerate 是否显示"重新生成"按钮（只有最后一条消息可以）
+   */
+  let options = { state: {}, canRegenerate: false };
+
+  function setOptions(next) {
+    options = Object.assign({}, options, next || {});
+    document.body.classList.toggle('can-regenerate', !!options.canRegenerate);
+  }
+
+  function render(text, streaming, nextOptions) {
+    if (nextOptions) setOptions(nextOptions);
     codeBlocks = [];
-    const env = { streaming: !!streaming };
+    const env = { streaming: !!streaming, options, componentIndex: 0 };
     const html = md.render(text || '', env);
     const context = { before: afterRenderHooks.map((hook) => hook.beforeReplace && hook.beforeReplace(root)) };
     root.innerHTML = html;
@@ -145,7 +158,17 @@
     }
   });
 
-  window.StudyRenderer = { render, fenceHandlers, afterRenderHooks, post, escapeHTML };
-  // 等后面的扩展脚本（坐标图）都注册完再通知 Swift。
+  window.StudyRenderer = {
+    render,
+    setOptions,
+    getOptions: () => options,
+    fenceHandlers,
+    afterRenderHooks,
+    post,
+    escapeHTML,
+    renderInline: (text) => md.renderInline(text || '', { streaming: false }),
+    renderMarkdown: (text) => md.render(text || '', { streaming: false, options, componentIndex: 0 }),
+  };
+  // 等后面的扩展脚本（组件）都注册完再通知 Swift。
   document.addEventListener('DOMContentLoaded', () => post('ready', true));
 })();

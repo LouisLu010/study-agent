@@ -7,6 +7,8 @@ enum AppSettingsKey {
     static let defaultModelID = "defaultModelID"
     /// 用户提示词。
     static let customInstructions = "customInstructions"
+    /// 简洁模式：不让模型使用组件。
+    static let simpleMode = "simpleMode"
 }
 
 @MainActor

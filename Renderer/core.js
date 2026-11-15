@@ -467,5 +467,90 @@
     }
   }
 
-  return { mathPlugin, compileExpression, parseGraphSpec };
+  // ---------- 组件注册表 ----------
+  //
+  // 每种组件在这里登记：名称、解析校验函数、复制消息时的文字形式。
+  // 浏览器里的绘制部分在 components.js 和各组件自己的文件里。
+
+  const COMPONENTS = {
+    graph: {
+      label: '坐标图',
+      parse: parseGraphSpec,
+      toText(spec) {
+        const parts = spec.functions.map((f) => f.label || 'y = ' + f.expr);
+        return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + ']';
+      },
+    },
+  };
+
+  function componentTypes() {
+    return Object.keys(COMPONENTS);
+  }
+
+  function componentLabel(type) {
+    return COMPONENTS[type] ? COMPONENTS[type].label : '组件';
+  }
+
+  /** 解析并校验一个组件代码块，返回 { ok: true, value } 或 { ok: false, error }。 */
+  function parseComponent(type, source) {
+    const component = COMPONENTS[type];
+    if (!component) return { ok: false, error: '不认识的组件：' + type };
+    return component.parse(source);
+  }
+
+  /**
+   * 找出 Markdown 里所有围栏代码块，返回 { language, content, start, end }（start/end 是行号，end 不含）。
+   * 只用于复制和测试工具；渲染时由 markdown-it 处理。
+   */
+  function extractFences(markdown) {
+    const lines = String(markdown || '').split('\n');
+    const fences = [];
+    let i = 0;
+    while (i < lines.length) {
+      const open = /^ {0,3}(`{3,}|~{3,})\s*([^\s`]*)/.exec(lines[i]);
+      if (!open) {
+        i++;
+        continue;
+      }
+      const marker = open[1];
+      const closePattern = new RegExp('^ {0,3}' + marker[0] + '{' + marker.length + ',}\\s*$');
+      let j = i + 1;
+      while (j < lines.length && !closePattern.test(lines[j])) j++;
+      fences.push({
+        language: open[2].toLowerCase(),
+        content: lines.slice(i + 1, j).join('\n'),
+        start: i,
+        end: Math.min(j + 1, lines.length),
+        closed: j < lines.length,
+      });
+      i = j + 1;
+    }
+    return fences;
+  }
+
+  /** 复制消息时用：把组件代码块换成可读的文字，其余内容不变。 */
+  function toPlainText(markdown) {
+    const lines = String(markdown || '').split('\n');
+    const fences = extractFences(markdown).filter((f) => COMPONENTS[f.language]);
+    for (let k = fences.length - 1; k >= 0; k--) {
+      const fence = fences[k];
+      const result = parseComponent(fence.language, fence.content);
+      const text = result.ok
+        ? COMPONENTS[fence.language].toText(result.value)
+        : '[' + componentLabel(fence.language) + ']';
+      lines.splice(fence.start, fence.end - fence.start, text);
+    }
+    return lines.join('\n');
+  }
+
+  return {
+    mathPlugin,
+    compileExpression,
+    parseGraphSpec,
+    componentTypes,
+    componentLabel,
+    parseComponent,
+    extractFences,
+    toPlainText,
+  };
 });

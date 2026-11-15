@@ -29,7 +29,8 @@ struct ChatView: View {
                                 canRegenerate: !isGenerating && message.id == lastAssistantID,
                                 canEdit: !isGenerating,
                                 onRegenerate: { regenerate(message) },
-                                onEdit: { editingMessage = message }
+                                onEdit: { editingMessage = message },
+                                onAsk: ask
                             )
                         }
                         Color.clear
@@ -103,6 +104,15 @@ struct ChatView: View {
             draft = ""
             draftImages = []
         }
+    }
+
+    /// 组件里的"问问 AI"：直接发出，不经过输入框。
+    private func ask(_ text: String) {
+        if generation.isGenerating(conversation) {
+            errorMessage = "请等当前回答生成完再提问。"
+            return
+        }
+        perform { try generation.send(text, in: conversation, context: context) }
     }
 
     private func regenerate(_ message: Message) {
