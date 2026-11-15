@@ -11,6 +11,6 @@ struct StudyAgentApp: App {
             RootView()
                 .environment(generation)
         }
-        .modelContainer(for: [Provider.self, ChatModel.self, Conversation.self, Message.self])
+        .modelContainer(for: [Provider.self, ChatModel.self, Conversation.self, Message.self, Attachment.self])
     }
 }

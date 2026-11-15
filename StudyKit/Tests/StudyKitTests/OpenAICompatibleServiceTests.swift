@@ -37,6 +37,20 @@ import Testing
         ])
     }
 
+    @Test func encodesImagesAsContentParts() throws {
+        let request = try service().makeURLRequest(for: ChatRequest(model: "m", messages: [
+            ChatMessage(role: .user, text: "这是什么", images: [Data([1, 2])]),
+            ChatMessage(role: .assistant, text: "一张图"),
+        ]))
+        let messages = try #require(try bodyJSON(request)["messages"] as? [[String: Any]])
+        let parts = try #require(messages[0]["content"] as? [[String: Any]])
+        #expect(parts.map { $0["type"] as? String } == ["image_url", "text"])
+        let imageURL = try #require(parts[0]["image_url"] as? [String: String])
+        #expect(imageURL["url"] == "data:image/jpeg;base64," + Data([1, 2]).base64EncodedString())
+        // 没有图片的消息仍然用字符串
+        #expect(messages[1]["content"] as? String == "一张图")
+    }
+
     @Test func handlesTrailingSlashInBaseURL() throws {
         let request = try service("https://api.example.com/v1/").makeURLRequest(
             for: ChatRequest(model: "m", messages: [])
@@ -101,12 +115,24 @@ import Testing
     // MARK: 错误信息
 
     @Test func extractsErrorMessages() {
-        #expect(OpenAICompatibleService.errorMessage(
+        #expect(APIErrorMessage.extract(
             from: Data(#"{"error":{"message":"Invalid API key"}}"#.utf8)
         ) == "Invalid API key")
-        #expect(OpenAICompatibleService.errorMessage(from: Data(#"{"error":"bad"}"#.utf8)) == "bad")
-        #expect(OpenAICompatibleService.errorMessage(from: Data(#"{"message":"nope"}"#.utf8)) == "nope")
-        #expect(OpenAICompatibleService.errorMessage(from: Data("<html>".utf8)) == nil)
+        #expect(APIErrorMessage.extract(
+            from: Data(#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#.utf8)
+        ) == "Overloaded")
+        #expect(APIErrorMessage.extract(from: Data(#"{"error":"bad"}"#.utf8)) == "bad")
+        #expect(APIErrorMessage.extract(from: Data(#"{"message":"nope"}"#.utf8)) == "nope")
+        #expect(APIErrorMessage.extract(from: Data("<html>".utf8)) == nil)
+    }
+
+    @Test func sendsReasoningEffortOnlyWhenSet() throws {
+        let plain = try bodyJSON(service().makeURLRequest(for: ChatRequest(model: "m", messages: [])))
+        #expect(plain["reasoning_effort"] == nil)
+        let withEffort = try bodyJSON(service().makeURLRequest(
+            for: ChatRequest(model: "m", messages: [], reasoningEffort: .high)
+        ))
+        #expect(withEffort["reasoning_effort"] as? String == "high")
     }
 }
 
@@ -124,6 +150,13 @@ import Testing
         #expect(throws: ChatServiceError.invalidBaseURL) {
             try ChatServiceFactory.makeService(kind: .openAICompatible, baseURL: "api.openai.com", apiKey: "k")
         }
+    }
+
+    @Test func createsServiceForEachKind() throws {
+        let anthropic = try ChatServiceFactory.makeService(kind: .anthropic, baseURL: "https://a.com/v1", apiKey: "k")
+        #expect(anthropic is AnthropicService)
+        let gemini = try ChatServiceFactory.makeService(kind: .gemini, baseURL: "https://g.com/v1beta", apiKey: "k")
+        #expect(gemini is GeminiService)
     }
 
     @Test func createsOpenAIService() throws {

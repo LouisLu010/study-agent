@@ -1,5 +1,26 @@
 import Foundation
 
+public enum ChatErrorDescription {
+    /// 生成失败时显示给用户的说明。网络错误单独说明，其他错误用各自的描述。
+    public static func describe(_ error: any Error) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+                return "网络连接已断开，请检查网络后重试。"
+            case .timedOut:
+                return "请求超时，服务商太久没有响应。"
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed:
+                return "无法连接到服务商，请检查 API 地址是否正确。"
+            case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate:
+                return "和服务商建立安全连接失败。"
+            default:
+                return "网络错误：\(urlError.localizedDescription)"
+            }
+        }
+        return error.localizedDescription
+    }
+}
+
 public enum ChatServiceError: Error, Equatable, LocalizedError {
     case missingAPIKey
     case invalidBaseURL

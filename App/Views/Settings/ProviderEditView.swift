@@ -26,7 +26,7 @@ struct ProviderEditView: View {
             } header: {
                 Text("基本信息")
             } footer: {
-                Text("例如 https://api.openai.com/v1 或 https://api.deepseek.com/v1")
+                Text(provider.kind.baseURLHint)
             }
 
             Section {
@@ -64,6 +64,14 @@ struct ProviderEditView: View {
         }
         .onChange(of: apiKey) {
             KeychainStore.setAPIKey(apiKey, for: provider.id)
+        }
+        .onChange(of: provider.kindRaw) { oldValue, _ in
+            // 切换协议时，如果地址还是旧协议的默认地址，就换成新协议的默认地址。
+            let oldDefault = ProviderKind(rawValue: oldValue)?.defaultBaseURL
+            let address = provider.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if address.isEmpty || address == oldDefault {
+                provider.baseURL = provider.kind.defaultBaseURL
+            }
         }
         .sheet(isPresented: $showAddModel) {
             AddModelSheet(provider: provider)

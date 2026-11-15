@@ -15,6 +15,10 @@ public enum ChatServiceFactory {
         switch kind {
         case .openAICompatible:
             return OpenAICompatibleService(baseURL: url, apiKey: key)
+        case .anthropic:
+            return AnthropicService(baseURL: url, apiKey: key)
+        case .gemini:
+            return GeminiService(baseURL: url, apiKey: key)
         }
     }
 }
