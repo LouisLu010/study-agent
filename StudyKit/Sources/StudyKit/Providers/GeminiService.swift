@@ -16,12 +16,25 @@ public struct GeminiService: ChatService {
     // MARK: - 请求
 
     private struct Part: Codable {
+        struct InlineData: Codable {
+            let mimeType: String
+            let data: String
+        }
+
         let text: String?
         let thought: Bool?
+        let inlineData: InlineData?
 
         init(text: String) {
             self.text = text
             self.thought = nil
+            self.inlineData = nil
+        }
+
+        init(jpeg: Data) {
+            self.text = nil
+            self.thought = nil
+            self.inlineData = InlineData(mimeType: "image/jpeg", data: jpeg.base64EncodedString())
         }
     }
 
@@ -52,8 +65,12 @@ public struct GeminiService: ChatService {
             .appending(queryItems: [URLQueryItem(name: "alt", value: "sse")])
 
         let body = RequestBody(
-            contents: request.alternatingMessages.map {
-                Content(role: $0.role == .user ? "user" : "model", parts: [Part(text: $0.text)])
+            contents: request.alternatingMessages.map { message in
+                var parts = message.images.map { Part(jpeg: $0) }
+                if !message.text.isEmpty || parts.isEmpty {
+                    parts.append(Part(text: message.text))
+                }
+                return Content(role: message.role == .user ? "user" : "model", parts: parts)
             },
             systemInstruction: request.trimmedSystemPrompt.map { Content(role: nil, parts: [Part(text: $0)]) },
             generationConfig: .init(thinkingConfig: .init(

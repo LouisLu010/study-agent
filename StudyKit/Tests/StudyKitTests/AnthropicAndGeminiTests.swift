@@ -44,8 +44,28 @@ private let conversation = ChatRequest(
         #expect(json["max_tokens"] as? Int == AnthropicService.maxTokens)
         #expect(json["thinking"] == nil)
         #expect(json["output_config"] == nil)
-        let messages = try #require(json["messages"] as? [[String: String]])
-        #expect(messages.map { $0["role"] } == ["user", "assistant", "user"])
+        let messages = try #require(json["messages"] as? [[String: Any]])
+        #expect(messages.map { $0["role"] as? String } == ["user", "assistant", "user"])
+        let firstContent = try #require(messages.first?["content"] as? [[String: Any]])
+        #expect(firstContent.count == 1)
+        #expect(firstContent.first?["type"] as? String == "text")
+        #expect(firstContent.first?["text"] as? String == "第一问\n\n补充")
+    }
+
+    @Test func encodesImagesBeforeText() throws {
+        let request = ChatRequest(model: "m", messages: [
+            ChatMessage(role: .user, text: "这道题怎么做", images: [Data([1, 2, 3])]),
+            ChatMessage(role: .assistant, text: "好"),
+            ChatMessage(role: .user, text: "", images: [Data([4])]),
+        ])
+        let messages = try #require(try bodyJSON(service.makeURLRequest(for: request))["messages"] as? [[String: Any]])
+        let first = try #require(messages[0]["content"] as? [[String: Any]])
+        #expect(first.map { $0["type"] as? String } == ["image", "text"])
+        let source = try #require(first[0]["source"] as? [String: String])
+        #expect(source == ["type": "base64", "media_type": "image/jpeg", "data": Data([1, 2, 3]).base64EncodedString()])
+        // 只有图片没有文字时不发空的文字块
+        let last = try #require(messages[2]["content"] as? [[String: Any]])
+        #expect(last.map { $0["type"] as? String } == ["image"])
     }
 
     @Test func enablesThinkingWhenEffortIsSet() throws {
@@ -126,6 +146,18 @@ private let conversation = ChatRequest(
         #expect(urlRequest.url?.path().hasSuffix("/models/gemini-x:streamGenerateContent") == true)
         let config = try #require(try bodyJSON(urlRequest)["generationConfig"] as? [String: Any])
         #expect((config["thinkingConfig"] as? [String: Any])?["thinkingLevel"] as? String == "low")
+    }
+
+    @Test func encodesImagesAsInlineData() throws {
+        let request = ChatRequest(model: "m", messages: [
+            ChatMessage(role: .user, text: "看图", images: [Data([9])]),
+        ])
+        let json = try bodyJSON(service.makeURLRequest(for: request))
+        let contents = try #require(json["contents"] as? [[String: Any]])
+        let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+        #expect(parts.count == 2)
+        #expect(parts[0]["inlineData"] as? [String: String] == ["mimeType": "image/jpeg", "data": Data([9]).base64EncodedString()])
+        #expect(parts[1]["text"] as? String == "看图")
     }
 
     @Test func decodesThoughtAndTextParts() throws {

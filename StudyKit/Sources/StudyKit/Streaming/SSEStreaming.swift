@@ -14,7 +14,10 @@ enum SSEStreaming {
         request: URLRequest,
         decode: @escaping @Sendable (SSEEvent) throws -> StreamPayload
     ) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
-        AsyncThrowingStream { continuation in
+        var request = request
+        // 推理模型可能思考很久才输出第一个字，默认的 60 秒空闲超时不够。
+        request.timeoutInterval = 300
+        return AsyncThrowingStream { [request] continuation in
             let task = Task {
                 do {
                     let (bytes, response) = try await session.bytes(for: request)

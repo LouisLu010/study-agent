@@ -22,7 +22,24 @@ public struct AnthropicService: ChatService {
     private struct RequestBody: Encodable {
         struct Message: Encodable {
             let role: String
-            let content: String
+            let content: [Block]
+        }
+
+        struct Block: Encodable {
+            struct Source: Encodable {
+                let type = "base64"
+                let mediaType = "image/jpeg"
+                let data: String
+
+                enum CodingKeys: String, CodingKey {
+                    case type, data
+                    case mediaType = "media_type"
+                }
+            }
+
+            let type: String
+            let text: String?
+            let source: Source?
         }
 
         struct Thinking: Encodable {
@@ -57,7 +74,16 @@ public struct AnthropicService: ChatService {
             model: request.model,
             maxTokens: Self.maxTokens,
             system: request.trimmedSystemPrompt,
-            messages: request.alternatingMessages.map { .init(role: $0.role.rawValue, content: $0.text) },
+            messages: request.alternatingMessages.map { message in
+                // 图片放在文字前面；Anthropic 不接受空的文字块。
+                var blocks = message.images.map {
+                    RequestBody.Block(type: "image", text: nil, source: .init(data: $0.base64EncodedString()))
+                }
+                if !message.text.isEmpty || blocks.isEmpty {
+                    blocks.append(.init(type: "text", text: message.text, source: nil))
+                }
+                return .init(role: message.role.rawValue, content: blocks)
+            },
             stream: true,
             thinking: effort == nil ? nil : RequestBody.Thinking(),
             outputConfig: effort.map { RequestBody.OutputConfig(effort: $0.rawValue) }

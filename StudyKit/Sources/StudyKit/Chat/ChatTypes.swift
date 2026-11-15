@@ -27,10 +27,13 @@ public enum ReasoningEffort: String, CaseIterable, Identifiable, Sendable {
 public struct ChatMessage: Sendable, Equatable {
     public var role: ChatRole
     public var text: String
+    /// JPEG 格式的图片。
+    public var images: [Data]
 
-    public init(role: ChatRole, text: String) {
+    public init(role: ChatRole, text: String, images: [Data] = []) {
         self.role = role
         self.text = text
+        self.images = images
     }
 }
 
@@ -69,7 +72,10 @@ public struct ChatRequest: Sendable, Equatable {
         var result: [ChatMessage] = []
         for message in messages {
             if let last = result.last, last.role == message.role {
-                result[result.count - 1].text = last.text + "\n\n" + message.text
+                result[result.count - 1].text = [last.text, message.text]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                result[result.count - 1].images += message.images
             } else {
                 result.append(message)
             }

@@ -17,7 +17,36 @@ public struct OpenAICompatibleService: ChatService {
     private struct RequestBody: Encodable {
         struct Message: Encodable {
             let role: String
-            let content: String
+            let content: Content
+        }
+
+        /// 没有图片时 content 是字符串（兼容性最好）；有图片时是内容块数组。
+        enum Content: Encodable {
+            case text(String)
+            case parts([Part])
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                switch self {
+                case let .text(text): try container.encode(text)
+                case let .parts(parts): try container.encode(parts)
+                }
+            }
+        }
+
+        struct Part: Encodable {
+            struct ImageURL: Encodable {
+                let url: String
+            }
+
+            let type: String
+            let text: String?
+            let imageURL: ImageURL?
+
+            enum CodingKeys: String, CodingKey {
+                case type, text
+                case imageURL = "image_url"
+            }
         }
 
         let model: String
@@ -31,12 +60,27 @@ public struct OpenAICompatibleService: ChatService {
         }
     }
 
+    private static func content(for message: ChatMessage) -> RequestBody.Content {
+        guard !message.images.isEmpty else { return .text(message.text) }
+        var parts = message.images.map { data in
+            RequestBody.Part(
+                type: "image_url",
+                text: nil,
+                imageURL: .init(url: "data:image/jpeg;base64," + data.base64EncodedString())
+            )
+        }
+        if !message.text.isEmpty {
+            parts.append(.init(type: "text", text: message.text, imageURL: nil))
+        }
+        return .parts(parts)
+    }
+
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
         var messages: [RequestBody.Message] = []
         if let system = request.trimmedSystemPrompt {
-            messages.append(.init(role: "system", content: system))
+            messages.append(.init(role: "system", content: .text(system)))
         }
-        messages += request.messages.map { .init(role: $0.role.rawValue, content: $0.text) }
+        messages += request.messages.map { .init(role: $0.role.rawValue, content: Self.content(for: $0)) }
 
         var urlRequest = URLRequest(url: baseURL.appending(path: "chat/completions"))
         urlRequest.httpMethod = "POST"

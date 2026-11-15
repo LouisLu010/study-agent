@@ -4,32 +4,61 @@ import UIKit
 
 struct MessageRow: View {
     let message: Message
+    /// 只有最后一条模型消息可以重新生成。
+    var canRegenerate = false
+    var canEdit = false
+    var onRegenerate: () -> Void = {}
+    var onEdit: () -> Void = {}
 
     var body: some View {
         switch message.role {
-        case .user: UserMessageView(message: message)
-        case .assistant: AssistantMessageView(message: message)
+        case .user:
+            UserMessageView(message: message, canEdit: canEdit, onEdit: onEdit)
+        case .assistant:
+            AssistantMessageView(message: message, canRegenerate: canRegenerate, onRegenerate: onRegenerate)
         }
     }
 }
 
-/// 用户消息显示成右侧的气泡，内容按纯文本显示。
+/// 用户消息显示成右侧的气泡，内容按纯文本显示，图片显示在文字上方。
 private struct UserMessageView: View {
     let message: Message
+    let canEdit: Bool
+    let onEdit: () -> Void
 
     var body: some View {
-        HStack {
-            Spacer(minLength: 48)
-            Text(message.content)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
-                .contextMenu {
-                    Button("复制", systemImage: "doc.on.doc") {
-                        UIPasteboard.general.string = message.content
+        VStack(alignment: .trailing, spacing: 6) {
+            let images = message.imageData
+            if !images.isEmpty {
+                HStack(spacing: 6) {
+                    Spacer(minLength: 48)
+                    ForEach(Array(images.enumerated()), id: \.offset) { _, data in
+                        ThumbnailView(data: data, size: images.count == 1 ? 180 : 96)
                     }
                 }
+            }
+
+            if !message.content.isEmpty {
+                HStack {
+                    Spacer(minLength: 48)
+                    Text(message.content)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .contextMenu {
+            if !message.content.isEmpty {
+                Button("复制", systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = message.content
+                }
+            }
+            if canEdit {
+                Button("编辑后重新发送", systemImage: "pencil", action: onEdit)
+            }
         }
     }
 }
@@ -37,13 +66,17 @@ private struct UserMessageView: View {
 /// 模型消息：WebView 渲染的正文，加上状态和操作栏。
 private struct AssistantMessageView: View {
     let message: Message
+    let canRegenerate: Bool
+    let onRegenerate: () -> Void
 
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
     @State private var didCopy = false
 
-    init(message: Message) {
+    init(message: Message, canRegenerate: Bool, onRegenerate: @escaping () -> Void) {
         self.message = message
+        self.canRegenerate = canRegenerate
+        self.onRegenerate = onRegenerate
         _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
     }
 
@@ -76,9 +109,16 @@ private struct AssistantMessageView: View {
 
             switch message.status {
             case .failed:
-                Label(message.errorText ?? "生成失败。", systemImage: "exclamationmark.triangle")
-                    .font(.callout)
-                    .foregroundStyle(.red)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(message.errorText ?? "生成失败。", systemImage: "exclamationmark.triangle")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                    if canRegenerate {
+                        Button("重试", systemImage: "arrow.clockwise", action: onRegenerate)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
             case .stopped:
                 Text("已停止生成")
                     .font(.caption)
@@ -87,7 +127,7 @@ private struct AssistantMessageView: View {
                 EmptyView()
             }
 
-            if !isStreaming && !message.content.isEmpty {
+            if !isStreaming && !message.content.isEmpty && message.status != .failed {
                 actionBar
             }
         }
@@ -122,6 +162,13 @@ private struct AssistantMessageView: View {
                 Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
             }
             .accessibilityLabel("复制")
+
+            if canRegenerate {
+                Button(action: onRegenerate) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("重新生成")
+            }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)

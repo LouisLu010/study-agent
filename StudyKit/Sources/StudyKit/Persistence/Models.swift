@@ -70,8 +70,12 @@ public final class ChatModel {
 /// 会话：用户与模型之间的一次完整对话。
 @Model
 public final class Conversation {
+    public static let defaultTitle = "新会话"
+
     public var id: UUID = UUID()
     public var title: String = "新会话"
+    /// 标题还没有被用户手动改过时为 true，第一轮回答后会自动生成标题。
+    public var titleIsAutomatic: Bool = true
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 
@@ -91,10 +95,11 @@ public final class Conversation {
     /// 发给模型的历史消息。生成失败或还在生成中的消息不发送。
     public func chatHistory() -> [ChatMessage] {
         sortedMessages.compactMap { message in
+            let images = message.imageData
             guard message.status == .complete || message.status == .stopped,
-                  !message.content.isEmpty
+                  !message.content.isEmpty || !images.isEmpty
             else { return nil }
-            return ChatMessage(role: message.role, text: message.content)
+            return ChatMessage(role: message.role, text: message.content, images: images)
         }
     }
 }
@@ -122,6 +127,9 @@ public final class Message {
 
     public var conversation: Conversation?
 
+    @Relationship(deleteRule: .cascade, inverse: \Attachment.message)
+    public var attachments: [Attachment]? = []
+
     public init(role: ChatRole, content: String = "", status: MessageStatus = .complete, index: Int) {
         self.roleRaw = role.rawValue
         self.content = content
@@ -137,5 +145,30 @@ public final class Message {
     public var status: MessageStatus {
         get { MessageStatus(rawValue: statusRaw) ?? .complete }
         set { statusRaw = newValue.rawValue }
+    }
+
+    public var sortedAttachments: [Attachment] {
+        (attachments ?? []).sorted { $0.index < $1.index }
+    }
+
+    /// 按顺序排列的图片（JPEG）。
+    public var imageData: [Data] {
+        sortedAttachments.compactMap(\.data)
+    }
+}
+
+/// 用户消息附带的一张图片，已压缩成 JPEG。
+@Model
+public final class Attachment {
+    public var id: UUID = UUID()
+    @Attribute(.externalStorage) public var data: Data?
+    public var index: Int = 0
+    public var createdAt: Date = Date()
+
+    public var message: Message?
+
+    public init(data: Data, index: Int) {
+        self.data = data
+        self.index = index
     }
 }
