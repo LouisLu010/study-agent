@@ -1,0 +1,13 @@
+# XcodeGen 生成的工程（见 docs/adr/0005）
+*.xcodeproj/
+*.xcworkspace/
+
+# 构建产物
+build/
+.build/
+DerivedData/
+.swiftpm/
+Payload/
+*.ipa
+
+.DS_Store
