@@ -2,18 +2,22 @@ import StudyKit
 import SwiftUI
 import UIKit
 
-/// M1 只显示纯文本，M2 换成 WebView 渲染。
 struct MessageRow: View {
     let message: Message
 
     var body: some View {
         switch message.role {
-        case .user: userBubble
-        case .assistant: assistantBody
+        case .user: UserMessageView(message: message)
+        case .assistant: AssistantMessageView(message: message)
         }
     }
+}
 
-    private var userBubble: some View {
+/// 用户消息显示成右侧的气泡，内容按纯文本显示。
+private struct UserMessageView: View {
+    let message: Message
+
+    var body: some View {
         HStack {
             Spacer(minLength: 48)
             Text(message.content)
@@ -21,18 +25,46 @@ struct MessageRow: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
-                .contextMenu { copyButton }
+                .contextMenu {
+                    Button("复制", systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = message.content
+                    }
+                }
         }
     }
+}
 
-    private var assistantBody: some View {
+/// 模型消息：WebView 渲染的正文，加上状态和操作栏。
+private struct AssistantMessageView: View {
+    let message: Message
+
+    @State private var webHeight: CGFloat
+    @State private var tappedFormula: String?
+    @State private var didCopy = false
+
+    init(message: Message) {
+        self.message = message
+        _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
+    }
+
+    private var isStreaming: Bool { message.status == .streaming }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if message.content.isEmpty && message.status == .streaming {
-                ProgressView()
-            } else if !message.content.isEmpty {
-                Text(message.content)
-                    .textSelection(.enabled)
-                    .contextMenu { copyButton }
+            if message.content.isEmpty {
+                if isStreaming {
+                    ProgressView()
+                        .frame(height: 24)
+                }
+            } else {
+                MessageWebView(
+                    messageID: message.id,
+                    content: message.content,
+                    isStreaming: isStreaming,
+                    height: $webHeight,
+                    onFormulaTap: { tappedFormula = $0 }
+                )
+                .frame(height: webHeight)
             }
 
             switch message.status {
@@ -47,13 +79,45 @@ struct MessageRow: View {
             case .complete, .streaming:
                 EmptyView()
             }
+
+            if !isStreaming && !message.content.isEmpty {
+                actionBar
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .confirmationDialog(
+            "公式",
+            isPresented: Binding(
+                get: { tappedFormula != nil },
+                set: { if !$0 { tappedFormula = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: tappedFormula
+        ) { tex in
+            Button("复制 LaTeX 源码") {
+                UIPasteboard.general.string = tex
+            }
+        } message: { tex in
+            Text(tex)
+        }
     }
 
-    private var copyButton: some View {
-        Button("复制", systemImage: "doc.on.doc") {
-            UIPasteboard.general.string = message.content
+    private var actionBar: some View {
+        HStack(spacing: 16) {
+            Button {
+                UIPasteboard.general.string = message.content
+                didCopy = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    didCopy = false
+                }
+            } label: {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+            }
+            .accessibilityLabel("复制")
         }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .buttonStyle(.borderless)
     }
 }
