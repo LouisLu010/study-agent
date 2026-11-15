@@ -198,13 +198,23 @@
     max: (args) => Math.max(...args),
   };
   const CONSTANTS = { pi: Math.PI, 'π': Math.PI, e: Math.E };
-  const IDENTIFIERS = Object.keys(FUNCTIONS)
-    .concat(Object.keys(MULTI_ARG_FUNCTIONS), Object.keys(CONSTANTS), ['x'])
-    .sort((a, b) => b.length - a.length);
+  const BUILTIN_NAMES = Object.keys(FUNCTIONS).concat(Object.keys(MULTI_ARG_FUNCTIONS), Object.keys(CONSTANTS), ['x']);
 
-  function tokenize(source) {
+  /** 可以用作参数名的名字：字母开头，不能和 x、常数、函数重名。 */
+  function isValidParamName(name) {
+    return typeof name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/.test(name) && !BUILTIN_NAMES.includes(name);
+  }
+
+  function tokenize(source, variables, aliases) {
+    const aliasNames = Object.keys(aliases || {});
+    const IDENTIFIERS = BUILTIN_NAMES.concat(variables || [], aliasNames).sort((a, b) => b.length - a.length);
     const tokens = [];
-    const text = source.replace(/\*\*/g, '^').replace(/[×·]/g, '*').replace(/−/g, '-');
+    const text = source
+      .replace(/\*\*/g, '^')
+      .replace(/[×·]/g, '*')
+      .replace(/−/g, '-')
+      // 模型偶尔把实时公式的写法 {a} 用到表达式里，当作 a。
+      .replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, '($1)');
     let i = 0;
     while (i < text.length) {
       const ch = text[i];
@@ -225,7 +235,7 @@
         while (word) {
           const name = IDENTIFIERS.find((id) => word.startsWith(id));
           if (!name) throw new Error('不认识的名字：' + word);
-          tokens.push({ type: 'name', value: name });
+          tokens.push({ type: 'name', value: aliasNames.includes(name) ? aliases[name] : name });
           word = word.slice(name.length);
           // 名字后面紧跟的数字，例如 "x2"，当作乘法。
           const digits = /^[0-9.]+/.exec(word);
@@ -245,10 +255,16 @@
     return tokens;
   }
 
-  function compileExpression(source) {
+  /**
+   * 把表达式编译成函数 f(x, scope)。variables 是允许出现的参数名，scope 是 { 参数名: 值 }。
+   * 参数通过下面的 scope 变量传给各个节点；JS 是单线程的，求值过程中不会被打断。
+   */
+  function compileExpression(source, variables, aliases) {
     if (typeof source !== 'string' || !source.trim()) throw new Error('表达式为空');
-    const tokens = tokenize(source);
+    const variableNames = variables || [];
+    const tokens = tokenize(source, variableNames, aliases);
     let pos = 0;
+    let scope = {};
 
     const peek = () => tokens[pos];
     const accept = (type) => (tokens[pos] && tokens[pos].type === type ? tokens[pos++] : null);
@@ -335,6 +351,7 @@
       if (token.type === 'name') {
         const name = token.value;
         if (name === 'x') return (x) => x;
+        if (variableNames.includes(name)) return () => scope[name];
         if (name in CONSTANTS) {
           const value = CONSTANTS[name];
           return () => value;
@@ -360,7 +377,10 @@
 
     const node = parseExpression();
     if (pos < tokens.length) throw new Error('表达式里有多余的内容');
-    return node;
+    return (x, values) => {
+      scope = values || {};
+      return node(x);
+    };
   }
 
   // ---------- 坐标图描述 ----------
@@ -382,9 +402,116 @@
     return range;
   }
 
-  function toPoint(value, what) {
+  /**
+   * 可以含参数的数值：数字，或者由常数和参数组成的表达式（如 "-b/(2a)"）。
+   * 返回 { value: 参数取初始值时的值, at(scope): 任意参数下的值 }。
+   */
+  function toDynamic(value, what, names, defaults) {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return { value, at: () => value };
+    }
+    if (typeof value === 'string') {
+      const compiled = compileExpression(value, names);
+      const initial = compiled(NaN, defaults);
+      if (Number.isFinite(initial)) return { value: initial, at: (scope) => compiled(NaN, scope) };
+    }
+    throw new Error(what + ' 不是有效的数字');
+  }
+
+  /** 函数定义域，端点可以含参数，例如 [0, "2v"]。 */
+  function toDomain(value, names, defaults) {
+    if (!Array.isArray(value) || value.length !== 2) throw new Error('函数定义域 应该是 [最小值, 最大值]');
+    const domain = [toDynamic(value[0], '函数定义域', names, defaults), toDynamic(value[1], '函数定义域', names, defaults)];
+    if (!(domain[0].value < domain[1].value)) throw new Error('函数定义域 的最小值要小于最大值');
+    return domain;
+  }
+
+  function toPoint(value, what, names, defaults) {
     if (!Array.isArray(value) || value.length !== 2) throw new Error(what + ' 应该是 [x, y]');
-    return [toNumber(value[0], what), toNumber(value[1], what)];
+    return [toDynamic(value[0], what, names, defaults), toDynamic(value[1], what, names, defaults)];
+  }
+
+  /** 解析参数列表：名字、范围、步长、初始值。 */
+  function parseParams(rawParams) {
+    if (rawParams === undefined) return [];
+    if (!Array.isArray(rawParams)) throw new Error('params 应该是数组');
+    if (rawParams.length > 6) throw new Error('参数最多 6 个');
+    const seen = new Set();
+    return rawParams.map((p, i) => {
+      const what = '第 ' + (i + 1) + ' 个参数';
+      if (!p || !isValidParamName(p.name)) {
+        throw new Error(what + '的名字无效（要用字母开头，不能是 x、e、pi 或函数名）');
+      }
+      if (seen.has(p.name)) throw new Error('参数 ' + p.name + ' 重复了');
+      seen.add(p.name);
+      const [min, max] = toRange([p.min, p.max], '参数 ' + p.name + ' 的范围');
+      const step = p.step === undefined ? (max - min) / 100 : toNumber(p.step, '参数 ' + p.name + ' 的步长');
+      if (!(step > 0)) throw new Error('参数 ' + p.name + ' 的步长要大于 0');
+      const initial = p.value === undefined ? (min + max) / 2 : toNumber(p.value, '参数 ' + p.name + ' 的初始值');
+      return {
+        name: p.name,
+        min,
+        max,
+        step,
+        value: Math.min(max, Math.max(min, initial)),
+        label: optionalLabel(p.label),
+      };
+    });
+  }
+
+  /** 读数：一个值，或者写成 [x, y] 的一对值（显示为坐标）。 */
+  function parseReadouts(rawReadouts, names, defaults, warnings) {
+    if (rawReadouts === undefined) return [];
+    if (!Array.isArray(rawReadouts)) throw new Error('readouts 应该是数组');
+    const readouts = [];
+    rawReadouts.forEach((r, i) => {
+      const what = '第 ' + (i + 1) + ' 个读数';
+      // 读数只是辅助信息：某一个写错时跳过它，不让整个坐标图显示失败。
+      try {
+        if (!r || r.value === undefined) throw new Error(what + '缺少 value');
+        const parts = Array.isArray(r.value) ? r.value : [r.value];
+        if (parts.length < 1 || parts.length > 2) throw new Error(what + '的 value 应该是一个表达式或 [x, y]');
+        const values = parts.map((part) => {
+          const compiled = compileExpression(String(part), names);
+          return (scope) => compiled(NaN, scope);
+        });
+        values.forEach((fn) => {
+          if (!Number.isFinite(fn(defaults))) throw new Error(what + '在参数取初始值时无法计算');
+        });
+        readouts.push({ label: optionalLabel(r.label), values, pair: parts.length === 2 });
+      } catch (error) {
+        warnings.push('跳过了' + what + '：' + error.message);
+      }
+    });
+    return readouts;
+  }
+
+  /** 按步长决定显示几位小数。 */
+  function decimalsForStep(step) {
+    if (!(step > 0)) return 2;
+    return Math.min(4, Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)));
+  }
+
+  function formatNumber(value, decimals) {
+    if (!Number.isFinite(value)) return '—';
+    const fixed = value.toFixed(decimals === undefined ? 2 : decimals);
+    // 去掉多余的 0：2.50 → 2.5，3.00 → 3；-0 → 0
+    const trimmed = fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
+    return trimmed === '-0' ? '0' : trimmed;
+  }
+
+  /**
+   * 实时公式：把模板里的 {a} 换成参数的当前值，并整理正负号，
+   * 例如 "y = {a}x^2 + {b}x" 在 b = -2 时得到 "y = 1x^2 - 2x"。
+   */
+  function fillFormula(template, params, scope) {
+    let text = template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (match, name) => {
+      const param = params.find((p) => p.name === name);
+      if (!param) return match;
+      return formatNumber(scope[name], decimalsForStep(param.step));
+    });
+    text = text.replace(/\+\s*-\s*/g, '- ').replace(/-\s*-\s*/g, '+ ');
+    return text;
   }
 
   function optionalLabel(value) {
@@ -402,14 +529,14 @@
       }
     });
     points.forEach((p) => values.push(p.y));
-    segments.forEach((s) => values.push(s.from[1], s.to[1]));
+    segments.forEach((s) => values.push(s.from[1].value, s.to[1].value));
     if (!values.length) return [xRange[0], xRange[1]];
 
     values.sort((a, b) => a - b);
     const pick = (q) => values[Math.min(values.length - 1, Math.max(0, Math.round(q * (values.length - 1))))];
     let low = functions.length ? pick(0.03) : values[0];
     let high = functions.length ? pick(0.97) : values[values.length - 1];
-    points.concat(segments.flatMap((s) => [{ y: s.from[1] }, { y: s.to[1] }])).forEach((p) => {
+    points.concat(segments.flatMap((s) => [{ y: s.from[1].value }, { y: s.to[1].value }])).forEach((p) => {
       low = Math.min(low, p.y);
       high = Math.max(high, p.y);
     });
@@ -432,35 +559,72 @@
       const raw = JSON.parse(source);
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('坐标图描述应该是一个 JSON 对象');
 
+      const params = parseParams(raw.params);
+      const names = params.map((p) => p.name);
+      const defaults = {};
+      params.forEach((p) => { defaults[p.name] = p.value; });
+
+      // 物理图像（v-t、x-t）里模型常把自变量写成 t；t 不是参数时当作 x。
+      const aliases = names.includes('t') ? {} : { t: 'x' };
+
       const functions = (raw.functions || []).map((f, i) => {
         if (!f || typeof f.expr !== 'string') throw new Error('第 ' + (i + 1) + ' 个函数缺少 expr');
+        const compiled = compileExpression(f.expr, names, aliases);
+        const domain = f.domain ? toDomain(f.domain, names, defaults) : null;
         return {
           expr: f.expr,
-          fn: compileExpression(f.expr),
+          /** 参数取初始值时的函数。 */
+          fn: (x) => compiled(x, defaults),
+          /** 任意参数下的函数值。 */
+          at: (x, scope) => compiled(x, scope),
           label: optionalLabel(f.label),
-          domain: f.domain ? toRange(f.domain, '函数定义域') : null,
+          /** 参数取初始值时的定义域，[最小值, 最大值]。 */
+          domain: domain && [domain[0].value, domain[1].value],
+          /** 任意参数下的定义域端点。 */
+          domainAt: domain && [domain[0].at, domain[1].at],
           dashed: f.dashed === true,
         };
       });
-      const points = (raw.points || []).map((p) => ({
-        x: toNumber(p && p.x, '点的 x 坐标'),
-        y: toNumber(p && p.y, '点的 y 坐标'),
-        label: optionalLabel(p && p.label),
-      }));
+      const points = (raw.points || []).map((p) => {
+        const x = toDynamic(p && p.x, '点的 x 坐标', names, defaults);
+        const y = toDynamic(p && p.y, '点的 y 坐标', names, defaults);
+        return { x: x.value, y: y.value, xAt: x.at, yAt: y.at, label: optionalLabel(p && p.label) };
+      });
       const segments = (raw.segments || []).map((s) => ({
-        from: toPoint(s && s.from, '线段起点'),
-        to: toPoint(s && s.to, '线段终点'),
+        from: toPoint(s && s.from, '线段起点', names, defaults),
+        to: toPoint(s && s.to, '线段终点', names, defaults),
         label: optionalLabel(s && s.label),
         dashed: !!(s && s.dashed),
       }));
       if (!functions.length && !points.length && !segments.length) throw new Error('坐标图里没有任何内容');
+
+      const warnings = [];
+      const readouts = parseReadouts(raw.readouts, names, defaults, warnings);
+      let formula = typeof raw.formula === 'string' && raw.formula.trim() ? raw.formula.trim() : '';
+      if (formula && !params.length) {
+        warnings.push('没有参数时忽略 formula');
+        formula = '';
+      }
 
       const xRange = raw.xRange ? toRange(raw.xRange, 'xRange') : [-10, 10];
       const yRange = raw.yRange ? toRange(raw.yRange, 'yRange') : autoYRange(functions, points, segments, xRange);
 
       return {
         ok: true,
-        value: { title: optionalLabel(raw.title), xRange, yRange, functions, points, segments },
+        value: {
+          title: optionalLabel(raw.title),
+          xRange,
+          yRange,
+          functions,
+          points,
+          segments,
+          params,
+          defaults,
+          readouts,
+          formula,
+          /** 不影响显示的小问题，测试工具会报告出来。 */
+          warnings,
+        },
       };
     } catch (error) {
       return { ok: false, error: error.message };
@@ -478,7 +642,8 @@
       parse: parseGraphSpec,
       toText(spec) {
         const parts = spec.functions.map((f) => f.label || 'y = ' + f.expr);
-        return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + ']';
+        const params = spec.params.length ? '（参数 ' + spec.params.map((p) => p.name).join('、') + '）' : '';
+        return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + params + ']';
       },
     },
   };
@@ -547,6 +712,9 @@
     mathPlugin,
     compileExpression,
     parseGraphSpec,
+    fillFormula,
+    formatNumber,
+    decimalsForStep,
     componentTypes,
     componentLabel,
     parseComponent,

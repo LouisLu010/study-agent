@@ -30,6 +30,30 @@
     "expect": ["graph"]
   },
   {
+    "id": "param-quadratic",
+    "prompt": "二次函数 y = ax² + bx + c 中，a、b、c 分别对图像有什么影响？",
+    "expect": ["graph"],
+    "needsParams": true
+  },
+  {
+    "id": "param-sine",
+    "prompt": "y = A sin(ωx + φ) 中的 A、ω、φ 分别控制什么？我想直观地看一看。",
+    "expect": ["graph"],
+    "needsParams": true
+  },
+  {
+    "id": "param-linear",
+    "prompt": "一次函数 y = kx + b 的 k 和 b 变化时，直线怎么变？",
+    "expect": ["graph"],
+    "needsParams": true
+  },
+  {
+    "id": "param-projectile",
+    "prompt": "平抛运动中，初速度越大，物体落地时的水平距离越远吗？能让我自己调初速度看看轨迹吗？（g 取 10 m/s²，抛出点高 20 m）",
+    "expect": ["graph"],
+    "needsParams": true
+  },
+  {
     "id": "none-prime",
     "prompt": "什么是质数？",
     "expect": []

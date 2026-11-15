@@ -180,3 +180,31 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 }
 .graph-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .graph-legend-item i { display: inline-block; width: 18px; }
+
+/* 坐标图的参数、实时公式和读数 */
+.graph-controls {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.graph-formula { text-align: center; overflow-x: auto; padding: 2px 0; }
+.graph-param {
+  display: grid;
+  grid-template-columns: minmax(3em, auto) 1fr 3.5em;
+  align-items: center;
+  gap: 10px;
+}
+.graph-param-name { display: flex; flex-direction: column; line-height: 1.2; }
+.graph-param-name small { color: var(--secondary); font-size: 0.75em; }
+.graph-param input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; height: 28px; }
+.graph-param-value { text-align: right; font-variant-numeric: tabular-nums; }
+.graph-readouts { display: flex; flex-direction: column; gap: 2px; font-size: 0.9em; }
+.graph-readouts > div { display: flex; justify-content: space-between; gap: 12px; }
+.graph-readouts > div > span:first-child { color: var(--secondary); }
+.graph-readout-value { font-variant-numeric: tabular-nums; }
+.graph-reset { align-self: flex-end; }
+.graph-reset[hidden] { display: none; }
