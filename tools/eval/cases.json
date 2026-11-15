@@ -1,0 +1,63 @@
+[
+  {
+    "id": "graph-parabola",
+    "prompt": "画出 y = x^2 - 4x + 3 的图像，并标出它与 x 轴的交点和顶点。",
+    "expect": ["graph"]
+  },
+  {
+    "id": "graph-exp-log",
+    "prompt": "比较 y = 2^x 和 y = log₂x 的图像，它们有什么关系？",
+    "expect": ["graph"]
+  },
+  {
+    "id": "graph-sin-cos",
+    "prompt": "y = sin x 和 y = cos x 在 [0, 2π] 上的图像有什么区别？画图说明。",
+    "expect": ["graph"]
+  },
+  {
+    "id": "graph-asymptote",
+    "prompt": "为什么 y = 1/x 的图像有渐近线？",
+    "expect": ["graph"]
+  },
+  {
+    "id": "graph-physics-vt",
+    "prompt": "一个物体从静止开始做匀加速直线运动，加速度是 2 m/s²。画出前 5 秒的 v-t 图像和 x-t 图像。",
+    "expect": ["graph"]
+  },
+  {
+    "id": "graph-tangent",
+    "prompt": "求曲线 y = x³ 在点 (1, 1) 处的切线方程，并画图。",
+    "expect": ["graph"]
+  },
+  {
+    "id": "none-prime",
+    "prompt": "什么是质数？",
+    "expect": []
+  },
+  {
+    "id": "none-water",
+    "prompt": "水的化学式是什么？",
+    "expect": []
+  },
+  {
+    "id": "none-translate",
+    "prompt": "把\"学而不思则罔，思而不学则殆\"翻译成英文。",
+    "expect": []
+  },
+  {
+    "id": "none-newton",
+    "prompt": "牛顿第二定律的公式是什么？",
+    "expect": []
+  },
+  {
+    "id": "none-balance",
+    "prompt": "配平这个化学方程式：Fe + O2 → Fe3O4",
+    "expect": []
+  },
+  {
+    "id": "none-pythagoras",
+    "prompt": "勾股定理的内容是什么？",
+    "expect": [],
+    "allow": ["geometry", "graph"]
+  }
+]

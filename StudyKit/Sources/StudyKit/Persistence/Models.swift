@@ -119,6 +119,8 @@ public final class Message {
     public var content: String = ""
     /// 思考过程。
     public var reasoning: String = ""
+    /// 组件状态，JSON 对象：{ 组件键: 状态 }。不发给模型。
+    public var componentStateJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
     /// 在会话中的顺序。

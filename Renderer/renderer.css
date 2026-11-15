@@ -113,20 +113,11 @@ th { background: var(--fill); }
 }
 .sa-math { cursor: pointer; }
 
-/* 坐标图 */
-.graph, .graph-pending { margin: 0 0 0.8em; }
-.graph-title { font-size: 0.9em; color: var(--secondary); text-align: center; margin-bottom: 4px; }
-.jxgbox.graph-board {
+/* 组件通用 */
+.sa-component, .sa-component-pending, .sa-component-error { margin: 0 0 0.8em; }
+.sa-component-loading, .sa-component-pending {
   width: 100%;
-  box-sizing: border-box;
-  background: var(--fill);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.graph-loading, .graph-pending {
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  max-height: 420px;
+  min-height: 160px;
   border-radius: 10px;
   background: var(--fill);
   display: flex;
@@ -135,7 +126,48 @@ th { background: var(--fill); }
   color: var(--secondary);
   font-size: 0.9em;
 }
-.graph-loading::after { content: '正在绘制坐标图…'; }
+.sa-component-loading::after { content: '正在加载…'; }
+.sa-component-error {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.9em;
+}
+.sa-error-title { font-weight: 600; }
+.sa-error-detail { color: var(--secondary); font-size: 0.9em; margin: 2px 0 6px; }
+.sa-component-error summary { color: var(--accent); cursor: pointer; }
+.sa-component-error pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  background: var(--fill);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.8em;
+  white-space: pre-wrap;
+}
+.sa-regenerate, .sa-button {
+  -webkit-appearance: none;
+  border: 1px solid var(--border);
+  background: var(--fill);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.9em;
+  border-radius: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+.sa-regenerate { display: none; margin-top: 8px; }
+body.can-regenerate .sa-regenerate { display: inline-block; }
+
+/* 坐标图 */
+.graph-title { font-size: 0.9em; color: var(--secondary); text-align: center; margin-bottom: 4px; }
+.jxgbox.graph-board {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fill);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
 .JXG_navigation { color: var(--accent) !important; }
 .graph-legend {
   display: flex;

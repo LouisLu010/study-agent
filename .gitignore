@@ -10,4 +10,7 @@ DerivedData/
 Payload/
 *.ipa
 
+# 真实模型的测试结果（tools/eval）
+tools/eval/results/
+
 .DS_Store
