@@ -23,11 +23,17 @@ public struct OpenAICompatibleService: ChatService {
         let model: String
         let messages: [Message]
         let stream: Bool
+        let reasoningEffort: String?
+
+        enum CodingKeys: String, CodingKey {
+            case model, messages, stream
+            case reasoningEffort = "reasoning_effort"
+        }
     }
 
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
         var messages: [RequestBody.Message] = []
-        if let system = request.systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty {
+        if let system = request.trimmedSystemPrompt {
             messages.append(.init(role: "system", content: system))
         }
         messages += request.messages.map { .init(role: $0.role.rawValue, content: $0.text) }
@@ -37,18 +43,16 @@ public struct OpenAICompatibleService: ChatService {
         urlRequest.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        urlRequest.httpBody = try JSONEncoder().encode(
-            RequestBody(model: request.model, messages: messages, stream: true)
-        )
+        urlRequest.httpBody = try JSONEncoder().encode(RequestBody(
+            model: request.model,
+            messages: messages,
+            stream: true,
+            reasoningEffort: request.reasoningEffort?.rawValue
+        ))
         return urlRequest
     }
 
     // MARK: - 响应解析
-
-    public enum StreamPayload: Sendable, Equatable {
-        case events([ChatStreamEvent])
-        case done
-    }
 
     private struct StreamChunk: Decodable {
         struct Choice: Decodable {
@@ -80,7 +84,7 @@ public struct OpenAICompatibleService: ChatService {
         }
 
         let bytes = Data(trimmed.utf8)
-        if let message = errorMessage(from: bytes) {
+        if let message = APIErrorMessage.extract(from: bytes) {
             throw ChatServiceError.server(message: message)
         }
 
@@ -103,100 +107,15 @@ public struct OpenAICompatibleService: ChatService {
         return .events(events)
     }
 
-    /// 从错误响应的 JSON 中取出错误信息。兼容 `{"error":{"message":…}}`、`{"error":"…"}` 和 `{"message":…}`。
-    public static func errorMessage(from data: Data) -> String? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
-        if let error = object["error"] as? [String: Any] {
-            return (error["message"] as? String) ?? "未知错误"
-        }
-        if let error = object["error"] as? String {
-            return error
-        }
-        if object["choices"] == nil, let message = object["message"] as? String {
-            return message
-        }
-        return nil
-    }
-
     // MARK: - 流式请求
 
     public func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
-        let urlRequest: URLRequest
         do {
-            urlRequest = try makeURLRequest(for: request)
+            return SSEStreaming.stream(session: session, request: try makeURLRequest(for: request)) { event in
+                try Self.decodeStreamData(event.data)
+            }
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
-        }
-
-        let session = session
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    let (bytes, response) = try await session.bytes(for: urlRequest)
-                    guard let http = response as? HTTPURLResponse else {
-                        throw ChatServiceError.invalidResponse
-                    }
-                    guard (200..<300).contains(http.statusCode) else {
-                        var body = Data()
-                        for try await byte in bytes {
-                            body.append(byte)
-                            if body.count > 64 * 1024 { break }
-                        }
-                        let message = Self.errorMessage(from: body)
-                            ?? String(decoding: body, as: UTF8.self)
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw ChatServiceError.http(
-                            status: http.statusCode,
-                            message: message.isEmpty ? nil : String(message.prefix(300))
-                        )
-                    }
-
-                    var splitter = LineSplitter()
-                    var parser = SSEParser()
-                    var isDone = false
-
-                    for try await byte in bytes {
-                        guard let line = splitter.append(byte),
-                              let event = parser.feed(line)
-                        else { continue }
-                        if try Self.forward(event, to: continuation) {
-                            isDone = true
-                            break
-                        }
-                    }
-
-                    if !isDone {
-                        if let line = splitter.finish(), let event = parser.feed(line) {
-                            isDone = try Self.forward(event, to: continuation)
-                        }
-                        if !isDone, let event = parser.finish() {
-                            _ = try Self.forward(event, to: continuation)
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
-    }
-
-    /// 把一个 SSE 事件转发给调用方。返回 `true` 表示收到了结束标记。
-    private static func forward(
-        _ event: SSEEvent,
-        to continuation: AsyncThrowingStream<ChatStreamEvent, any Error>.Continuation
-    ) throws -> Bool {
-        switch try decodeStreamData(event.data) {
-        case .done:
-            return true
-        case let .events(events):
-            for event in events {
-                continuation.yield(event)
-            }
-            return false
         }
     }
 }

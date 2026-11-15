@@ -41,6 +41,8 @@ public final class ChatModel {
     /// 显示名称。为空时显示模型 ID。
     public var displayName: String = ""
     public var supportsImages: Bool = false
+    /// 思考强度。空字符串表示使用服务商的默认值。
+    public var reasoningEffortRaw: String = ""
     public var createdAt: Date = Date()
 
     public var provider: Provider?
@@ -57,6 +59,11 @@ public final class ChatModel {
     public var name: String {
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? modelID : trimmed
+    }
+
+    public var reasoningEffort: ReasoningEffort? {
+        get { ReasoningEffort(rawValue: reasoningEffortRaw) }
+        set { reasoningEffortRaw = newValue?.rawValue ?? "" }
     }
 }
 

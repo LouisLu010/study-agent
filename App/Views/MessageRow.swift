@@ -51,8 +51,15 @@ private struct AssistantMessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !message.reasoning.isEmpty {
+                ReasoningView(
+                    reasoning: message.reasoning,
+                    isThinking: isStreaming && message.content.isEmpty
+                )
+            }
+
             if message.content.isEmpty {
-                if isStreaming {
+                if isStreaming && message.reasoning.isEmpty {
                     ProgressView()
                         .frame(height: 24)
                 }
@@ -119,5 +126,50 @@ private struct AssistantMessageView: View {
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .buttonStyle(.borderless)
+    }
+}
+
+/// 思考过程，默认折叠。
+private struct ReasoningView: View {
+    let reasoning: String
+    let isThinking: Bool
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    if isThinking {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "brain")
+                    }
+                    Text(isThinking ? "正在思考…" : "思考过程")
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(reasoning)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(.quaternary)
+                            .frame(width: 2)
+                    }
+            }
+        }
     }
 }
