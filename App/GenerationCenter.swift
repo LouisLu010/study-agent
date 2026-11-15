@@ -46,7 +46,8 @@ final class GenerationCenter {
             systemPrompt: SystemPrompt.compose(
                 customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? ""
             ),
-            messages: conversation.chatHistory()
+            messages: conversation.chatHistory(),
+            reasoningEffort: model.reasoningEffort
         )
 
         let reply = Message(role: .assistant, status: .streaming, index: nextIndex + 1)

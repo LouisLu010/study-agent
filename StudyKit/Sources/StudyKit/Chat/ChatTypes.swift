@@ -6,6 +6,23 @@ public enum ChatRole: String, Sendable, Codable, Equatable {
     case assistant
 }
 
+/// 推理模型的思考强度。不设置时使用服务商的默认值。
+public enum ReasoningEffort: String, CaseIterable, Identifiable, Sendable {
+    case low
+    case medium
+    case high
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .low: "低"
+        case .medium: "中"
+        case .high: "高"
+        }
+    }
+}
+
 /// 发给服务商的一条消息，与具体协议无关。
 public struct ChatMessage: Sendable, Equatable {
     public var role: ChatRole
@@ -24,11 +41,40 @@ public struct ChatRequest: Sendable, Equatable {
     /// 系统提示词。为空时不发送。
     public var systemPrompt: String?
     public var messages: [ChatMessage]
+    public var reasoningEffort: ReasoningEffort?
 
-    public init(model: String, systemPrompt: String? = nil, messages: [ChatMessage]) {
+    public init(
+        model: String,
+        systemPrompt: String? = nil,
+        messages: [ChatMessage],
+        reasoningEffort: ReasoningEffort? = nil
+    ) {
         self.model = model
         self.systemPrompt = systemPrompt
         self.messages = messages
+        self.reasoningEffort = reasoningEffort
+    }
+
+    /// 去掉空白的系统提示词；为空时返回 nil。
+    var trimmedSystemPrompt: String? {
+        guard let system = systemPrompt?.trimmingCharacters(in: .whitespacesAndNewlines), !system.isEmpty else {
+            return nil
+        }
+        return system
+    }
+
+    /// 合并相邻的同一作者的消息。Anthropic 和 Gemini 要求用户和模型的消息交替出现，
+    /// 而某次生成失败后，会话里可能出现两条相邻的用户消息。
+    var alternatingMessages: [ChatMessage] {
+        var result: [ChatMessage] = []
+        for message in messages {
+            if let last = result.last, last.role == message.role {
+                result[result.count - 1].text = last.text + "\n\n" + message.text
+            } else {
+                result.append(message)
+            }
+        }
+        return result
     }
 }
 

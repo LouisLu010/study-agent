@@ -101,12 +101,24 @@ import Testing
     // MARK: 错误信息
 
     @Test func extractsErrorMessages() {
-        #expect(OpenAICompatibleService.errorMessage(
+        #expect(APIErrorMessage.extract(
             from: Data(#"{"error":{"message":"Invalid API key"}}"#.utf8)
         ) == "Invalid API key")
-        #expect(OpenAICompatibleService.errorMessage(from: Data(#"{"error":"bad"}"#.utf8)) == "bad")
-        #expect(OpenAICompatibleService.errorMessage(from: Data(#"{"message":"nope"}"#.utf8)) == "nope")
-        #expect(OpenAICompatibleService.errorMessage(from: Data("<html>".utf8)) == nil)
+        #expect(APIErrorMessage.extract(
+            from: Data(#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#.utf8)
+        ) == "Overloaded")
+        #expect(APIErrorMessage.extract(from: Data(#"{"error":"bad"}"#.utf8)) == "bad")
+        #expect(APIErrorMessage.extract(from: Data(#"{"message":"nope"}"#.utf8)) == "nope")
+        #expect(APIErrorMessage.extract(from: Data("<html>".utf8)) == nil)
+    }
+
+    @Test func sendsReasoningEffortOnlyWhenSet() throws {
+        let plain = try bodyJSON(service().makeURLRequest(for: ChatRequest(model: "m", messages: [])))
+        #expect(plain["reasoning_effort"] == nil)
+        let withEffort = try bodyJSON(service().makeURLRequest(
+            for: ChatRequest(model: "m", messages: [], reasoningEffort: .high)
+        ))
+        #expect(withEffort["reasoning_effort"] as? String == "high")
     }
 }
 
@@ -124,6 +136,13 @@ import Testing
         #expect(throws: ChatServiceError.invalidBaseURL) {
             try ChatServiceFactory.makeService(kind: .openAICompatible, baseURL: "api.openai.com", apiKey: "k")
         }
+    }
+
+    @Test func createsServiceForEachKind() throws {
+        let anthropic = try ChatServiceFactory.makeService(kind: .anthropic, baseURL: "https://a.com/v1", apiKey: "k")
+        #expect(anthropic is AnthropicService)
+        let gemini = try ChatServiceFactory.makeService(kind: .gemini, baseURL: "https://g.com/v1beta", apiKey: "k")
+        #expect(gemini is GeminiService)
     }
 
     @Test func createsOpenAIService() throws {
