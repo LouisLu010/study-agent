@@ -31,6 +31,8 @@ struct ChatView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .sizeChanges)
                 .onAppear {
                     proxy.scrollTo(bottomID, anchor: .bottom)
                 }
