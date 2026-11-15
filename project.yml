@@ -16,6 +16,10 @@ targets:
     platform: iOS
     sources:
       - path: App
+      # 渲染器作为文件夹引用整体放进 App 包，保留 vendor/katex/fonts 等相对路径。
+      - path: Renderer
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: StudyKit
     settings:
