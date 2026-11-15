@@ -9,6 +9,7 @@ struct ProviderEditView: View {
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @State private var apiKey = ""
     @State private var showAddModel = false
+    @State private var showFetchModels = false
 
     var body: some View {
         Form {
@@ -54,7 +55,9 @@ struct ProviderEditView: View {
                 }
                 .onDelete(perform: deleteModels)
 
-                Button("添加模型", systemImage: "plus") { showAddModel = true }
+                Button("从服务商获取模型", systemImage: "arrow.down.circle") { showFetchModels = true }
+                    .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("手动添加模型", systemImage: "plus") { showAddModel = true }
             }
         }
         .navigationTitle(provider.name.isEmpty ? "服务商" : provider.name)
@@ -75,6 +78,9 @@ struct ProviderEditView: View {
         }
         .sheet(isPresented: $showAddModel) {
             AddModelSheet(provider: provider)
+        }
+        .sheet(isPresented: $showFetchModels) {
+            FetchModelsSheet(provider: provider)
         }
     }
 
