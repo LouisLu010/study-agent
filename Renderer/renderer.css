@@ -112,3 +112,39 @@ th { background: var(--fill); }
   white-space: pre-wrap;
 }
 .sa-math { cursor: pointer; }
+
+/* 坐标图 */
+.graph, .graph-pending { margin: 0 0 0.8em; }
+.graph-title { font-size: 0.9em; color: var(--secondary); text-align: center; margin-bottom: 4px; }
+.jxgbox.graph-board {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--fill);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.graph-loading, .graph-pending {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 420px;
+  border-radius: 10px;
+  background: var(--fill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--secondary);
+  font-size: 0.9em;
+}
+.graph-loading::after { content: '正在绘制坐标图…'; }
+.JXG_navigation { color: var(--accent) !important; }
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 0.85em;
+  color: var(--secondary);
+}
+.graph-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.graph-legend-item i { display: inline-block; width: 18px; }
