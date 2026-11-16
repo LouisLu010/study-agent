@@ -64,6 +64,8 @@ struct MessageWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         coordinator.cancelPendingRender()
+        // 手势进行中 WebView 被回收时，别让聊天列表一直不能滚动。
+        coordinator.setOuterScrollLocked(false)
         for name in Coordinator.messageNames {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: name)
         }
@@ -71,7 +73,33 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock"]
+
+        /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
+        private weak var lockedScrollView: UIScrollView?
+
+        /// 组件开始处理手势时暂停外层聊天列表的滚动，结束后恢复。
+        /// 关掉再打开 panGestureRecognizer 会立即取消已经开始的滚动。
+        func setOuterScrollLocked(_ locked: Bool) {
+            if locked {
+                guard lockedScrollView == nil, let scrollView = enclosingScrollView() else { return }
+                scrollView.panGestureRecognizer.isEnabled = false
+                lockedScrollView = scrollView
+            } else {
+                lockedScrollView?.panGestureRecognizer.isEnabled = true
+                lockedScrollView = nil
+            }
+        }
+
+        /// WebView 外面最近的 UIScrollView（SwiftUI 的 ScrollView 底层就是它）。
+        private func enclosingScrollView() -> UIScrollView? {
+            var view = webView?.superview
+            while let current = view {
+                if let scrollView = current as? UIScrollView { return scrollView }
+                view = current.superview
+            }
+            return nil
+        }
 
         var parent: MessageWebView?
         weak var webView: WKWebView?
@@ -200,6 +228,8 @@ struct MessageWebView: UIViewRepresentable {
                 if let text = body as? String, !text.isEmpty {
                     parent?.onAsk(text)
                 }
+            case "scrollLock":
+                setOuterScrollLocked((body as? NSNumber)?.boolValue ?? false)
             case "regenerate":
                 if parent?.canRegenerate == true {
                     parent?.onRegenerate()
@@ -226,6 +256,7 @@ struct MessageWebView: UIViewRepresentable {
         }
 
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            setOuterScrollLocked(false)
             // WebView 进程被系统回收后重新加载，并恢复上次的内容。
             if pending == nil {
                 pending = rendered

@@ -202,6 +202,47 @@
     });
   });
 
+  // ---------- 手势和外层聊天列表 ----------
+  //
+  // 聊天列表是 WebView 外面的原生 UIScrollView，它会收到 WebView 里的所有触摸，
+  // 网页里的 preventDefault 和 touch-action 都拦不住它。所以在组件开始处理手势时通知 Swift，
+  // 由 Swift 暂停聊天列表的滚动，所有手指离开后再恢复：
+  //   - 坐标图：两根手指（拖动、缩放）
+  //   - 几何图：任意触摸（单指拖动点）
+  //   - 滑块：任意触摸（左右拖动时列表不应该上下晃）
+  let scrollLocked = false;
+
+  function wantsLock(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return false;
+    if (target.closest('input[type=range]')) return true;
+    const component = target.closest('.sa-component');
+    if (!component || !target.closest('.jxgbox')) return false;
+    if (component.dataset.type === 'geometry') return true;
+    return event.touches.length >= 2;
+  }
+
+  function setScrollLock(locked) {
+    if (locked === scrollLocked) return;
+    scrollLocked = locked;
+    renderer.post('scrollLock', locked);
+  }
+
+  document.addEventListener('touchstart', (event) => {
+    if (wantsLock(event)) setScrollLock(true);
+  }, { passive: true, capture: true });
+
+  // 两根手指在坐标图上移动时，不让 WebView 自己把它当成页面滚动（否则 JSXGraph 收不到后续事件）。
+  document.addEventListener('touchmove', (event) => {
+    if (scrollLocked && event.touches.length >= 2 && event.cancelable) event.preventDefault();
+  }, { passive: false, capture: true });
+
+  const release = (event) => {
+    if (event.touches.length === 0) setScrollLock(false);
+  };
+  document.addEventListener('touchend', release, { capture: true });
+  document.addEventListener('touchcancel', release, { capture: true });
+
   // 提示卡片上的"重新生成"按钮。
   document.addEventListener('click', (event) => {
     if (event.target.closest('.sa-regenerate')) renderer.post('regenerate', true);

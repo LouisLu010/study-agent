@@ -211,8 +211,38 @@ private struct ReasoningView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                expandButton
+                Spacer()
+                if isExpanded {
+                    Button {
+                        UIPasteboard.general.string = reasoning
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("复制思考过程")
+                }
+            }
+
+            if isExpanded {
+                ReasoningText(text: reasoning)
+                    .padding(.leading, 10)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(.quaternary)
+                            .frame(width: 2)
+                    }
+            }
+        }
+    }
+
+    private var expandButton: some View {
+            // 不加展开动画：动画会让整个聊天列表跟着重排每一帧，内容长时很卡。
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+                isExpanded.toggle()
             } label: {
                 HStack(spacing: 6) {
                     if isThinking {
@@ -230,18 +260,22 @@ private struct ReasoningView: View {
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+    }
+}
 
-            if isExpanded {
-                Text(reasoning)
+/// 很长的思考过程：切成小段放进 LazyVStack，只排版屏幕附近的段落。
+/// 不开 textSelection：它会让长文本的布局慢很多；需要原文时用上面的复制按钮。
+private struct ReasoningText: View {
+    let text: String
+
+    var body: some View {
+        let chunks = TextChunker.split(text)
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(chunks.indices, id: \.self) { index in
+                Text(chunks[index])
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .padding(.leading, 10)
-                    .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(.quaternary)
-                            .frame(width: 2)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
