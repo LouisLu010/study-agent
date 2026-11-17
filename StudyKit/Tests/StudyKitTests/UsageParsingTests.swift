@@ -6,7 +6,8 @@ import Testing
     @Test func openAIRequestsUsageAndParsesFinalChunk() throws {
         let service = OpenAICompatibleService(baseURL: URL(string: "https://a.com/v1")!, apiKey: "k")
         let request = try service.makeURLRequest(for: ChatRequest(model: "m", messages: []))
-        let json = try #require(JSONSerialization.jsonObject(with: #require(request.httpBody)) as? [String: Any])
+        let body = try #require(request.httpBody)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
         #expect(json["stream_options"] as? [String: Bool] == ["include_usage": true])
 
         let payload = try OpenAICompatibleService.decodeStreamData(
