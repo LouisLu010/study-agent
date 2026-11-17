@@ -1,4 +1,5 @@
 import PhotosUI
+import UniformTypeIdentifiers
 import SwiftUI
 
 struct ComposerView: View {
@@ -14,6 +15,10 @@ struct ComposerView: View {
 
     @State private var showPhotoPicker = false
     @State private var showCamera = false
+    @State private var showHandwriting = false
+    @State private var showPDFImporter = false
+    @State private var pdfSource: PDFSource?
+    @State private var pdfError = false
     @State private var photoItems: [PhotosPickerItem] = []
 
     private var remainingSlots: Int {
@@ -24,6 +29,12 @@ struct ComposerView: View {
         VStack(alignment: .leading, spacing: 8) {
             if !images.isEmpty {
                 pendingImages
+                if images.count > ImageCompressor.costWarningThreshold {
+                    Label("已添加 \(images.count) 个附件（最多 \(ImageCompressor.maxImagesPerMessage) 个），图片较多，消耗会明显增加。",
+                          systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             HStack(alignment: .bottom, spacing: 8) {
@@ -66,6 +77,35 @@ struct ComposerView: View {
             }
             .ignoresSafeArea()
         }
+        .sheet(isPresented: $showHandwriting) {
+            HandwritingSheet { data in
+                if images.count < ImageCompressor.maxImagesPerMessage, let pending = PendingImage(jpeg: data) {
+                    images.append(pending)
+                }
+            }
+        }
+        .fileImporter(isPresented: $showPDFImporter, allowedContentTypes: [.pdf]) { result in
+            guard case let .success(url) = result else { return }
+            if let source = PDFSource.load(from: url) {
+                pdfSource = source
+            } else {
+                pdfError = true
+            }
+        }
+        .sheet(item: $pdfSource) { source in
+            PDFPagePickerSheet(source: source, limit: remainingSlots) { pages in
+                for data in pages where images.count < ImageCompressor.maxImagesPerMessage {
+                    if let pending = PendingImage(jpeg: data) {
+                        images.append(pending)
+                    }
+                }
+            }
+        }
+        .alert("无法打开这个 PDF", isPresented: $pdfError) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text("文件可能已损坏或加了密码。")
+        }
     }
 
     @ViewBuilder
@@ -76,6 +116,8 @@ struct ComposerView: View {
                     Button("拍照", systemImage: "camera") { showCamera = true }
                 }
                 Button("从相册选择", systemImage: "photo.on.rectangle") { showPhotoPicker = true }
+                Button("PDF 文件", systemImage: "doc.richtext") { showPDFImporter = true }
+                Button("手写", systemImage: "pencil.and.scribble") { showHandwriting = true }
             } label: {
                 attachmentIcon
             }
@@ -92,7 +134,7 @@ struct ComposerView: View {
         Image(systemName: "photo.badge.plus")
             .font(.system(size: 22))
             .frame(width: 34, height: 40)
-            .accessibilityLabel("添加图片")
+            .accessibilityLabel("添加附件")
     }
 
     private var pendingImages: some View {

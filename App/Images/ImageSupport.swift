@@ -4,8 +4,10 @@ import UIKit
 enum ImageCompressor {
     static let maxDimension: CGFloat = 2048
     static let quality: CGFloat = 0.8
-    /// 每条消息最多附带的图片数。
-    static let maxImagesPerMessage = 4
+    /// 每条消息最多附带的附件数（照片、PDF 页面、手写一起计数）。
+    static let maxImagesPerMessage = 10
+    /// 超过这个数时提示消耗会明显增加。
+    static let costWarningThreshold = 4
 
     /// 把图片缩小到长边不超过 2048 像素，再转成 JPEG。原图不保存。
     static func jpegData(from image: UIImage) -> Data? {
