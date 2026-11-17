@@ -76,6 +76,8 @@ public final class Conversation {
     public var title: String = "新会话"
     /// 标题还没有被用户手动改过时为 true，第一轮回答后会自动生成标题。
     public var titleIsAutomatic: Bool = true
+    /// 会话提示词：只对这个会话生效，接在用户提示词后面发送。
+    public var instructions: String = ""
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 
@@ -121,6 +123,8 @@ public final class Message {
     public var reasoning: String = ""
     /// 组件状态，JSON 对象：{ 组件键: 状态 }。不发给模型。
     public var componentStateJSON: String = ""
+    /// 重新生成产生的所有版本（`ReplyVersions` 的 JSON）。只有一个版本时为空。
+    public var versionsJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
     /// 在会话中的顺序。

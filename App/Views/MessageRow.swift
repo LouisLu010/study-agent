@@ -11,6 +11,8 @@ struct MessageRow: View {
     var onEdit: () -> Void = {}
     /// 组件里的"问问 AI"按钮：以用户的名义发一条消息。
     var onAsk: (String) -> Void = { _ in }
+    /// 切换回答的版本。
+    var onSelectVersion: (Int) -> Void = { _ in }
 
     var body: some View {
         switch message.role {
@@ -21,7 +23,8 @@ struct MessageRow: View {
                 message: message,
                 canRegenerate: canRegenerate,
                 onRegenerate: onRegenerate,
-                onAsk: onAsk
+                onAsk: onAsk,
+                onSelectVersion: onSelectVersion
             )
         }
     }
@@ -85,6 +88,7 @@ private struct AssistantMessageView: View {
     let canRegenerate: Bool
     let onRegenerate: () -> Void
     let onAsk: (String) -> Void
+    let onSelectVersion: (Int) -> Void
 
     @Environment(\.modelContext) private var context
     @State private var webHeight: CGFloat
@@ -95,12 +99,14 @@ private struct AssistantMessageView: View {
         message: Message,
         canRegenerate: Bool,
         onRegenerate: @escaping () -> Void,
-        onAsk: @escaping (String) -> Void
+        onAsk: @escaping (String) -> Void,
+        onSelectVersion: @escaping (Int) -> Void
     ) {
         self.message = message
         self.canRegenerate = canRegenerate
         self.onRegenerate = onRegenerate
         self.onAsk = onAsk
+        self.onSelectVersion = onSelectVersion
         _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
     }
 
@@ -139,6 +145,8 @@ private struct AssistantMessageView: View {
                     onRegenerate: onRegenerate
                 )
                 .frame(height: webHeight)
+                // 切换版本时换一个新的 WebView，按新版本保存的组件状态重新渲染。
+                .id("\(message.id)-\(message.currentVersion)")
             }
 
             switch message.status {
@@ -161,7 +169,7 @@ private struct AssistantMessageView: View {
                 EmptyView()
             }
 
-            if !isStreaming && !message.content.isEmpty && message.status != .failed {
+            if !isStreaming && (hasActions || showsVersionSwitcher) {
                 actionBar
             }
         }
@@ -183,8 +191,54 @@ private struct AssistantMessageView: View {
         }
     }
 
+    private var hasActions: Bool {
+        !message.content.isEmpty && message.status != .failed
+    }
+
+    /// 只有最后一条回答、并且有多个版本时才能切换。
+    private var showsVersionSwitcher: Bool {
+        canRegenerate && message.versionCount > 1
+    }
+
+    private var versionSwitcher: some View {
+        let count = message.versionCount
+        let current = message.currentVersion
+        return HStack(spacing: 4) {
+            Button {
+                onSelectVersion(current - 1)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(current == 0)
+            .accessibilityLabel("上一个版本")
+            Text("\(current + 1)/\(count)")
+                .monospacedDigit()
+            Button {
+                onSelectVersion(current + 1)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(current >= count - 1)
+            .accessibilityLabel("下一个版本")
+        }
+    }
+
     private var actionBar: some View {
         HStack(spacing: 16) {
+            if showsVersionSwitcher {
+                versionSwitcher
+            }
+            if hasActions {
+                copyAndRegenerate
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .buttonStyle(.borderless)
+    }
+
+    @ViewBuilder
+    private var copyAndRegenerate: some View {
             Button {
                 // 组件代码块换成可读的文字再复制。
                 UIPasteboard.general.string = PlainTextExporter.plainText(from: message.content)
@@ -204,10 +258,6 @@ private struct AssistantMessageView: View {
                 }
                 .accessibilityLabel("重新生成")
             }
-        }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .buttonStyle(.borderless)
     }
 }
 
