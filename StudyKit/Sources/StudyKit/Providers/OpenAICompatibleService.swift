@@ -132,10 +132,22 @@ public struct OpenAICompatibleService: ChatService {
         struct Usage: Decodable {
             let promptTokens: Int?
             let completionTokens: Int?
+            let totalTokens: Int?
 
             enum CodingKeys: String, CodingKey {
                 case promptTokens = "prompt_tokens"
                 case completionTokens = "completion_tokens"
+                case totalTokens = "total_tokens"
+            }
+
+            /// 输出数。有的服务商（例如 grok）的 completion_tokens 不含思考过程，只算进了 total_tokens，
+            /// 这时用 total - prompt。
+            var output: Int? {
+                guard let completion = completionTokens else { return nil }
+                if let total = totalTokens, let prompt = promptTokens, total > prompt + completion {
+                    return total - prompt
+                }
+                return completion
             }
         }
 
@@ -172,7 +184,7 @@ public struct OpenAICompatibleService: ChatService {
             }
         }
         if let usage = chunk.usage, usage.promptTokens != nil || usage.completionTokens != nil {
-            events.append(.usage(input: usage.promptTokens, output: usage.completionTokens))
+            events.append(.usage(input: usage.promptTokens, output: usage.output))
         }
         return .events(events)
     }
