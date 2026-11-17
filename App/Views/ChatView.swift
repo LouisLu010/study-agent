@@ -12,6 +12,7 @@ struct ChatView: View {
     @State private var errorMessage: String?
     @State private var editingMessage: Message?
     @State private var showInstructions = false
+    @State private var shareItem: ShareItem?
 
     private let bottomID = "bottom"
 
@@ -81,6 +82,14 @@ struct ChatView: View {
             ) {
                 showInstructions = true
             }
+            Button("导出为 Markdown", systemImage: "square.and.arrow.up") {
+                do {
+                    shareItem = ShareItem(items: [try ConversationExporter.markdownFile(for: conversation)])
+                } catch {
+                    errorMessage = "导出失败：\(error.localizedDescription)"
+                }
+            }
+            .disabled(conversation.sortedMessages.isEmpty)
             let total = conversation.usageTotal
             if let usage = UsageFormatting.summary(
                 input: total.input > 0 ? total.input : nil,
@@ -94,6 +103,10 @@ struct ChatView: View {
         }
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: item.items)
+                .presentationDetents([.medium, .large])
         }
         .alert(
             "提示",

@@ -94,6 +94,8 @@ private struct AssistantMessageView: View {
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
     @State private var didCopy = false
+    @State private var webHandle = WebViewHandle()
+    @State private var shareItem: ShareItem?
 
     init(
         message: Message,
@@ -142,7 +144,8 @@ private struct AssistantMessageView: View {
                         try? context.save()
                     },
                     onAsk: onAsk,
-                    onRegenerate: onRegenerate
+                    onRegenerate: onRegenerate,
+                    handle: webHandle
                 )
                 .frame(height: webHeight)
                 // 切换版本时换一个新的 WebView，按新版本保存的组件状态重新渲染。
@@ -182,6 +185,10 @@ private struct AssistantMessageView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: item.items)
+                .presentationDetents([.medium, .large])
+        }
         .confirmationDialog(
             "公式",
             isPresented: Binding(
@@ -266,6 +273,17 @@ private struct AssistantMessageView: View {
                 }
                 .accessibilityLabel("重新生成")
             }
+
+            Button {
+                Task {
+                    if let image = await webHandle.snapshot() {
+                        shareItem = ShareItem(items: [image])
+                    }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityLabel("导出为图片")
     }
 }
 
