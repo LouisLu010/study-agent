@@ -7,19 +7,28 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
     public var componentStateJSON: String
     public var statusRaw: String
     public var errorText: String?
+    public var inputTokens: Int?
+    public var outputTokens: Int?
+    public var costCNY: Double?
 
     public init(
         content: String = "",
         reasoning: String = "",
         componentStateJSON: String = "",
         statusRaw: String = MessageStatus.complete.rawValue,
-        errorText: String? = nil
+        errorText: String? = nil,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        costCNY: Double? = nil
     ) {
         self.content = content
         self.reasoning = reasoning
         self.componentStateJSON = componentStateJSON
         self.statusRaw = statusRaw
         self.errorText = errorText
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.costCNY = costCNY
     }
 }
 
@@ -64,7 +73,10 @@ extension Message {
             reasoning: reasoning,
             componentStateJSON: componentStateJSON,
             statusRaw: statusRaw,
-            errorText: errorText
+            errorText: errorText,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            costCNY: costCNY
         )
     }
 
@@ -74,6 +86,9 @@ extension Message {
         componentStateJSON = version.componentStateJSON
         statusRaw = version.statusRaw
         errorText = version.errorText
+        inputTokens = version.inputTokens
+        outputTokens = version.outputTokens
+        costCNY = version.costCNY
     }
 
     /// 重新生成前调用：有内容的当前版本保留下来，消息清空，准备写入新版本。

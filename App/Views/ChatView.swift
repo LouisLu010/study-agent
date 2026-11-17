@@ -81,6 +81,16 @@ struct ChatView: View {
             ) {
                 showInstructions = true
             }
+            let total = conversation.usageTotal
+            if let usage = UsageFormatting.summary(
+                input: total.input > 0 ? total.input : nil,
+                output: total.output > 0 ? total.output : nil,
+                cost: total.cost
+            ) {
+                Section("本会话用量") {
+                    Text(usage)
+                }
+            }
         }
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)

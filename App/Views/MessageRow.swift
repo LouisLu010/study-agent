@@ -172,6 +172,14 @@ private struct AssistantMessageView: View {
             if !isStreaming && (hasActions || showsVersionSwitcher) {
                 actionBar
             }
+
+            if !isStreaming, let usage = UsageFormatting.summary(
+                input: message.inputTokens, output: message.outputTokens, cost: message.costCNY
+            ) {
+                Text(usage)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .confirmationDialog(
