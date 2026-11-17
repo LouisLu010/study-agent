@@ -24,6 +24,8 @@ struct MessageWebView: UIViewRepresentable {
     /// 组件里的"问问 AI"按钮。
     var onAsk: (String) -> Void = { _ in }
     var onRegenerate: () -> Void = {}
+    /// 外面用来截长图的引用。
+    var handle: WebViewHandle?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -52,6 +54,7 @@ struct MessageWebView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = coordinator
         coordinator.webView = webView
+        handle?.webView = webView
         coordinator.loadRenderer()
         return webView
     }
@@ -264,6 +267,16 @@ struct MessageWebView: UIViewRepresentable {
             rendered = nil
             loadRenderer()
         }
+    }
+}
+
+extension WKWebView: WKWebViewSnapshotting {
+    /// WebView 的高度就是内容高度（自身不滚动），所以截下整个边界就是整条回答。
+    func snapshotFullContent() async -> UIImage? {
+        let configuration = WKSnapshotConfiguration()
+        configuration.rect = bounds
+        configuration.afterScreenUpdates = true
+        return try? await takeSnapshot(configuration: configuration)
     }
 }
 
