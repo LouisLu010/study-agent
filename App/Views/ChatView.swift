@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var draftImages: [PendingImage] = []
     @State private var errorMessage: String?
     @State private var editingMessage: Message?
+    @State private var showInstructions = false
 
     private let bottomID = "bottom"
 
@@ -30,7 +31,10 @@ struct ChatView: View {
                                 canEdit: !isGenerating,
                                 onRegenerate: { regenerate(message) },
                                 onEdit: { editingMessage = message },
-                                onAsk: ask
+                                onAsk: ask,
+                                onSelectVersion: { index in
+                                    generation.selectVersion(index, of: message, in: conversation, context: context)
+                                }
                             )
                         }
                         Color.clear
@@ -68,6 +72,18 @@ struct ChatView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 ModelPickerMenu(selection: $conversation.model)
             }
+        }
+        // 点导航栏标题弹出的菜单：会话级别的操作。
+        .toolbarTitleMenu {
+            Button(
+                conversation.instructions.isEmpty ? "添加会话提示词" : "编辑会话提示词",
+                systemImage: "text.badge.star"
+            ) {
+                showInstructions = true
+            }
+        }
+        .sheet(isPresented: $showInstructions) {
+            ConversationInstructionsSheet(conversation: conversation)
         }
         .alert(
             "提示",
@@ -175,6 +191,44 @@ private struct EditMessageSheet: View {
                 }
             }
             .onAppear { isFocused = true }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+/// 编辑只对这个会话生效的提示词，接在用户提示词后面发送。
+private struct ConversationInstructionsSheet: View {
+    @Bindable var conversation: Conversation
+
+    @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 160)
+                } footer: {
+                    Text("只对这个会话生效，从下一条消息开始使用。例如：这个会话只讲高中物理，讲解时多举生活中的例子。")
+                }
+            }
+            .navigationTitle("会话提示词")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        conversation.instructions = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        try? context.save()
+                        dismiss()
+                    }
+                }
+            }
+            .onAppear { text = conversation.instructions }
         }
         .presentationDetents([.medium, .large])
     }
