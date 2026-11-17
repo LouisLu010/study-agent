@@ -36,13 +36,22 @@ private struct UserMessageView: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             let images = message.imageData
-            if !images.isEmpty {
-                HStack(spacing: 6) {
+            if images.count == 1 {
+                HStack {
                     Spacer(minLength: 48)
-                    ForEach(Array(images.enumerated()), id: \.offset) { _, data in
-                        ThumbnailView(data: data, size: images.count == 1 ? 180 : 96)
+                    ThumbnailView(data: images[0], size: 180)
+                }
+            } else if !images.isEmpty {
+                // 最多 10 张，放不下时横向滑动。
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(images.enumerated()), id: \.offset) { _, data in
+                            ThumbnailView(data: data, size: 96)
+                        }
                     }
                 }
+                .defaultScrollAnchor(.trailing)
+                .padding(.leading, 48)
             }
 
             if !message.content.isEmpty {
