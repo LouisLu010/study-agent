@@ -112,9 +112,35 @@ public struct AnthropicService: ChatService {
             let message: String?
         }
 
+        struct Usage: Decodable {
+            let inputTokens: Int?
+            let outputTokens: Int?
+            let cacheCreationInputTokens: Int?
+            let cacheReadInputTokens: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case inputTokens = "input_tokens"
+                case outputTokens = "output_tokens"
+                case cacheCreationInputTokens = "cache_creation_input_tokens"
+                case cacheReadInputTokens = "cache_read_input_tokens"
+            }
+
+            /// 输入总数：普通输入加上缓存写入和缓存命中的部分。
+            var totalInput: Int? {
+                guard inputTokens != nil || cacheCreationInputTokens != nil || cacheReadInputTokens != nil else { return nil }
+                return (inputTokens ?? 0) + (cacheCreationInputTokens ?? 0) + (cacheReadInputTokens ?? 0)
+            }
+        }
+
+        struct MessageInfo: Decodable {
+            let usage: Usage?
+        }
+
         let type: String
         let delta: Delta?
         let error: APIError?
+        let message: MessageInfo?
+        let usage: Usage?
     }
 
     public static func decodeStreamData(_ data: String) throws -> StreamPayload {
@@ -138,6 +164,18 @@ public struct AnthropicService: ChatService {
                 }
             default:
                 break
+            }
+            return .events([])
+        case "message_start":
+            // 开始时给出输入数；输出数这时还不准，等 message_delta。
+            if let usage = event.message?.usage, let input = usage.totalInput {
+                return .events([.usage(input: input, output: nil)])
+            }
+            return .events([])
+        case "message_delta":
+            // output_tokens 是累计值。
+            if let usage = event.usage, usage.outputTokens != nil || usage.totalInput != nil {
+                return .events([.usage(input: usage.totalInput, output: usage.outputTokens)])
             }
             return .events([])
         case "message_stop":

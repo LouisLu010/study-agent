@@ -48,6 +48,7 @@ struct ModelEditView: View {
                 supportsImages: $model.supportsImages,
                 reasoningEffortRaw: $model.reasoningEffortRaw
             )
+            ModelPriceSection(model: model)
         }
         .navigationTitle(model.name.isEmpty ? "模型" : model.name)
         .navigationBarTitleDisplayMode(.inline)
@@ -107,5 +108,50 @@ struct AddModelSheet: View {
             defaultModelID = model.id.uuidString
         }
         dismiss()
+    }
+}
+
+/// 模型的单价：显示内置的官方价格，可以手动填写覆盖（例如中转服务的价格不一样时）。
+private struct ModelPriceSection: View {
+    @Bindable var model: ChatModel
+    @State private var inputText = ""
+    @State private var outputText = ""
+
+    var body: some View {
+        Section {
+            TextField("输入单价（¥ / 百万 tokens）", text: $inputText)
+                .keyboardType(.decimalPad)
+            TextField("输出单价（¥ / 百万 tokens）", text: $outputText)
+                .keyboardType(.decimalPad)
+        } header: {
+            Text("价格")
+        } footer: {
+            Text(footer)
+        }
+        .onAppear {
+            inputText = model.customInputPrice.map { $0.formatted(.number.grouping(.never)) } ?? ""
+            outputText = model.customOutputPrice.map { $0.formatted(.number.grouping(.never)) } ?? ""
+        }
+        .onChange(of: inputText) { save() }
+        .onChange(of: outputText) { save() }
+    }
+
+    private var footer: String {
+        let rate = AppSettingsKey.usdToCNYRate
+        let builtIn = PriceTable.builtIn.price(for: model.modelID)
+        var text = builtIn.map { "内置价格：" + UsageFormatting.price($0, usdToCNY: rate) + "，是服务商官网的标价。" }
+            ?? "内置价格表里没有这个模型，填写单价后才会显示费用。"
+        text += "通过中转服务调用时价格可能不同，可以在上面手动填写，两项都填才会生效。"
+        return text
+    }
+
+    private func parse(_ text: String) -> Double? {
+        let value = Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
+        return value.flatMap { $0 >= 0 ? $0 : nil }
+    }
+
+    private func save() {
+        model.customInputPrice = parse(inputText)
+        model.customOutputPrice = parse(outputText)
     }
 }

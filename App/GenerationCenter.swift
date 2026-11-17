@@ -156,12 +156,17 @@ final class GenerationCenter {
 
         let conversationID = conversation.id
         let modelID = model.modelID
+        // 生成开始时的单价；生成过程中换了模型也按这个算。
+        let price = model.price()
         tasks[conversationID] = Task { [weak self] in
             do {
                 for try await event in service.streamChat(request) {
                     switch event {
                     case let .text(delta): reply.content += delta
                     case let .reasoning(delta): reply.reasoning += delta
+                    case let .usage(input, output):
+                        if let input { reply.inputTokens = input }
+                        if let output { reply.outputTokens = output }
                     }
                 }
                 reply.status = Task.isCancelled ? .stopped : .complete
@@ -172,6 +177,13 @@ final class GenerationCenter {
                     reply.status = .failed
                     reply.errorText = ChatErrorDescription.describe(error)
                 }
+            }
+            if let price, reply.inputTokens != nil || reply.outputTokens != nil {
+                reply.costCNY = price.costCNY(
+                    inputTokens: reply.inputTokens ?? 0,
+                    outputTokens: reply.outputTokens ?? 0,
+                    usdToCNY: AppSettingsKey.usdToCNYRate
+                )
             }
             reply.finishVersion()
             conversation.updatedAt = .now

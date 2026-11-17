@@ -9,6 +9,14 @@ enum AppSettingsKey {
     static let customInstructions = "customInstructions"
     /// 简洁模式：不让模型使用组件。
     static let simpleMode = "simpleMode"
+    /// 美元兑人民币的汇率，用来把美元价格折算成人民币。
+    static let usdToCNY = "usdToCNY"
+    static let defaultUSDToCNY = 7.2
+
+    static var usdToCNYRate: Double {
+        let value = UserDefaults.standard.double(forKey: usdToCNY)
+        return value > 0 ? value : defaultUSDToCNY
+    }
 }
 
 @MainActor
