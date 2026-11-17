@@ -15,6 +15,14 @@ import Testing
         #expect(payload == .events([.usage(input: 120, output: 45)]))
     }
 
+    @Test func openAICountsReasoningMissingFromCompletionTokens() throws {
+        // grok 的实际返回：completion_tokens 只有正文，思考的 460 个 token 只算在 total_tokens 里
+        let payload = try OpenAICompatibleService.decodeStreamData(
+            #"{"choices":[],"usage":{"prompt_tokens":220,"completion_tokens":1,"total_tokens":681,"completion_tokens_details":{"reasoning_tokens":460}}}"#
+        )
+        #expect(payload == .events([.usage(input: 220, output: 461)]))
+    }
+
     @Test func anthropicGivesInputFirstThenOutput() throws {
         let start = try AnthropicService.decodeStreamData(
             #"{"type":"message_start","message":{"id":"m","usage":{"input_tokens":30,"cache_read_input_tokens":70,"output_tokens":1}}}"#
