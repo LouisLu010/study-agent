@@ -112,6 +112,10 @@
         renderer.setOptions({ state: all });
         renderer.post('state', { key, state: state === undefined ? null : state });
       },
+      /** 把组件里发生的事告诉 Swift，例如测验的作答结果。 */
+      report(name, body) {
+        renderer.post(name, body);
+      },
       /** 以用户的名义发一条消息给模型（"问问 AI"）。 */
       ask(text) {
         if (text) renderer.post('ask', String(text));

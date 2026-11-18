@@ -161,6 +161,8 @@ readouts 是实时读数，value 是表达式，里面可以引用：
   "questions": [
     {
       "type": "choice",
+      "subject": "数学",
+      "topic": "幂函数求导",
       "question": "函数 $y = x^3$ 的导数是？",
       "options": ["$x^2$", "$3x^2$", "$3x$", "$x^3$"],
       "answer": "B",
@@ -169,6 +171,8 @@ readouts 是实时读数，value 是表达式，里面可以引用：
     },
     {
       "type": "choice",
+      "subject": "数学",
+      "topic": "函数的奇偶性",
       "question": "下列哪些是奇函数？",
       "options": ["$\\sin x$", "$\\cos x$", "$x^3$", "$x^2 + 1$"],
       "answer": ["A", "C"],
@@ -176,12 +180,16 @@ readouts 是实时读数，value 是表达式，里面可以引用：
     },
     {
       "type": "number",
+      "subject": "数学",
+      "topic": "定积分的计算",
       "question": "计算 $\\int_0^1 x^2\\,dx$。",
       "answer": "1/3",
       "explanation": "$\\int_0^1 x^2\\,dx = \\left.\\frac{x^3}{3}\\right|_0^1 = \\frac{1}{3}$。"
     },
     {
       "type": "number",
+      "subject": "物理",
+      "topic": "自由落体运动",
       "question": "物体从 20 m 高处自由下落，落地速度是多少？（$g = 10\\ \\text{m/s}^2$）",
       "answer": 20,
       "unit": "m/s",
@@ -197,6 +205,7 @@ readouts 是实时读数，value 是表达式，里面可以引用：
 - optionExplanations 可以省略；写的话按选项顺序，对每个错误选项说明错在哪里，正确选项写空字符串。
 - 数值填空的 answer 写数字，或者只含常数的表达式字符串（如 "1/3"、"sqrt(2)"）。默认允许 1% 的误差，需要别的误差时写 tolerance（绝对误差）。有单位时写 unit，题目里说明要填的单位。
 - 题目、选项和解析里可以用 $...$ 写公式和化学式。
+- 每道题都要写 subject 和 topic，用户答错的题会按它们归进错题本。subject 只能是数学、物理、化学、生物、语文、英语、其他之一；topic 用不超过 12 个字写出这道题考查的具体知识点，例如"导数的运算""牛顿第二定律""物质的量"。
 
 ## 分步讲解（steps）
 

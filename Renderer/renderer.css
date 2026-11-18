@@ -329,3 +329,4 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
   border-radius: 10px;
 }
 .chart-box.chart-pie { height: 300px; }
+.quiz-mistake-note { color: var(--secondary); font-size: 0.85em; margin: -2px 0 4px; }

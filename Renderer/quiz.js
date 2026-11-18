@@ -64,6 +64,17 @@
       ctx.setState(Object.keys(submitted).length ? { answers: submitted } : null);
     }
 
+    /** 用户刚答完一道题（不是从保存的状态恢复），告诉 Swift，答错时会加入错题本。 */
+    function report(index) {
+      const q = spec.questions[index];
+      const answer = answers[index];
+      ctx.report('quizResult', {
+        question: core.quizQuestionToJSON(q),
+        answer: q.type === 'choice' ? { choice: answer.choice } : { input: answer.input },
+        correct: isCorrect(q, answer),
+      });
+    }
+
     function askAbout(index) {
       const q = spec.questions[index];
       const answer = answers[index];
@@ -119,6 +130,7 @@
               } else {
                 answers[index] = { choice: [k] };
                 save();
+                report(index);
               }
               refresh();
             });
@@ -135,6 +147,7 @@
           submit.addEventListener('click', () => {
             answers[index] = { choice: answers[index].choice };
             save();
+            report(index);
             refresh();
           });
           card.appendChild(submit);
@@ -165,6 +178,7 @@
             }
             answers[index] = { input: text };
             save();
+            report(index);
             refresh();
           };
           submit.addEventListener('click', doSubmit);
@@ -184,6 +198,9 @@
             : '，正确答案是 ' + core.formatNumber(q.answer, 4) + (q.unit ? ' ' + q.unit : '');
         }
         result.appendChild(el('div', 'quiz-verdict', escapeHTML(verdict)));
+        if (!correct && window.StudyRenderer.getOptions().recordsMistakes) {
+          result.appendChild(el('div', 'quiz-mistake-note', '已加入错题本'));
+        }
         if (q.explanation) result.appendChild(el('div', 'quiz-explanation', ctx.renderMarkdown(q.explanation)));
         const ask = el('button', 'quiz-ask', correct ? '问问 AI：再讲讲这道题' : '问问 AI：我哪里错了');
         ask.addEventListener('click', () => askAbout(index));

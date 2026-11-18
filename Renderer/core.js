@@ -765,6 +765,8 @@
         if (!q || typeof q !== 'object') throw new Error(what + '格式不对');
         const question = requireText(q.question, what + '的题目');
         const explanation = typeof q.explanation === 'string' ? q.explanation.trim() : '';
+        const subject = normalizeSubject(q.subject);
+        const topic = typeof q.topic === 'string' ? q.topic.trim().slice(0, 40) : '';
         const type = q.type || (Array.isArray(q.options) ? 'choice' : 'number');
         if (type === 'choice') {
           if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 8) {
@@ -783,6 +785,8 @@
             multiple: answer.length > 1 || q.multiple === true,
             explanation,
             optionExplanations,
+            subject,
+            topic,
           };
         }
         if (type === 'number') {
@@ -796,6 +800,8 @@
             tolerance,
             unit: typeof q.unit === 'string' ? q.unit.trim() : '',
             explanation,
+            subject,
+            topic,
           };
         }
         throw new Error(what + '的题型应该是 choice 或 number');
@@ -807,6 +813,37 @@
   }
 
   const LETTERS = 'ABCDEFGH';
+
+  // 错题本的科目只有这几个；模型写成别的说法时尽量归到对应科目，归不上返回空字符串。
+  const SUBJECTS = ['数学', '物理', '化学', '生物', '语文', '英语', '其他'];
+  const SUBJECT_ALIASES = { math: '数学', mathematics: '数学', physics: '物理', chemistry: '化学', biology: '生物', chinese: '语文', english: '英语' };
+
+  function normalizeSubject(value) {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    if (!text) return '';
+    const exact = SUBJECTS.find((s) => text.includes(s));
+    if (exact) return exact;
+    return SUBJECT_ALIASES[text.toLowerCase()] || '其他';
+  }
+
+  /** 把解析后的一道题还原成标准的 JSON 对象，用来单独保存进错题本，之后可以再用测验组件显示。 */
+  function quizQuestionToJSON(q) {
+    const base = { type: q.type, question: q.question };
+    if (q.type === 'choice') {
+      base.options = q.options;
+      base.answer = q.answer.length > 1 ? q.answer.map((k) => LETTERS[k]) : LETTERS[q.answer[0]];
+      if (q.optionExplanations.some(Boolean)) base.optionExplanations = q.optionExplanations;
+    } else {
+      base.answer = q.answer;
+      if (q.tolerance !== null) base.tolerance = q.tolerance;
+      if (q.unit) base.unit = q.unit;
+    }
+    if (q.explanation) base.explanation = q.explanation;
+    if (q.subject) base.subject = q.subject;
+    if (q.topic) base.topic = q.topic;
+    return base;
+  }
 
   function quizToText(spec) {
     const lines = ['【测验' + (spec.title ? '：' + spec.title : '') + '】'];
@@ -1338,6 +1375,8 @@
     formatNumber,
     decimalsForStep,
     parseQuizSpec,
+    quizQuestionToJSON,
+    normalizeSubject,
     parseStepsSpec,
     parseGeometrySpec,
     computeGeometry,

@@ -24,6 +24,10 @@ struct MessageWebView: UIViewRepresentable {
     /// 组件里的"问问 AI"按钮。
     var onAsk: (String) -> Void = { _ in }
     var onRegenerate: () -> Void = {}
+    /// 测验里答完一道题：{ question, answer, correct }。
+    var onQuizResult: ([String: Any]) -> Void = { _ in }
+    /// 答错的题会自动加入错题本时为 true，测验组件会在结果里提示一句。
+    var recordsMistakes = false
     /// 外面用来截长图的引用。
     var handle: WebViewHandle?
 
@@ -76,7 +80,7 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult"]
 
         /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
         private weak var lockedScrollView: UIScrollView?
@@ -186,13 +190,14 @@ struct MessageWebView: UIViewRepresentable {
                     """
                     let state = {};
                     try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
-                    window.StudyRenderer.render(text, streaming, { state, canRegenerate });
+                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes });
                     """,
                     arguments: [
                         "text": next.content,
                         "streaming": next.isStreaming,
                         "stateJSON": parent?.componentStateJSON ?? "",
                         "canRegenerate": canRegenerate,
+                        "recordsMistakes": parent?.recordsMistakes ?? false,
                     ],
                     in: nil,
                     in: .page,
@@ -230,6 +235,10 @@ struct MessageWebView: UIViewRepresentable {
             case "ask":
                 if let text = body as? String, !text.isEmpty {
                     parent?.onAsk(text)
+                }
+            case "quizResult":
+                if let payload = body as? [String: Any] {
+                    parent?.onQuizResult(payload)
                 }
             case "scrollLock":
                 setOuterScrollLocked((body as? NSNumber)?.boolValue ?? false)
