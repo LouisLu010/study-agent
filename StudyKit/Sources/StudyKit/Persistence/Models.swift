@@ -41,6 +41,9 @@ public final class ChatModel {
     /// 显示名称。为空时显示模型 ID。
     public var displayName: String = ""
     public var supportsImages: Bool = false
+    /// 手动填写的单价（人民币 / 百万 token），优先于内置价格表。没填时为 nil。
+    public var customInputPrice: Double?
+    public var customOutputPrice: Double?
     /// 思考强度。空字符串表示使用服务商的默认值。
     public var reasoningEffortRaw: String = ""
     public var createdAt: Date = Date()
@@ -61,6 +64,14 @@ public final class ChatModel {
         return trimmed.isEmpty ? modelID : trimmed
     }
 
+    /// 估算费用用的单价：手动填写的优先，否则查内置价格表。都没有时返回 nil。
+    public func price(in table: PriceTable = .builtIn) -> ModelPrice? {
+        if let input = customInputPrice, let output = customOutputPrice {
+            return ModelPrice(input: input, output: output, currency: .cny)
+        }
+        return table.price(for: modelID)
+    }
+
     public var reasoningEffort: ReasoningEffort? {
         get { ReasoningEffort(rawValue: reasoningEffortRaw) }
         set { reasoningEffortRaw = newValue?.rawValue ?? "" }
@@ -76,6 +87,8 @@ public final class Conversation {
     public var title: String = "新会话"
     /// 标题还没有被用户手动改过时为 true，第一轮回答后会自动生成标题。
     public var titleIsAutomatic: Bool = true
+    /// 会话提示词：只对这个会话生效，接在用户提示词后面发送。
+    public var instructions: String = ""
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 
@@ -86,6 +99,19 @@ public final class Conversation {
 
     public init(title: String = "新会话") {
         self.title = title
+    }
+
+    /// 整个会话的用量合计。
+    public var usageTotal: (input: Int, output: Int, cost: Double?) {
+        var input = 0
+        var output = 0
+        var cost: Double?
+        for message in messages ?? [] where message.role == .assistant {
+            input += message.inputTokens ?? 0
+            output += message.outputTokens ?? 0
+            if let value = message.costCNY { cost = (cost ?? 0) + value }
+        }
+        return (input, output, cost)
     }
 
     public var sortedMessages: [Message] {
@@ -121,6 +147,13 @@ public final class Message {
     public var reasoning: String = ""
     /// 组件状态，JSON 对象：{ 组件键: 状态 }。不发给模型。
     public var componentStateJSON: String = ""
+    /// 这条回答的输入和输出 token 数。服务商没有返回时为 nil。
+    public var inputTokens: Int?
+    public var outputTokens: Int?
+    /// 生成完成时按当时模型的单价估算的费用（人民币）。没有价格时为 nil。
+    public var costCNY: Double?
+    /// 重新生成产生的所有版本（`ReplyVersions` 的 JSON）。只有一个版本时为空。
+    public var versionsJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
     /// 在会话中的顺序。

@@ -32,6 +32,9 @@ final class GenerationCenter {
         guard tasks[conversation.id] == nil else { return }
         let service = try prepareService(for: conversation, hasImages: !images.isEmpty)
 
+        // 继续对话后，上一条回答只保留当前选中的版本（见 docs/adr/0008）。
+        conversation.sortedMessages.last { $0.role == .assistant }?.keepOnlyCurrentVersion()
+
         let nextIndex = (conversation.sortedMessages.last?.index ?? -1) + 1
         let userMessage = Message(role: .user, content: text, index: nextIndex)
         context.insert(userMessage)
@@ -45,14 +48,26 @@ final class GenerationCenter {
         startReply(in: conversation, service: service, context: context)
     }
 
-    /// 重新生成最后一条模型回答（也用于失败后重试）。
+    /// 重新生成最后一条模型回答（也用于失败后重试）。旧的回答作为另一个版本保留。
     func regenerate(_ reply: Message, in conversation: Conversation, context: ModelContext) throws {
         guard tasks[conversation.id] == nil, reply.role == .assistant else { return }
         let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
         let service = try prepareService(for: conversation, hasImages: hasImages)
 
-        deleteMessages(in: conversation, from: reply.index, context: context)
-        startReply(in: conversation, service: service, context: context)
+        if conversation.sortedMessages.last?.id == reply.id {
+            reply.beginNewVersion()
+            startReply(in: conversation, service: service, context: context, into: reply)
+        } else {
+            deleteMessages(in: conversation, from: reply.index, context: context)
+            startReply(in: conversation, service: service, context: context)
+        }
+    }
+
+    /// 切换最后一条回答的版本。生成过程中不能切换。
+    func selectVersion(_ index: Int, of reply: Message, in conversation: Conversation, context: ModelContext) {
+        guard tasks[conversation.id] == nil else { return }
+        reply.selectVersion(index)
+        try? context.save()
     }
 
     /// 修改一条用户消息的文字后重新发送：删掉它和之后的所有消息，保留原来的图片。
@@ -76,6 +91,7 @@ final class GenerationCenter {
         guard let messages = try? context.fetch(descriptor), !messages.isEmpty else { return }
         for message in messages where tasks[message.conversation?.id ?? UUID()] == nil {
             message.status = .stopped
+            message.finishVersion()
         }
         try? context.save()
     }
@@ -104,36 +120,53 @@ final class GenerationCenter {
         conversation.messages?.removeAll { $0.index >= index }
     }
 
-    /// 根据当前会话的历史，插入一条空的模型消息并开始流式生成。
-    private func startReply(in conversation: Conversation, service: any ChatService, context: ModelContext) {
+    /// 根据当前会话的历史开始流式生成。`existing` 为 nil 时插入一条新的模型消息，
+    /// 否则写入这条消息（重新生成时，它已经通过 beginNewVersion 清空并标为生成中）。
+    private func startReply(
+        in conversation: Conversation,
+        service: any ChatService,
+        context: ModelContext,
+        into existing: Message? = nil
+    ) {
         guard let model = conversation.model else { return }
 
         let request = ChatRequest(
             model: model.modelID,
             systemPrompt: SystemPrompt.compose(
                 customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? "",
+                conversationInstructions: conversation.instructions,
                 simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
             ),
             messages: conversation.chatHistory(),
             reasoningEffort: model.reasoningEffort
         )
 
-        let nextIndex = (conversation.sortedMessages.last?.index ?? -1) + 1
-        let reply = Message(role: .assistant, status: .streaming, index: nextIndex)
-        context.insert(reply)
-        reply.conversation = conversation
+        let reply: Message
+        if let existing {
+            reply = existing
+        } else {
+            let nextIndex = (conversation.sortedMessages.last?.index ?? -1) + 1
+            reply = Message(role: .assistant, status: .streaming, index: nextIndex)
+            context.insert(reply)
+            reply.conversation = conversation
+        }
 
         conversation.updatedAt = .now
         try? context.save()
 
         let conversationID = conversation.id
         let modelID = model.modelID
+        // 生成开始时的单价；生成过程中换了模型也按这个算。
+        let price = model.price()
         tasks[conversationID] = Task { [weak self] in
             do {
                 for try await event in service.streamChat(request) {
                     switch event {
                     case let .text(delta): reply.content += delta
                     case let .reasoning(delta): reply.reasoning += delta
+                    case let .usage(input, output):
+                        if let input { reply.inputTokens = input }
+                        if let output { reply.outputTokens = output }
                     }
                 }
                 reply.status = Task.isCancelled ? .stopped : .complete
@@ -145,6 +178,14 @@ final class GenerationCenter {
                     reply.errorText = ChatErrorDescription.describe(error)
                 }
             }
+            if let price, reply.inputTokens != nil || reply.outputTokens != nil {
+                reply.costCNY = price.costCNY(
+                    inputTokens: reply.inputTokens ?? 0,
+                    outputTokens: reply.outputTokens ?? 0,
+                    usdToCNY: AppSettingsKey.usdToCNYRate
+                )
+            }
+            reply.finishVersion()
             conversation.updatedAt = .now
             try? context.save()
             self?.tasks[conversationID] = nil

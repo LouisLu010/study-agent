@@ -90,6 +90,8 @@ public enum ChatStreamEvent: Sendable, Equatable {
     case text(String)
     /// 思考过程的增量文本。
     case reasoning(String)
+    /// 用量。服务商可能分几次给出（例如先给输入、最后给输出），为 nil 的一项表示这次没有给出。
+    case usage(input: Int?, output: Int?)
 }
 
 /// 某种 API 协议的聊天服务。

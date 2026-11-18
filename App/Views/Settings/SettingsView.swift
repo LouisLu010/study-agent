@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
     @AppStorage(AppSettingsKey.simpleMode) private var simpleMode = false
+    @AppStorage(AppSettingsKey.usdToCNY) private var usdToCNY = AppSettingsKey.defaultUSDToCNY
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -47,6 +48,18 @@ struct SettingsView: View {
                     Text("回答方式")
                 } footer: {
                     Text("打开后模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
+                }
+
+                Section {
+                    LabeledContent("美元汇率") {
+                        TextField("7.2", value: $usdToCNY, format: .number)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                } header: {
+                    Text("用量")
+                } footer: {
+                    Text("费用统一按人民币显示，美元价格按这个汇率折算。内置价格是各服务商官网的标价，更新于 \(PriceTable.builtIn.updated)，不计缓存和批量折扣，所以显示的金额是估算值。")
                 }
 
                 Section {

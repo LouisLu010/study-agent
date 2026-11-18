@@ -8,7 +8,11 @@ public enum SystemPrompt {
     public static let componentRules = load("components")
 
     /// 内置规则加上用户提示词。
-    public static func compose(customInstructions: String, simpleMode: Bool = false) -> String {
+    public static func compose(
+        customInstructions: String,
+        conversationInstructions: String = "",
+        simpleMode: Bool = false
+    ) -> String {
         var parts = [baseRules]
         if !simpleMode {
             parts.append(componentRules)
@@ -16,6 +20,10 @@ public enum SystemPrompt {
         let custom = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !custom.isEmpty {
             parts.append("# 用户的说明\n" + custom)
+        }
+        let conversation = conversationInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !conversation.isEmpty {
+            parts.append("# 这个会话的说明\n" + conversation)
         }
         return parts.joined(separator: "\n\n")
     }

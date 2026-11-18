@@ -52,10 +52,21 @@ public struct OpenAICompatibleService: ChatService {
         let model: String
         let messages: [Message]
         let stream: Bool
+        let streamOptions: StreamOptions
         let reasoningEffort: String?
+
+        struct StreamOptions: Encodable {
+            /// 让服务商在最后一个片段里返回用量。
+            let includeUsage = true
+
+            enum CodingKeys: String, CodingKey {
+                case includeUsage = "include_usage"
+            }
+        }
 
         enum CodingKeys: String, CodingKey {
             case model, messages, stream
+            case streamOptions = "stream_options"
             case reasoningEffort = "reasoning_effort"
         }
     }
@@ -91,6 +102,7 @@ public struct OpenAICompatibleService: ChatService {
             model: request.model,
             messages: messages,
             stream: true,
+            streamOptions: .init(),
             reasoningEffort: request.reasoningEffort?.rawValue
         ))
         return urlRequest
@@ -117,7 +129,30 @@ public struct OpenAICompatibleService: ChatService {
             }
         }
 
+        struct Usage: Decodable {
+            let promptTokens: Int?
+            let completionTokens: Int?
+            let totalTokens: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case promptTokens = "prompt_tokens"
+                case completionTokens = "completion_tokens"
+                case totalTokens = "total_tokens"
+            }
+
+            /// 输出数。有的服务商（例如 grok）的 completion_tokens 不含思考过程，只算进了 total_tokens，
+            /// 这时用 total - prompt。
+            var output: Int? {
+                guard let completion = completionTokens else { return nil }
+                if let total = totalTokens, let prompt = promptTokens, total > prompt + completion {
+                    return total - prompt
+                }
+                return completion
+            }
+        }
+
         let choices: [Choice]?
+        let usage: Usage?
     }
 
     /// 解析一个 SSE 事件的 data 字段。
@@ -147,6 +182,9 @@ public struct OpenAICompatibleService: ChatService {
             if let content = delta.content, !content.isEmpty {
                 events.append(.text(content))
             }
+        }
+        if let usage = chunk.usage, usage.promptTokens != nil || usage.completionTokens != nil {
+            events.append(.usage(input: usage.promptTokens, output: usage.output))
         }
         return .events(events)
     }

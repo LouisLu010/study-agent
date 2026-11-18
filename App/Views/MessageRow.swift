@@ -11,6 +11,8 @@ struct MessageRow: View {
     var onEdit: () -> Void = {}
     /// 组件里的"问问 AI"按钮：以用户的名义发一条消息。
     var onAsk: (String) -> Void = { _ in }
+    /// 切换回答的版本。
+    var onSelectVersion: (Int) -> Void = { _ in }
 
     var body: some View {
         switch message.role {
@@ -21,7 +23,8 @@ struct MessageRow: View {
                 message: message,
                 canRegenerate: canRegenerate,
                 onRegenerate: onRegenerate,
-                onAsk: onAsk
+                onAsk: onAsk,
+                onSelectVersion: onSelectVersion
             )
         }
     }
@@ -36,13 +39,22 @@ private struct UserMessageView: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             let images = message.imageData
-            if !images.isEmpty {
-                HStack(spacing: 6) {
+            if images.count == 1 {
+                HStack {
                     Spacer(minLength: 48)
-                    ForEach(Array(images.enumerated()), id: \.offset) { _, data in
-                        ThumbnailView(data: data, size: images.count == 1 ? 180 : 96)
+                    ThumbnailView(data: images[0], size: 180)
+                }
+            } else if !images.isEmpty {
+                // 最多 10 张，放不下时横向滑动。
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(images.enumerated()), id: \.offset) { _, data in
+                            ThumbnailView(data: data, size: 96)
+                        }
                     }
                 }
+                .defaultScrollAnchor(.trailing)
+                .padding(.leading, 48)
             }
 
             if !message.content.isEmpty {
@@ -76,22 +88,27 @@ private struct AssistantMessageView: View {
     let canRegenerate: Bool
     let onRegenerate: () -> Void
     let onAsk: (String) -> Void
+    let onSelectVersion: (Int) -> Void
 
     @Environment(\.modelContext) private var context
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
     @State private var didCopy = false
+    @State private var webHandle = WebViewHandle()
+    @State private var shareItem: ShareItem?
 
     init(
         message: Message,
         canRegenerate: Bool,
         onRegenerate: @escaping () -> Void,
-        onAsk: @escaping (String) -> Void
+        onAsk: @escaping (String) -> Void,
+        onSelectVersion: @escaping (Int) -> Void
     ) {
         self.message = message
         self.canRegenerate = canRegenerate
         self.onRegenerate = onRegenerate
         self.onAsk = onAsk
+        self.onSelectVersion = onSelectVersion
         _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
     }
 
@@ -127,9 +144,12 @@ private struct AssistantMessageView: View {
                         try? context.save()
                     },
                     onAsk: onAsk,
-                    onRegenerate: onRegenerate
+                    onRegenerate: onRegenerate,
+                    handle: webHandle
                 )
                 .frame(height: webHeight)
+                // 切换版本时换一个新的 WebView，按新版本保存的组件状态重新渲染。
+                .id("\(message.id)-\(message.currentVersion)")
             }
 
             switch message.status {
@@ -152,11 +172,23 @@ private struct AssistantMessageView: View {
                 EmptyView()
             }
 
-            if !isStreaming && !message.content.isEmpty && message.status != .failed {
+            if !isStreaming && (hasActions || showsVersionSwitcher) {
                 actionBar
+            }
+
+            if !isStreaming, let usage = UsageFormatting.summary(
+                input: message.inputTokens, output: message.outputTokens, cost: message.costCNY
+            ) {
+                Text(usage)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: item.items)
+                .presentationDetents([.medium, .large])
+        }
         .confirmationDialog(
             "公式",
             isPresented: Binding(
@@ -174,8 +206,54 @@ private struct AssistantMessageView: View {
         }
     }
 
+    private var hasActions: Bool {
+        !message.content.isEmpty && message.status != .failed
+    }
+
+    /// 只有最后一条回答、并且有多个版本时才能切换。
+    private var showsVersionSwitcher: Bool {
+        canRegenerate && message.versionCount > 1
+    }
+
+    private var versionSwitcher: some View {
+        let count = message.versionCount
+        let current = message.currentVersion
+        return HStack(spacing: 4) {
+            Button {
+                onSelectVersion(current - 1)
+            } label: {
+                Image(systemName: "chevron.left")
+            }
+            .disabled(current == 0)
+            .accessibilityLabel("上一个版本")
+            Text("\(current + 1)/\(count)")
+                .monospacedDigit()
+            Button {
+                onSelectVersion(current + 1)
+            } label: {
+                Image(systemName: "chevron.right")
+            }
+            .disabled(current >= count - 1)
+            .accessibilityLabel("下一个版本")
+        }
+    }
+
     private var actionBar: some View {
         HStack(spacing: 16) {
+            if showsVersionSwitcher {
+                versionSwitcher
+            }
+            if hasActions {
+                copyAndRegenerate
+            }
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .buttonStyle(.borderless)
+    }
+
+    @ViewBuilder
+    private var copyAndRegenerate: some View {
             Button {
                 // 组件代码块换成可读的文字再复制。
                 UIPasteboard.general.string = PlainTextExporter.plainText(from: message.content)
@@ -195,10 +273,17 @@ private struct AssistantMessageView: View {
                 }
                 .accessibilityLabel("重新生成")
             }
-        }
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .buttonStyle(.borderless)
+
+            Button {
+                Task {
+                    if let image = await webHandle.snapshot() {
+                        shareItem = ShareItem(items: [image])
+                    }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityLabel("导出为图片")
     }
 }
 

@@ -98,7 +98,14 @@ public struct GeminiService: ChatService {
             let content: CandidateContent?
         }
 
+        struct UsageMetadata: Decodable {
+            let promptTokenCount: Int?
+            let candidatesTokenCount: Int?
+            let thoughtsTokenCount: Int?
+        }
+
         let candidates: [Candidate]?
+        let usageMetadata: UsageMetadata?
     }
 
     public static func decodeStreamData(_ data: String) throws -> StreamPayload {
@@ -115,9 +122,15 @@ public struct GeminiService: ChatService {
         }
 
         let parts = chunk.candidates?.first?.content?.parts ?? []
-        let events: [ChatStreamEvent] = parts.compactMap { part in
+        var events: [ChatStreamEvent] = parts.compactMap { part in
             guard let text = part.text, !text.isEmpty else { return nil }
             return part.thought == true ? .reasoning(text) : .text(text)
+        }
+        // 每个片段都带着到目前为止的累计用量；输出包括思考过程。
+        if let usage = chunk.usageMetadata, usage.promptTokenCount != nil || usage.candidatesTokenCount != nil {
+            let output = usage.candidatesTokenCount.map { $0 + (usage.thoughtsTokenCount ?? 0) }
+                ?? usage.thoughtsTokenCount
+            events.append(.usage(input: usage.promptTokenCount, output: output))
         }
         return .events(events)
     }
