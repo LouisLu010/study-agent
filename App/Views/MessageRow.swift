@@ -106,6 +106,7 @@ private struct AssistantMessageView: View {
     @State private var didCopy = false
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
+    @State private var isBookmarked = false
 
     init(
         message: Message,
@@ -287,6 +288,14 @@ private struct AssistantMessageView: View {
                 }
                 .accessibilityLabel("重新生成")
             }
+
+            Button {
+                isBookmarked = StudyCenter.toggleBookmark(message, context: context)
+            } label: {
+                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+            }
+            .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
+            .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }
 
             Button {
                 Task {

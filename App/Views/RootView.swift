@@ -21,9 +21,9 @@ struct RootView: View {
                 case .mistakes:
                     MistakeBookView()
                 case .bookmarks:
-                    BookmarksPlaceholder()
+                    BookmarksView()
                 case .stats:
-                    BookmarksPlaceholder()
+                    StudyStatsView()
                 case nil:
                     ContentUnavailableView(
                         "没有选中的会话",
@@ -40,12 +40,5 @@ struct RootView: View {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。
             if scenePhase != .inactive { ReviewReminder.reschedule(in: context) }
         }
-    }
-}
-
-/// 收藏和学习记录在后续阶段实现。
-private struct BookmarksPlaceholder: View {
-    var body: some View {
-        ContentUnavailableView("即将推出", systemImage: "hammer")
     }
 }

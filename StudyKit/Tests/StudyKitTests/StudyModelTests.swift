@@ -75,3 +75,55 @@ import Testing
         #expect(SubjectClassifier.parse(#"{"subject":"","topic":"x"}"#) == nil)
     }
 }
+
+@Suite struct StudyStatsTests {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        return calendar
+    }
+
+    private func day(_ d: Int, _ h: Int = 12) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 11, day: d, hour: h))!
+    }
+
+    @Test func dailyCountsIncludeEmptyDays() {
+        let events = [
+            StudyEvent(kind: .quiz, correct: true, subject: "数学", topic: "", date: day(20, 9)),
+            StudyEvent(kind: .review, correct: false, subject: "数学", topic: "", date: day(20, 21)),
+            StudyEvent(kind: .quiz, correct: true, subject: "物理", topic: "", date: day(18)),
+            StudyEvent(kind: .quiz, correct: true, subject: "物理", topic: "", date: day(1)),
+        ]
+        let daily = StudyStats.daily(events, days: 5, now: day(20), calendar: calendar)
+        #expect(daily.count == 5)
+        #expect(daily.map(\.answered) == [0, 0, 1, 0, 2])
+        #expect(daily.last?.correct == 1)
+    }
+
+    @Test func subjectsAndWeakTopics() {
+        func mistake(_ subject: Subject, _ topic: String, mastered: Bool = false) -> Mistake {
+            let m = Mistake(kind: .quiz)
+            m.subject = subject
+            m.topic = topic
+            if mastered { m.masteredAt = .now }
+            return m
+        }
+        let mistakes = [
+            mistake(.math, "导数"), mistake(.math, "导数"), mistake(.math, "数列", mastered: true),
+            mistake(.physics, "平抛运动"), mistake(.physics, "未分类"),
+        ]
+        #expect(StudyStats.bySubject(mistakes) == [
+            .init(subject: .math, total: 3, mastered: 1),
+            .init(subject: .physics, total: 2, mastered: 0),
+        ])
+        let weak = StudyStats.weakestTopics(mistakes)
+        #expect(weak.map(\.topic) == ["数学 · 导数", "物理 · 平抛运动"])
+        #expect(weak.first?.count == 2)
+    }
+
+    @Test func buildsChartMarkdown() {
+        let chart = StudyStats.topicChart([("数学 · 导数", 2)])
+        #expect(chart.hasPrefix("```chart\n{"))
+        #expect(chart.contains("\"type\":\"bar\""))
+    }
+}
