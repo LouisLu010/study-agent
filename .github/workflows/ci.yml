@@ -62,6 +62,8 @@ jobs:
           cp -R build/device/Build/Products/Release-iphoneos/StudyAgent.app Payload/
           # 确认渲染器资源按目录结构打进了 App 包
           test -f Payload/StudyAgent.app/Renderer/index.html
+          # 确认 App 图标编译进了包里
+          ls Payload/StudyAgent.app | grep -q '^AppIcon' 
           test -f Payload/StudyAgent.app/Renderer/vendor/katex/fonts/KaTeX_Main-Regular.woff2
           zip -qry StudyAgent-unsigned.ipa Payload
 
