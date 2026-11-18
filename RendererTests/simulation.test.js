@@ -150,3 +150,35 @@ test('导体棒切割磁感线', () => {
   close(result(pulled, '最终速度'), 8);
   close(pulled.at(pulled.duration).v, 8, 0.1);
 });
+
+// ---------- 电路和化学平衡 ----------
+
+test('串联和并联电路', () => {
+  const series = core.buildSimulation('circuit', { U: 6, R1: 10, R2: 20, R3: 0, r: 0, parallel: false });
+  close(series.I, 0.2);
+  close(series.branches[1].U, 4);
+  const parallel = core.buildSimulation('circuit', { U: 6, R1: 10, R2: 20, R3: 0, r: 0, parallel: true });
+  close(result(parallel, '并联总电阻'), 20 / 3);
+  close(parallel.branches[0].I, 0.6);
+  close(parallel.I, 0.9);
+  // 有内阻时路端电压小于电动势
+  const internal = core.buildSimulation('circuit', { U: 6, R1: 10, R2: 20, R3: 30, r: 2, parallel: false });
+  close(internal.I, 6 / 62);
+  close(result(internal, '路端电压'), 6 * 60 / 62);
+});
+
+test('化学平衡：趋向 K 并且加入反应物后重新平衡', () => {
+  const model = core.buildSimulation('equilibrium', { kf: 1, kr: 0.5, A0: 1, B0: 0, addA: 0 });
+  const end = model.at(model.duration);
+  close(end.B / end.A, 2, 0.02);
+  close(end.A + end.B, 1);
+  const add = core.buildSimulation('equilibrium', { kf: 1, kr: 0.5, A0: 1, B0: 0, addA: 0.6 });
+  const before = add.at(add.tAdd - 1e-6);
+  const after = add.at(add.tAdd + 1e-6);
+  close(after.A - before.A, 0.6, 1e-3);
+  const last = add.at(add.duration);
+  close(last.A + last.B, 1.6, 1e-9);
+  close(last.B / last.A, 2, 0.02);
+  // 平衡时正逆反应速率相等
+  close(last.rf / last.rr, 1, 0.02);
+});

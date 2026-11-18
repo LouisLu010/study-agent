@@ -1774,6 +1774,102 @@
         };
       },
     },
+
+    circuit: {
+      label: '串联和并联电路',
+      params: [
+        param('U', '电源电压', 'V', 1, 24, 0.5, 6),
+        param('R1', '电阻 R₁', 'Ω', 1, 100, 1, 10),
+        param('R2', '电阻 R₂', 'Ω', 1, 100, 1, 20),
+        param('R3', '电阻 R₃（0 表示没有）', 'Ω', 0, 100, 1, 0),
+        param('r', '电源内阻', 'Ω', 0, 10, 0.1, 0),
+      ],
+      // parallel：电阻并联（默认串联）
+      flags: ['parallel'],
+      build(p) {
+        const resistors = [p.R1, p.R2, p.R3].filter((r) => r > 0);
+        const external = p.parallel ? 1 / resistors.reduce((sum, r) => sum + 1 / r, 0) : resistors.reduce((a, b) => a + b, 0);
+        const I = p.U / (external + p.r);
+        const terminal = I * external;
+        const branches = resistors.map((R, i) => {
+          const current = p.parallel ? terminal / R : I;
+          return { name: 'R' + (i + 1), R, I: current, U: current * R, P: current * current * R };
+        });
+        const results = [
+          reading(p.parallel ? '并联总电阻 1/R = Σ1/Rᵢ' : '串联总电阻 R = ΣRᵢ', external, 'Ω'),
+          reading('干路电流 I = U/(R + r)', I, 'A', 3),
+        ];
+        if (p.r > 0) results.push(reading('路端电压', terminal, 'V'));
+        branches.forEach((b) => results.push(reading(b.name + '：电流 ' + formatNumber(b.I, 3) + ' A，电压', b.U, 'V')));
+        return {
+          duration: Infinity,
+          results,
+          at: (t) => ({ t }),
+          live: () => [],
+          clock: () => '',
+          bounds: { xmin: 0, xmax: 1, ymin: 0, ymax: 1 },
+          I, branches, parallel: !!p.parallel, terminal,
+        };
+      },
+    },
+
+    equilibrium: {
+      label: '化学平衡',
+      params: [
+        param('kf', '正反应速率常数', '', 0.1, 5, 0.1, 1),
+        param('kr', '逆反应速率常数', '', 0.1, 5, 0.1, 0.5),
+        param('A0', '反应物 A 初始浓度', 'mol/L', 0.1, 2, 0.05, 1),
+        param('B0', '生成物 B 初始浓度', 'mol/L', 0, 2, 0.05, 0),
+        param('addA', '中途加入的 A（0 表示不加）', 'mol/L', 0, 2, 0.05, 0.5),
+      ],
+      build(p) {
+        // A ⇌ B，一级反应：d[A]/dt = −kf[A] + kr[B]，解析解
+        const K = p.kf / p.kr;
+        const k = p.kf + p.kr;
+        const tau = 1 / k;
+        const tAdd = p.addA > 0 ? 6 * tau : Infinity;
+        const duration = Math.min(30, p.addA > 0 ? 12 * tau : 6 * tau);
+        const evolve = (A, B, dt) => {
+          const total = A + B;
+          const Aeq = total / (1 + K);
+          const A1 = Aeq + (A - Aeq) * Math.exp(-k * dt);
+          return { A: A1, B: total - A1 };
+        };
+        const atAdd = Number.isFinite(tAdd) ? evolve(p.A0, p.B0, tAdd) : null;
+        const at = (t) => {
+          const time = Math.min(Math.max(t, 0), duration);
+          if (time < tAdd) return Object.assign({ t: time, rf: 0, rr: 0 }, evolve(p.A0, p.B0, time));
+          return Object.assign({ t: time }, evolve(atAdd.A + p.addA, atAdd.B, time - tAdd));
+        };
+        const withRates = (t) => {
+          const s = at(t);
+          s.rf = p.kf * s.A;
+          s.rr = p.kr * s.B;
+          return s;
+        };
+        const end = at(duration);
+        const results = [
+          reading('平衡常数 K = k正/k逆 = [B]/[A]', K, '', 3),
+          reading('达到平衡大约需要（5τ）', 5 * tau, 's'),
+          reading('最终 [A]', end.A, 'mol/L', 3),
+          reading('最终 [B]', end.B, 'mol/L', 3),
+        ];
+        if (p.addA > 0) results.push(reading('加入 A 的时刻', tAdd, 's'));
+        const max = Math.max(p.A0 + p.B0 + p.addA, 0.1);
+        return {
+          duration,
+          results,
+          at: withRates,
+          live(t) {
+            const s = withRates(t);
+            return [reading('时间 t', s.t, 's'), reading('[A]', s.A, 'mol/L', 3), reading('[B]', s.B, 'mol/L', 3),
+              reading('正反应速率 / 逆反应速率', s.rr > 1e-9 ? s.rf / s.rr : NaN, '', 3)];
+          },
+          bounds: { xmin: 0, xmax: 1, ymin: 0, ymax: 1 },
+          max, tAdd, K,
+        };
+      },
+    },
   };
 
   /** 解析 ```simulation 代码块：{ "kind": "...", "title": "...", "params": { ... } }。参数超出范围时取边界。 */

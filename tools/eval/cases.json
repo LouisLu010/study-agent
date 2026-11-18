@@ -313,6 +313,43 @@
     "simKind": "rod_induction"
   },
   {
+    "id": "sim-parallel",
+    "prompt": "10 Ω 和 20 Ω 的电阻并联接在 6 V 电源上，各支路电流和干路电流是多少？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps"
+    ],
+    "simKind": "circuit"
+  },
+  {
+    "id": "sim-series",
+    "prompt": "串联电路中电压是怎么分配的？为什么电阻大的分得的电压多？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz"
+    ],
+    "simKind": "circuit"
+  },
+  {
+    "id": "sim-equilibrium",
+    "prompt": "什么是化学平衡？达到平衡后增加反应物的浓度，平衡会怎么移动？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz",
+      "graph",
+      "chart"
+    ],
+    "simKind": "equilibrium"
+  },
+  {
     "id": "quiz-derivative",
     "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
     "expect": [
