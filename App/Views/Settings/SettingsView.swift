@@ -67,9 +67,12 @@ struct SettingsView: View {
                 }
                 .onChange(of: reminderEnabled) {
                     Task {
-                        if reminderEnabled && !(await ReviewReminder.requestPermission()) {
-                            permissionDenied = true
-                            reminderEnabled = false
+                        if reminderEnabled {
+                            let granted = await ReviewReminder.requestPermission()
+                            if !granted {
+                                permissionDenied = true
+                                reminderEnabled = false
+                            }
                         }
                         ReviewReminder.reschedule(in: context)
                     }
