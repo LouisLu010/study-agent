@@ -76,6 +76,10 @@ struct MistakeBookView: View {
         }
     }
 
+    private var dueCount: Int {
+        mistakes.filter { ReviewSchedule.isDue($0) }.count
+    }
+
     /// 只列出已经有错题的科目。
     private var subjects: [Subject] {
         let present = Set(mistakes.compactMap(\.subject))
@@ -101,6 +105,17 @@ struct MistakeBookView: View {
                 }
             }
             .listRowSeparator(.hidden)
+
+            if dueCount > 0 {
+                Section {
+                    NavigationLink {
+                        ReviewSessionView()
+                    } label: {
+                        Label("开始复习（今天 \(dueCount) 道）", systemImage: "play.circle.fill")
+                            .font(.headline)
+                    }
+                }
+            }
 
             Section {
                 ForEach(filtered) { mistake in

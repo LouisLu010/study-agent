@@ -76,6 +76,7 @@ enum StudyCenter {
         ReviewSchedule.reset(mistake)
         context.insert(mistake)
         try? context.save()
+        ReviewReminder.reschedule(in: context)
 
         if subject == nil || topic.isEmpty {
             classify(mistake, content: question["question"] as? String ?? "", model: conversation.model, context: context)
@@ -107,6 +108,7 @@ enum StudyCenter {
             image.mistake = mistake
         }
         try? context.save()
+        ReviewReminder.reschedule(in: context)
 
         let content = question.content.isEmpty
             ? "（题目是一张图片）解答：\n" + solution.content

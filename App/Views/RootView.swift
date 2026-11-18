@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
     @Environment(AppNavigation.self) private var navigation
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         @Bindable var navigation = navigation
@@ -34,6 +35,10 @@ struct RootView: View {
         }
         .task {
             generation.recoverInterruptedMessages(in: context)
+        }
+        .onChange(of: scenePhase) {
+            // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。
+            if scenePhase != .inactive { ReviewReminder.reschedule(in: context) }
         }
     }
 }
