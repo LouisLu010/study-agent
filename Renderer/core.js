@@ -1528,6 +1528,252 @@
         };
       },
     },
+
+    electric_deflection: {
+      label: '带电粒子在电场中偏转',
+      params: [
+        param('U', '板间电压', 'V', 10, 2000, 10, 200),
+        param('d', '板间距离', 'cm', 0.5, 10, 0.1, 2),
+        param('L', '极板长度', 'cm', 1, 20, 0.5, 8),
+        param('v0', '初速度（×10⁶ m/s）', '', 1, 50, 0.5, 10),
+        param('qm', '比荷（×10¹¹ C/kg）', '', 0.01, 2, 0.01, 1.76),
+      ],
+      // 默认是电子（带负电）；positive: true 时带正电
+      flags: ['positive'],
+      build(p) {
+        const sign = p.positive ? 1 : -1;
+        const d = p.d / 100;
+        const L = p.L / 100;
+        const v0 = p.v0 * 1e6;
+        const a = (p.qm * 1e11 * p.U) / d; // 加速度大小
+        // 正电荷受力向下（上板为正极），负电荷向上
+        const ay = -sign * a;
+        const tPlates = L / v0;
+        const yExit = 0.5 * a * tPlates * tPlates;
+        const hits = yExit > d / 2;
+        const tHit = hits ? Math.sqrt(d / a) : tPlates;
+        const vyExit = a * tPlates;
+        // 离开极板后匀速直线运动，再走 0.6L
+        const tEnd = hits ? tHit : tPlates + (0.6 * L) / v0;
+        const pos = (time) => {
+          if (time <= tHit) return { x: v0 * time, y: 0.5 * ay * time * time };
+          const dt = time - tPlates;
+          return { x: L + v0 * dt, y: Math.sign(ay) * (yExit + vyExit * dt) };
+        };
+        const ANIM = 3; // 动画秒数
+        const at = (t) => {
+          const time = (Math.min(Math.max(t, 0), ANIM) / ANIM) * tEnd;
+          return Object.assign({ t, time }, pos(time));
+        };
+        const results = hits
+          ? [reading('结果', NaN, ''), reading('打在极板上，离入口', v0 * tHit * 100, 'cm'), reading('加速度 a = qU/(md)', a, 'm/s²', 0)]
+          : [
+            reading('在板间运动时间 t = L/v₀', tPlates * 1e9, 'ns'),
+            reading('离开时的偏移 y = qUL²/(2mdv₀²)', yExit * 100, 'cm', 3),
+            reading('偏转角 tanθ = qUL/(mdv₀²)', Math.atan(vyExit / v0) * 180 / Math.PI, '°', 1),
+            reading('加速度 a = qU/(md)', a, 'm/s²', 0),
+          ];
+        if (hits) results[0] = Object.assign(results[0], { label: '偏移超过 d/2，粒子打在极板上' });
+        return {
+          duration: ANIM,
+          results,
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('真实时间', s.time * 1e9, 'ns', 2), reading('竖直偏移', Math.abs(s.y) * 100, 'cm', 3)];
+          },
+          clock: (t) => 't = ' + formatNumber(at(t).time * 1e9, 2) + ' ns（已放慢）',
+          bounds: { xmin: -0.15 * L, xmax: 1.65 * L, ymin: -Math.max(d, yExit * 2.2), ymax: Math.max(d, yExit * 2.2) },
+          d, L, hits, sign,
+          path(n) {
+            const points = [];
+            for (let i = 0; i <= n; i++) points.push(pos((tEnd * i) / n));
+            return points;
+          },
+        };
+      },
+    },
+
+    magnetic_circle: {
+      label: '带电粒子在匀强磁场中运动',
+      params: [
+        param('B', '磁感应强度', 'T', 0.01, 2, 0.01, 0.1),
+        param('v', '速度（×10⁶ m/s）', '', 0.1, 10, 0.1, 1),
+        param('qm', '比荷（×10⁸ C/kg）', '', 0.1, 20, 0.1, 1),
+        param('angle', '入射方向与边界法线的夹角', '°', -80, 80, 1, 0),
+      ],
+      // positive：带正电（默认 true）。boundary：磁场只在边界右侧（默认 true）；false 时整个空间都有磁场，粒子一直做圆周运动。
+      flags: ['positive', 'boundary'],
+      flagDefaults: { positive: true, boundary: true },
+      build(p) {
+        const sign = p.positive ? 1 : -1;
+        const qm = p.qm * 1e8;
+        const v = p.v * 1e6;
+        const r = v / (qm * p.B);
+        const omega = (qm * p.B); // 角速度大小
+        const T = (2 * Math.PI) / omega;
+        const phi = p.angle * DEG;
+        // 磁场垂直纸面向里：正电荷逆时针转，负电荷顺时针转（把 y 翻过来）
+        const swept = p.boundary ? Math.PI - 2 * phi : 2 * Math.PI;
+        const tField = swept / omega;
+        const pos = (time) => {
+          const alpha = phi + omega * time;
+          const cx = -r * Math.sin(phi);
+          const cy = r * Math.cos(phi);
+          return { x: cx + r * Math.sin(alpha), y: sign * (cy - r * Math.cos(alpha)) };
+        };
+        const ANIM = p.boundary ? 3 : 4;
+        const at = (t) => {
+          const local = p.boundary ? Math.min(Math.max(t, 0), ANIM) : ((t % ANIM) + ANIM) % ANIM;
+          const time = (local / ANIM) * (p.boundary ? tField : T);
+          return Object.assign({ t, time }, pos(time));
+        };
+        const results = [
+          reading('半径 r = mv/(qB)', r * 100, 'cm', 2),
+          reading('周期 T = 2πm/(qB)', T * 1e9, 'ns', 1),
+        ];
+        if (p.boundary) {
+          results.push(reading('在磁场中转过的角度', swept / DEG, '°', 1));
+          results.push(reading('在磁场中的时间', tField * 1e9, 'ns', 1));
+          results.push(reading('出射点到入射点的距离 2r·cosθ', 2 * r * Math.cos(phi) * 100, 'cm', 2));
+        }
+        const ys = [];
+        for (let i = 0; i <= 60; i++) ys.push(pos((tField * i) / 60).y);
+        return {
+          duration: p.boundary ? ANIM : Infinity,
+          results,
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('真实时间', s.time * 1e9, 'ns', 1)];
+          },
+          clock: (t) => 't = ' + formatNumber(at(t).time * 1e9, 1) + ' ns（已放慢）',
+          bounds: p.boundary
+            ? { xmin: -0.6 * r, xmax: 2.2 * r, ymin: Math.min(...ys, 0) - 0.3 * r, ymax: Math.max(...ys, 0) + 0.3 * r }
+            : { xmin: -2.4 * r, xmax: 2.4 * r, ymin: -2.3 * r, ymax: 2.3 * r },
+          r, sign, phi,
+          path(n) {
+            const points = [];
+            for (let i = 0; i <= n; i++) points.push(pos((tField * i) / n));
+            return points;
+          },
+        };
+      },
+    },
+
+    mass_spectrometer: {
+      label: '速度选择器和质谱仪',
+      params: [
+        param('E', '选择器电场（×10⁴ V/m）', '', 0.1, 10, 0.1, 2),
+        param('B1', '选择器磁场', 'T', 0.05, 1, 0.01, 0.2),
+        param('v', '入射速度（×10⁵ m/s）', '', 0.2, 5, 0.05, 1),
+        param('B2', '质谱仪磁场', 'T', 0.05, 1, 0.01, 0.5),
+        param('qm1', '粒子 1 比荷（×10⁶ C/kg）', '', 0.1, 10, 0.1, 1),
+        param('qm2', '粒子 2 比荷（×10⁶ C/kg，0 表示没有）', '', 0, 10, 0.1, 0.5),
+      ],
+      build(p) {
+        const E = p.E * 1e4;
+        const v = p.v * 1e5;
+        const vPass = E / p.B1;
+        const Ls = 0.3; // 选择器长度
+        const gap = 0.015; // 选择器板间半宽
+        const species = [p.qm1, p.qm2].filter((q) => q > 0).map((qmRaw, index) => {
+          const qm = qmRaw * 1e6;
+          // 选择器里：电场力向下 qE，洛伦兹力向上 qvB1，净加速度 a = q(vB1 - E)/m（向上为正）
+          const a = qm * (v * p.B1 - E);
+          const tSel = Ls / v;
+          const yOut = 0.5 * a * tSel * tSel;
+          const blocked = Math.abs(yOut) > gap;
+          const tBlock = blocked ? Math.sqrt((2 * gap) / Math.abs(a)) : tSel;
+          const r = v / (qm * p.B2);
+          // 进入质谱仪后在下方做半圆运动（逆时针向下转），打在 y = 0 的底片上
+          const tHalf = Math.PI / (qm * p.B2);
+          const tEnd = blocked ? tBlock : tSel + tHalf;
+          const pos = (time) => {
+            if (time <= tBlock) return { x: v * time, y: 0.5 * a * time * time };
+            const dt = time - tSel;
+            const angle = qm * p.B2 * dt;
+            return { x: Ls + r * Math.sin(angle), y: -r + r * Math.cos(angle) };
+          };
+          return { index, qm, a, blocked, r, tEnd, pos, x: Ls, hitX: Ls + 0 };
+        });
+        const ANIM = 4;
+        const at = (t) => {
+          const f = Math.min(Math.max(t, 0), ANIM) / ANIM;
+          return { t, particles: species.map((sp) => Object.assign({ blocked: sp.blocked }, sp.pos(f * sp.tEnd))) };
+        };
+        const results = [
+          reading('能直线通过的速度 v = E/B₁', vPass, 'm/s', 0),
+          reading(Math.abs(v - vPass) / vPass < 0.01 ? '当前速度等于 E/B₁，粒子直线通过' : (v > vPass ? '速度偏大，洛伦兹力大于电场力，粒子向上偏' : '速度偏小，电场力大于洛伦兹力，粒子向下偏'), NaN, ''),
+        ];
+        species.forEach((sp) => {
+          if (sp.blocked) results.push(reading('粒子 ' + (sp.index + 1) + ' 没能通过选择器', NaN, ''));
+          else results.push(reading('粒子 ' + (sp.index + 1) + ' 半径 r = mv/(qB₂)', sp.r * 100, 'cm', 2));
+        });
+        const maxR = Math.max(0.05, ...species.map((sp) => (sp.blocked ? 0 : sp.r)));
+        return {
+          duration: ANIM,
+          results,
+          at,
+          live: () => [],
+          clock: () => '（动画已放慢）',
+          bounds: { xmin: -0.05, xmax: Ls + maxR * 1.15 + 0.02, ymin: -2 * maxR * 1.08 - 0.02, ymax: gap + 0.05 },
+          Ls, gap, species,
+          path(sp, n) {
+            const points = [];
+            for (let i = 0; i <= n; i++) points.push(sp.pos((sp.tEnd * i) / n));
+            return points;
+          },
+        };
+      },
+    },
+
+    rod_induction: {
+      label: '导体棒切割磁感线',
+      params: [
+        param('B', '磁感应强度', 'T', 0.1, 2, 0.05, 0.5),
+        param('L', '导轨间距（棒长）', 'm', 0.1, 2, 0.05, 0.5),
+        param('R', '电阻', 'Ω', 0.1, 10, 0.1, 1),
+        param('m', '棒的质量', 'kg', 0.05, 2, 0.05, 0.1),
+        param('v0', '初速度', 'm/s', 0, 10, 0.1, 5),
+        param('F', '水平恒力', 'N', 0, 5, 0.05, 0),
+      ],
+      build(p) {
+        const k = (p.B * p.B * p.L * p.L) / p.R; // 安培力 = k·v
+        const tau = p.m / k;
+        const vt = p.F / k; // 终极速度
+        const v = (time) => vt + (p.v0 - vt) * Math.exp(-time / tau);
+        const x = (time) => vt * time + (p.v0 - vt) * tau * (1 - Math.exp(-time / tau));
+        const duration = Math.min(12, Math.max(2, 5 * tau));
+        const at = (t) => {
+          const time = Math.min(Math.max(t, 0), duration);
+          const speed = v(time);
+          const emf = p.B * p.L * speed;
+          return { t: time, v: speed, x: x(time), emf, I: emf / p.R, Fa: k * speed };
+        };
+        const results = [
+          reading('初始感应电动势 E = BLv₀', p.B * p.L * p.v0, 'V'),
+          reading('初始电流 I = BLv₀/R', (p.B * p.L * p.v0) / p.R, 'A'),
+          reading('时间常数 τ = mR/(B²L²)', tau, 's'),
+        ];
+        if (p.F > 0) results.push(reading('最终速度 v = FR/(B²L²)', vt, 'm/s'));
+        else results.push(reading('最终滑行距离 mv₀R/(B²L²)', p.v0 * tau, 'm'));
+        const vs = [p.v0, vt, 0];
+        return {
+          duration,
+          results,
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('时间 t', s.t, 's'), reading('速度 v', s.v, 'm/s'), reading('感应电流 I', s.I, 'A', 3),
+              reading('安培力', s.Fa, 'N', 3)];
+          },
+          vRange: [Math.min(...vs), Math.max(...vs)],
+          xMax: Math.max(x(duration), 0.1),
+          bounds: { xmin: 0, xmax: 1, ymin: 0, ymax: 1 },
+        };
+      },
+    },
   };
 
   /** 解析 ```simulation 代码块：{ "kind": "...", "title": "...", "params": { ... } }。参数超出范围时取边界。 */
@@ -1560,7 +1806,8 @@
       // 开关类的选项（不是滑块），例如 stopAtRest
       (definition.flags || []).forEach((flag) => {
         const v = raw[flag] !== undefined ? raw[flag] : given[flag];
-        values[flag] = v === true || v === 1 || v === 'true';
+        const fallback = (definition.flagDefaults || {})[flag] === true;
+        values[flag] = v === undefined ? fallback : v === true || v === 1 || v === 'true';
       });
       // 先算一次，确认参数组合能算出结果
       const model = definition.build(values);

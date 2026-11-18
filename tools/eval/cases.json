@@ -263,6 +263,56 @@
     "simKind": "collision"
   },
   {
+    "id": "sim-e-deflect",
+    "prompt": "电子以 2×10⁷ m/s 的速度垂直电场方向射入平行板间，板长 6 cm，板间距 2 cm，电压 100 V，求电子离开电场时的偏移量。",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "graph"
+    ],
+    "simKind": "electric_deflection"
+  },
+  {
+    "id": "sim-b-circle",
+    "prompt": "带电粒子垂直射入匀强磁场后为什么做匀速圆周运动？半径和周期由什么决定？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz",
+      "graph"
+    ],
+    "simKind": "magnetic_circle"
+  },
+  {
+    "id": "sim-selector",
+    "prompt": "速度选择器的原理是什么？为什么只有 v = E/B 的粒子能直线通过？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz"
+    ],
+    "simKind": "mass_spectrometer"
+  },
+  {
+    "id": "sim-rod",
+    "prompt": "光滑导轨上的导体棒获得一个初速度后，在磁场中会怎样运动？为什么最终会停下？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz",
+      "graph"
+    ],
+    "simKind": "rod_induction"
+  },
+  {
     "id": "quiz-derivative",
     "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
     "expect": [

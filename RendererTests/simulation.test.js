@@ -94,3 +94,59 @@ test('解析模拟描述', () => {
   assert.equal(parse({ kind: 'projectile', params: { v0: 'abc' } }).ok, false);
   assert.equal(core.toPlainText('```simulation\n{"kind":"spring","params":{"k":50}}\n```').startsWith('[模拟：弹簧振子（劲度系数 50 N/m'), true);
 });
+
+// ---------- 电磁 ----------
+
+test('电场偏转：偏移量和打在极板上', () => {
+  // 电子：U = 200 V，d = 2 cm，L = 8 cm，v0 = 1e7 m/s，q/m = 1.76e11
+  const model = core.buildSimulation('electric_deflection', { U: 200, d: 2, L: 8, v0: 30, qm: 1.76, positive: false });
+  const a = 1.76e11 * 200 / 0.02;
+  const t = 0.08 / 3e7;
+  close(result(model, '离开时的偏移'), 0.5 * a * t * t * 100, 1e-9);
+  assert.equal(model.hits, false);
+  // 电子向上偏（朝正极板）
+  assert.ok(model.at(3).y > 0);
+  const slow = core.buildSimulation('electric_deflection', { U: 200, d: 2, L: 8, v0: 2, qm: 1.76, positive: false });
+  assert.equal(slow.hits, true);
+});
+
+test('磁场圆周运动：半径、周期和出射点', () => {
+  const model = core.buildSimulation('magnetic_circle', { B: 0.1, v: 1, qm: 1, angle: 0, positive: true, boundary: true });
+  close(result(model, '半径'), 10);
+  close(result(model, '周期'), 2 * Math.PI / 1e7 * 1e9, 1e-6);
+  close(result(model, '在磁场中转过的角度'), 180);
+  // 垂直入射转半圈，从入射点上方 2r 处射出
+  const end = model.at(3);
+  close(end.x, 0, 1e-9);
+  close(end.y, 0.2, 1e-9);
+  // 30° 斜射入：转过 120°，弦长 2r·cos30°
+  const tilted = core.buildSimulation('magnetic_circle', { B: 0.1, v: 1, qm: 1, angle: 30, positive: true, boundary: true });
+  close(result(tilted, '在磁场中转过的角度'), 120);
+  close(Math.hypot(tilted.at(3).x, tilted.at(3).y), 0.2 * Math.cos(Math.PI / 6), 1e-9);
+  // 负电荷向另一边转
+  assert.ok(core.buildSimulation('magnetic_circle', { B: 0.1, v: 1, qm: 1, angle: 0, positive: false, boundary: true }).at(1.5).y < 0);
+  // 默认带正电、有边界
+  assert.deepEqual([parse({ kind: 'magnetic_circle' }).value.defaults.positive, parse({ kind: 'magnetic_circle' }).value.defaults.boundary], [true, true]);
+});
+
+test('速度选择器和质谱仪', () => {
+  const pass = core.buildSimulation('mass_spectrometer', { E: 2, B1: 0.2, v: 1, B2: 0.5, qm1: 1, qm2: 0.5 });
+  close(result(pass, '能直线通过'), 1e5);
+  assert.deepEqual(pass.species.map((s) => s.blocked), [false, false]);
+  close(pass.species[0].r, 0.2);
+  close(pass.species[1].r, 0.4);
+  const fast = core.buildSimulation('mass_spectrometer', { E: 2, B1: 0.2, v: 3, B2: 0.5, qm1: 1, qm2: 0 });
+  assert.equal(fast.species.length, 1);
+  assert.equal(fast.species[0].blocked, true);
+});
+
+test('导体棒切割磁感线', () => {
+  const coast = core.buildSimulation('rod_induction', { B: 0.5, L: 0.5, R: 1, m: 0.1, v0: 5, F: 0 });
+  close(result(coast, '时间常数'), 0.1 / 0.0625);
+  close(result(coast, '最终滑行距离'), 5 * 1.6);
+  close(result(coast, '初始感应电动势'), 1.25);
+  assert.ok(coast.at(coast.duration).v < 0.05);
+  const pulled = core.buildSimulation('rod_induction', { B: 0.5, L: 0.5, R: 1, m: 0.1, v0: 0, F: 0.5 });
+  close(result(pulled, '最终速度'), 8);
+  close(pulled.at(pulled.duration).v, 8, 0.1);
+});

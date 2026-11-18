@@ -518,7 +518,7 @@
       }
       render(c, model, time, { colors: palette(), rect: { x: 0, y: 0, w: width, h: height }, values });
       readoutRows(live, model.live(time));
-      clock.textContent = 't = ' + core.formatNumber(time, 2) + ' s';
+      clock.textContent = model.clock ? model.clock(time) : 't = ' + core.formatNumber(time, 2) + ' s';
       playButton.textContent = playing ? '暂停' : (Number.isFinite(model.duration) && time >= model.duration ? '播放' : '继续');
     }
 
