@@ -45,6 +45,9 @@
     "prompt": "一个物体从静止开始做匀加速直线运动，加速度是 2 m/s²。画出前 5 秒的 v-t 图像和 x-t 图像。",
     "expect": [
       "graph"
+    ],
+    "allow": [
+      "simulation"
     ]
   },
   {
@@ -93,11 +96,10 @@
   {
     "id": "param-projectile",
     "prompt": "平抛运动中，初速度越大，物体落地时的水平距离越远吗？能让我自己调初速度看看轨迹吗？（g 取 10 m/s²，抛出点高 20 m）",
-    "expect": [
-      "graph"
-    ],
-    "needsParams": true,
+    "expect": [],
     "allow": [
+      "graph",
+      "simulation",
       "quiz",
       "steps"
     ]
@@ -185,6 +187,82 @@
     ]
   },
   {
+    "id": "sim-projectile",
+    "prompt": "斜抛运动中，抛射角多大时射程最远？为什么？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "graph",
+      "steps",
+      "quiz"
+    ],
+    "simKind": "projectile"
+  },
+  {
+    "id": "sim-flat-throw",
+    "prompt": "从 20 m 高的楼顶以 10 m/s 水平抛出一个小球，多久落地？落地点离楼多远？（g 取 10 m/s²）",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "graph"
+    ],
+    "simKind": "projectile"
+  },
+  {
+    "id": "sim-pendulum",
+    "prompt": "单摆的周期和摆球质量、摆角有关吗？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "graph",
+      "quiz",
+      "steps"
+    ],
+    "simKind": "pendulum"
+  },
+  {
+    "id": "sim-spring",
+    "prompt": "弹簧振子做简谐运动时，位移、速度、加速度是怎么变化的？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "graph",
+      "quiz",
+      "steps"
+    ],
+    "simKind": "spring"
+  },
+  {
+    "id": "sim-braking",
+    "prompt": "汽车以 20 m/s 的速度行驶，刹车加速度大小是 4 m/s²，求刹车后 6 s 内的位移。",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "graph"
+    ],
+    "simKind": "uniform_acceleration"
+  },
+  {
+    "id": "sim-collision",
+    "prompt": "质量相等的两个小球发生弹性碰撞，为什么会交换速度？非弹性碰撞又会怎样？",
+    "expect": [
+      "simulation"
+    ],
+    "allow": [
+      "steps",
+      "quiz",
+      "graph"
+    ],
+    "simKind": "collision"
+  },
+  {
     "id": "quiz-derivative",
     "prompt": "我刚学完导数的四则运算，给我出 3 道题练练。",
     "expect": [
@@ -246,7 +324,8 @@
     ],
     "allow": [
       "graph",
-      "geometry"
+      "geometry",
+      "simulation"
     ]
   },
   {

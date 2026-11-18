@@ -1279,6 +1279,306 @@
     return lines.join('\n');
   }
 
+  // ---------- 模拟 ----------
+  //
+  // 每种模拟在这里定义参数和物理计算（不依赖 DOM，可以测试），画法在 simulation.js 里。
+  // build(p) 根据参数返回一个模型：
+  //   duration   动画时长（秒）；Infinity 表示周期运动，一直播放
+  //   results    和时间无关的结果，例如射程、周期：[{ label, value, unit }]
+  //   at(t)      t 时刻的状态，供画图和实时读数使用
+  //   live(t)    t 时刻的实时读数
+  //   bounds     画面范围（米），{ xmin, xmax, ymin, ymax }
+
+  const DEG = Math.PI / 180;
+
+  function param(name, label, unit, min, max, step, value) {
+    return { name, label, unit, min, max, step, value };
+  }
+
+  function reading(label, value, unit, decimals) {
+    return { label, value, unit: unit || '', decimals: decimals === undefined ? 2 : decimals };
+  }
+
+  /** 单摆：用 RK4 积分一个完整周期，之后按周期取样（大角度时比小角度公式准确）。 */
+  function pendulumTable(L, theta0, g) {
+    const dt = 1 / 2000;
+    let theta = theta0;
+    let omega = 0;
+    const samples = [{ t: 0, theta, omega }];
+    const accel = (th) => (-g / L) * Math.sin(th);
+    let t = 0;
+    let crossings = 0;
+    let prevOmega = 0;
+    while (t < 60) {
+      const k1t = omega, k1o = accel(theta);
+      const k2t = omega + (dt / 2) * k1o, k2o = accel(theta + (dt / 2) * k1t);
+      const k3t = omega + (dt / 2) * k2o, k3o = accel(theta + (dt / 2) * k2t);
+      const k4t = omega + dt * k3o, k4o = accel(theta + dt * k3t);
+      theta += (dt / 6) * (k1t + 2 * k2t + 2 * k3t + k4t);
+      omega += (dt / 6) * (k1o + 2 * k2o + 2 * k3o + k4o);
+      t += dt;
+      samples.push({ t, theta, omega });
+      // 从右端出发后角速度先变为负，到左端变正，回到右端时由正变负，正好一个周期。
+      if (prevOmega > 0 && omega <= 0) crossings++;
+      prevOmega = omega;
+      if (crossings >= 1) break;
+    }
+    return { period: t, samples, dt };
+  }
+
+  const SIMULATIONS = {
+    projectile: {
+      label: '抛体运动',
+      params: [
+        param('v0', '初速度', 'm/s', 1, 50, 0.5, 10),
+        param('angle', '抛射角', '°', 0, 90, 1, 45),
+        param('h', '抛出点高度', 'm', 0, 100, 0.5, 0),
+        param('g', '重力加速度', 'm/s²', 1, 20, 0.1, 9.8),
+      ],
+      build(p) {
+        const vx = p.v0 * Math.cos(p.angle * DEG);
+        const vy = p.v0 * Math.sin(p.angle * DEG);
+        const T = (vy + Math.sqrt(vy * vy + 2 * p.g * p.h)) / p.g;
+        const range = vx * T;
+        const top = p.h + (vy > 0 ? (vy * vy) / (2 * p.g) : 0);
+        const tTop = vy > 0 ? vy / p.g : 0;
+        const at = (t) => {
+          const time = Math.min(Math.max(t, 0), T);
+          return { t: time, x: vx * time, y: Math.max(0, p.h + vy * time - 0.5 * p.g * time * time), vx, vy: vy - p.g * time };
+        };
+        return {
+          duration: T,
+          results: [
+            reading('飞行时间', T, 's'),
+            reading('水平射程', range, 'm'),
+            reading('最高点高度', top, 'm'),
+            reading('到达最高点用时', tTop, 's'),
+          ],
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('时间 t', s.t, 's'), reading('水平位移 x', s.x, 'm'), reading('高度 y', s.y, 'm'),
+              reading('速度大小', Math.hypot(s.vx, s.vy), 'm/s')];
+          },
+          bounds: { xmin: 0, xmax: Math.max(range, 1), ymin: 0, ymax: Math.max(top, 1) },
+          path(n) {
+            const points = [];
+            for (let i = 0; i <= n; i++) points.push(at((T * i) / n));
+            return points;
+          },
+        };
+      },
+    },
+
+    pendulum: {
+      label: '单摆',
+      params: [
+        param('L', '摆长', 'm', 0.2, 5, 0.1, 1),
+        param('theta0', '初始角度', '°', 1, 80, 1, 20),
+        param('g', '重力加速度', 'm/s²', 1, 20, 0.1, 9.8),
+      ],
+      build(p) {
+        const table = pendulumTable(p.L, p.theta0 * DEG, p.g);
+        const T = table.period;
+        const at = (t) => {
+          const local = ((t % T) + T) % T;
+          const index = Math.min(table.samples.length - 1, Math.round(local / table.dt));
+          const s = table.samples[index];
+          return { t, theta: s.theta, omega: s.omega, x: p.L * Math.sin(s.theta), y: -p.L * Math.cos(s.theta) };
+        };
+        return {
+          duration: Infinity,
+          results: [
+            reading('周期（实际）', T, 's', 3),
+            reading('小角度公式 2π√(L/g)', 2 * Math.PI * Math.sqrt(p.L / p.g), 's', 3),
+            reading('最低点速度', Math.sqrt(2 * p.g * p.L * (1 - Math.cos(p.theta0 * DEG))), 'm/s'),
+          ],
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('当前角度', s.theta / DEG, '°', 1), reading('速度大小', Math.abs(s.omega) * p.L, 'm/s')];
+          },
+          bounds: { xmin: -p.L * 1.1, xmax: p.L * 1.1, ymin: -p.L * 1.15, ymax: p.L * 0.15 },
+        };
+      },
+    },
+
+    spring: {
+      label: '弹簧振子',
+      params: [
+        param('k', '劲度系数', 'N/m', 1, 200, 1, 20),
+        param('m', '质量', 'kg', 0.1, 10, 0.1, 1),
+        param('A', '振幅', 'm', 0.05, 0.5, 0.01, 0.2),
+      ],
+      build(p) {
+        const w = Math.sqrt(p.k / p.m);
+        const at = (t) => ({ t, x: p.A * Math.cos(w * t), v: -p.A * w * Math.sin(w * t), a: -p.A * w * w * Math.cos(w * t) });
+        return {
+          duration: Infinity,
+          results: [
+            reading('周期 T = 2π√(m/k)', (2 * Math.PI) / w, 's', 3),
+            reading('角频率 ω', w, 'rad/s'),
+            reading('最大速度', p.A * w, 'm/s'),
+            reading('最大加速度', p.A * w * w, 'm/s²'),
+          ],
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('位移 x', s.x, 'm', 3), reading('速度 v', s.v, 'm/s'), reading('加速度 a', s.a, 'm/s²')];
+          },
+          bounds: { xmin: -0.6, xmax: 0.6, ymin: -0.15, ymax: 0.15 },
+          period: (2 * Math.PI) / w,
+        };
+      },
+    },
+
+    uniform_acceleration: {
+      label: '匀变速直线运动',
+      params: [
+        param('v0', '初速度', 'm/s', -10, 20, 0.5, 0),
+        param('a', '加速度', 'm/s²', -5, 5, 0.1, 2),
+        param('T', '运动时间', 's', 1, 10, 0.5, 5),
+      ],
+      // 刹车这类问题：速度减到 0 后停下，不会反向运动。
+      flags: ['stopAtRest'],
+      build(p) {
+        const tStopRaw = p.a !== 0 ? -p.v0 / p.a : -1;
+        const stops = p.stopAtRest && tStopRaw > 0;
+        const at = (t) => {
+          const time = Math.min(Math.max(t, 0), p.T);
+          const moving = stops ? Math.min(time, tStopRaw) : time;
+          return { t: time, v: stops && time >= tStopRaw ? 0 : p.v0 + p.a * moving, x: p.v0 * moving + 0.5 * p.a * moving * moving };
+        };
+        // 位移的范围：端点和速度为 0 的时刻
+        const xs = [0, at(p.T).x];
+        const tStop = tStopRaw;
+        if (tStop > 0 && tStop < p.T) xs.push(at(tStop).x);
+        const vs = [p.v0, at(p.T).v, 0];
+        return {
+          duration: p.T,
+          results: (stops && tStopRaw < p.T ? [reading('停下的时刻', tStopRaw, 's')] : []).concat([
+            reading('末速度 v = v₀ + at', at(p.T).v, 'm/s'),
+            reading('位移 x = v₀t + ½at²', at(p.T).x, 'm'),
+            reading('平均速度', at(p.T).x / p.T, 'm/s'),
+          ]),
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('时间 t', s.t, 's'), reading('速度 v', s.v, 'm/s'), reading('位移 x', s.x, 'm')];
+          },
+          bounds: { xmin: Math.min(...xs), xmax: Math.max(...xs), ymin: 0, ymax: 1 },
+          vRange: [Math.min(...vs), Math.max(...vs)],
+          xRange: [Math.min(...xs), Math.max(...xs)],
+        };
+      },
+    },
+
+    collision: {
+      label: '一维碰撞',
+      params: [
+        param('m1', '物块 1 质量', 'kg', 0.5, 10, 0.5, 1),
+        param('v1', '物块 1 初速度', 'm/s', -10, 10, 0.5, 4),
+        param('m2', '物块 2 质量', 'kg', 0.5, 10, 0.5, 1),
+        param('v2', '物块 2 初速度', 'm/s', -10, 10, 0.5, 0),
+        param('e', '恢复系数', '', 0, 1, 0.05, 1),
+      ],
+      build(p) {
+        const width = 0.6;
+        const x1 = -2;
+        const x2 = 1;
+        const gap = x2 - x1 - width;
+        const approaching = p.v1 > p.v2;
+        const tc = approaching ? gap / (p.v1 - p.v2) : Infinity;
+        const total = p.m1 + p.m2;
+        const P = p.m1 * p.v1 + p.m2 * p.v2;
+        const u1 = approaching ? (P - p.m2 * p.e * (p.v1 - p.v2)) / total : p.v1;
+        const u2 = approaching ? (P + p.m1 * p.e * (p.v1 - p.v2)) / total : p.v2;
+        const ke = (m, v) => 0.5 * m * v * v;
+        const keBefore = ke(p.m1, p.v1) + ke(p.m2, p.v2);
+        const keAfter = ke(p.m1, u1) + ke(p.m2, u2);
+        const duration = Math.min(6, Number.isFinite(tc) ? tc + 2 : 3);
+        const at = (t) => {
+          if (t <= tc) return { t, x1: x1 + p.v1 * t, x2: x2 + p.v2 * t, v1: p.v1, v2: p.v2, after: false };
+          const d = t - tc;
+          return { t, x1: x1 + p.v1 * tc + u1 * d, x2: x2 + p.v2 * tc + u2 * d, v1: u1, v2: u2, after: true };
+        };
+        // 画面要包含整个过程中两个物块到过的位置
+        const xs = [0, Math.min(tc, duration), duration].flatMap((t) => [at(t).x1, at(t).x2]);
+        const left = Math.min(...xs) - width;
+        const right = Math.max(...xs) + width;
+        const results = [
+          reading('碰后物块 1 速度', u1, 'm/s'),
+          reading('碰后物块 2 速度', u2, 'm/s'),
+          reading('总动量（碰前 = 碰后）', P, 'kg·m/s'),
+          reading('碰前总动能', keBefore, 'J'),
+          reading('碰后总动能', keAfter, 'J'),
+          reading('动能损失', keBefore - keAfter, 'J'),
+        ];
+        return {
+          duration,
+          results: approaching ? results : [reading('两物块不会相撞', NaN, '')].concat(results.slice(2, 4)),
+          at,
+          live(t) {
+            const s = at(t);
+            return [reading('时间 t', s.t, 's'), reading('物块 1 速度', s.v1, 'm/s'), reading('物块 2 速度', s.v2, 'm/s')];
+          },
+          bounds: { xmin: left, xmax: right, ymin: 0, ymax: 1 },
+          width,
+          collisionTime: tc,
+        };
+      },
+    },
+  };
+
+  /** 解析 ```simulation 代码块：{ "kind": "...", "title": "...", "params": { ... } }。参数超出范围时取边界。 */
+  function parseSimulationSpec(source) {
+    try {
+      const raw = parseJSONObject(source, '模拟');
+      const kind = typeof raw.kind === 'string' ? raw.kind.trim() : '';
+      const definition = SIMULATIONS[kind];
+      if (!definition) {
+        throw new Error('不认识的模拟种类：' + (kind || '（没写 kind）') + '，可用的有 ' + Object.keys(SIMULATIONS).join('、'));
+      }
+      // 参数可以写在 params 里，也可以直接写在外层
+      const given = raw.params && typeof raw.params === 'object' ? raw.params : raw;
+      const warnings = [];
+      const known = definition.params.map((d) => d.name);
+      Object.keys(raw.params && typeof raw.params === 'object' ? raw.params : {}).forEach((name) => {
+        if (!known.includes(name) && !(definition.flags || []).includes(name)) warnings.push('忽略了不认识的参数 ' + name);
+      });
+      const params = definition.params.map((d) => {
+        let value = d.value;
+        if (given[d.name] !== undefined) {
+          value = toNumber(given[d.name], '参数 ' + d.name);
+          if (value < d.min || value > d.max) warnings.push('参数 ' + d.name + ' 超出范围，已调整到 ' + d.min + ' 到 ' + d.max + ' 之间');
+          value = Math.min(d.max, Math.max(d.min, value));
+        }
+        return Object.assign({}, d, { value });
+      });
+      const values = {};
+      params.forEach((d) => { values[d.name] = d.value; });
+      // 开关类的选项（不是滑块），例如 stopAtRest
+      (definition.flags || []).forEach((flag) => {
+        const v = raw[flag] !== undefined ? raw[flag] : given[flag];
+        values[flag] = v === true || v === 1 || v === 'true';
+      });
+      // 先算一次，确认参数组合能算出结果
+      const model = definition.build(values);
+      if (!(model.duration > 0)) throw new Error('这组参数下没有运动（例如初速度为 0 又没有高度）');
+      return { ok: true, value: { kind, label: definition.label, title: optionalLabel(raw.title), params, defaults: values, warnings } };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  }
+
+  function buildSimulation(kind, values) {
+    return SIMULATIONS[kind].build(values);
+  }
+
+  function simulationKinds() {
+    return Object.keys(SIMULATIONS);
+  }
+
   // ---------- 组件注册表 ----------
   //
   // 每种组件在这里登记：名称、解析校验函数、复制消息时的文字形式。
@@ -1303,6 +1603,14 @@
       },
     },
     chart: { label: '图表', parse: parseChartSpec, toText: chartToText },
+    simulation: {
+      label: '模拟',
+      parse: parseSimulationSpec,
+      toText(spec) {
+        const params = spec.params.map((p) => p.label + ' ' + formatNumber(p.value, 2) + (p.unit ? ' ' + p.unit : '')).join('，');
+        return '[模拟：' + (spec.title || spec.label) + '（' + params + '）]';
+      },
+    },
     quiz: { label: '测验', parse: parseQuizSpec, toText: quizToText },
     steps: { label: '分步讲解', parse: parseStepsSpec, toText: stepsToText },
   };
@@ -1381,6 +1689,9 @@
     parseGeometrySpec,
     computeGeometry,
     parseChartSpec,
+    parseSimulationSpec,
+    buildSimulation,
+    simulationKinds,
     evaluateNumberInput,
     isNumberCorrect,
     componentTypes,
