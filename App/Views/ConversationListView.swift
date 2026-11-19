@@ -3,12 +3,13 @@ import SwiftData
 import SwiftUI
 
 struct ConversationListView: View {
-    @Binding var selection: Conversation?
+    @Binding var selection: SidebarItem?
 
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
     @Query private var models: [ChatModel]
+    @Query(filter: #Predicate<Mistake> { $0.masteredAt == nil }) private var activeMistakes: [Mistake]
     @State private var showSettings = false
     @State private var searchText = ""
     @State private var renaming: Conversation?
@@ -22,8 +23,23 @@ struct ConversationListView: View {
 
     var body: some View {
         List(selection: $selection) {
+            if searchText.isEmpty {
+                Section {
+                    NavigationLink(value: SidebarItem.mistakes) {
+                        Label("错题本", systemImage: "exclamationmark.bubble")
+                            .badge(dueCount)
+                    }
+                    NavigationLink(value: SidebarItem.bookmarks) {
+                        Label("收藏", systemImage: "bookmark")
+                    }
+                    NavigationLink(value: SidebarItem.stats) {
+                        Label("学习记录", systemImage: "chart.bar")
+                    }
+                }
+            }
+            Section(searchText.isEmpty ? "会话" : "") {
             ForEach(filtered) { conversation in
-                NavigationLink(value: conversation) {
+                NavigationLink(value: SidebarItem.conversation(conversation)) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(conversation.title)
                             .lineLimit(1)
@@ -43,6 +59,7 @@ struct ConversationListView: View {
                         .tint(.orange)
                 }
             }
+            }
         }
         .searchable(text: $searchText, prompt: "搜索会话标题")
         .overlay {
@@ -55,18 +72,13 @@ struct ConversationListView: View {
                     } actions: {
                         Button("打开设置") { showSettings = true }
                     }
-                } else {
-                    ContentUnavailableView(
-                        "还没有会话",
-                        systemImage: "square.and.pencil",
-                        description: Text("点右上角的按钮新建一个会话。")
-                    )
                 }
-            } else if filtered.isEmpty {
+                // 有模型但还没有会话时不盖住列表，顶部的错题本等入口仍然可以点。
+            } else if filtered.isEmpty && !searchText.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
-        .navigationTitle("会话")
+        .navigationTitle("Study Agent")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("设置", systemImage: "gearshape") { showSettings = true }
@@ -91,12 +103,17 @@ struct ConversationListView: View {
         }
     }
 
+    /// 今天到期的错题数。
+    private var dueCount: Int {
+        activeMistakes.filter { ReviewSchedule.isDue($0) }.count
+    }
+
     private func newConversation() {
         let conversation = Conversation()
         context.insert(conversation)
         conversation.model = ModelLookup.defaultModel(in: context)
         try? context.save()
-        selection = conversation
+        selection = .conversation(conversation)
     }
 
     private func startRenaming(_ conversation: Conversation) {
@@ -116,7 +133,7 @@ struct ConversationListView: View {
     }
 
     private func delete(_ conversation: Conversation) {
-        if selection == conversation {
+        if selection == .conversation(conversation) {
             selection = nil
         }
         generation.stop(conversation)

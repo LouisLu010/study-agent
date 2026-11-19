@@ -13,18 +13,23 @@ struct MessageRow: View {
     var onAsk: (String) -> Void = { _ in }
     /// 切换回答的版本。
     var onSelectVersion: (Int) -> Void = { _ in }
+    /// 测验答完一道题。
+    var onQuizResult: ([String: Any]) -> Void = { _ in }
+    /// 用户消息上的"加入错题本"；为 nil 时不显示（例如还没有解答）。
+    var onAddToMistakes: (() -> Void)?
 
     var body: some View {
         switch message.role {
         case .user:
-            UserMessageView(message: message, canEdit: canEdit, onEdit: onEdit)
+            UserMessageView(message: message, canEdit: canEdit, onEdit: onEdit, onAddToMistakes: onAddToMistakes)
         case .assistant:
             AssistantMessageView(
                 message: message,
                 canRegenerate: canRegenerate,
                 onRegenerate: onRegenerate,
                 onAsk: onAsk,
-                onSelectVersion: onSelectVersion
+                onSelectVersion: onSelectVersion,
+                onQuizResult: onQuizResult
             )
         }
     }
@@ -35,6 +40,7 @@ private struct UserMessageView: View {
     let message: Message
     let canEdit: Bool
     let onEdit: () -> Void
+    let onAddToMistakes: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -78,6 +84,9 @@ private struct UserMessageView: View {
             if canEdit {
                 Button("编辑后重新发送", systemImage: "pencil", action: onEdit)
             }
+            if let onAddToMistakes {
+                Button("加入错题本", systemImage: "exclamationmark.bubble", action: onAddToMistakes)
+            }
         }
     }
 }
@@ -89,6 +98,7 @@ private struct AssistantMessageView: View {
     let onRegenerate: () -> Void
     let onAsk: (String) -> Void
     let onSelectVersion: (Int) -> Void
+    let onQuizResult: ([String: Any]) -> Void
 
     @Environment(\.modelContext) private var context
     @State private var webHeight: CGFloat
@@ -96,19 +106,22 @@ private struct AssistantMessageView: View {
     @State private var didCopy = false
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
+    @State private var isBookmarked = false
 
     init(
         message: Message,
         canRegenerate: Bool,
         onRegenerate: @escaping () -> Void,
         onAsk: @escaping (String) -> Void,
-        onSelectVersion: @escaping (Int) -> Void
+        onSelectVersion: @escaping (Int) -> Void,
+        onQuizResult: @escaping ([String: Any]) -> Void
     ) {
         self.message = message
         self.canRegenerate = canRegenerate
         self.onRegenerate = onRegenerate
         self.onAsk = onAsk
         self.onSelectVersion = onSelectVersion
+        self.onQuizResult = onQuizResult
         _webHeight = State(initialValue: RenderCache.heights[message.id] ?? 24)
     }
 
@@ -145,6 +158,8 @@ private struct AssistantMessageView: View {
                     },
                     onAsk: onAsk,
                     onRegenerate: onRegenerate,
+                    onQuizResult: onQuizResult,
+                    recordsMistakes: true,
                     handle: webHandle
                 )
                 .frame(height: webHeight)
@@ -273,6 +288,14 @@ private struct AssistantMessageView: View {
                 }
                 .accessibilityLabel("重新生成")
             }
+
+            Button {
+                isBookmarked = StudyCenter.toggleBookmark(message, context: context)
+            } label: {
+                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+            }
+            .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
+            .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }
 
             Button {
                 Task {

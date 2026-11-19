@@ -119,3 +119,31 @@ test('真正损坏的 JSON 仍然报错', () => {
   assert.equal(core.parseStepsSpec('{"steps":[{"content":"a"},').ok, false);
   assert.equal(core.parseGraphSpec('{ "functions": [').ok, false);
 });
+
+// ---------- 科目、知识点和错题本 ----------
+
+test('解析科目和知识点', () => {
+  const result = quiz({ questions: [
+    { question: 'q1', options: ['a', 'b'], answer: 'A', subject: '数学', topic: ' 导数的运算 ' },
+    { type: 'number', question: 'q2', answer: 1, subject: 'Physics' },
+    { type: 'number', question: 'q3', answer: 1, subject: '高中化学' },
+    { type: 'number', question: 'q4', answer: 1, subject: '历史' },
+    { type: 'number', question: 'q5', answer: 1 },
+  ] });
+  assert.equal(result.ok, true, result.error);
+  assert.deepEqual(result.value.questions.map((q) => [q.subject, q.topic]), [
+    ['数学', '导数的运算'], ['物理', ''], ['化学', ''], ['其他', ''], ['', ''],
+  ]);
+});
+
+test('单道题可以还原成 JSON 再解析回来', () => {
+  const original = { questions: [
+    { question: '哪些是奇函数？', options: ['$\\sin x$', '$\\cos x$', '$x^3$'], answer: ['A', 'C'], explanation: '定义', subject: '数学', topic: '奇偶性' },
+    { type: 'number', question: '速度？', answer: 20, tolerance: 0.1, unit: 'm/s' },
+  ] };
+  const parsed = quiz(original).value.questions;
+  const restored = core.parseQuizSpec(JSON.stringify({ questions: parsed.map(core.quizQuestionToJSON) }));
+  assert.equal(restored.ok, true, restored.error);
+  assert.deepEqual(restored.value.questions, parsed);
+  assert.deepEqual(core.quizQuestionToJSON(parsed[0]).answer, ['A', 'C']);
+});

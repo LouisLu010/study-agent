@@ -13,6 +13,7 @@ struct ChatView: View {
     @State private var editingMessage: Message?
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
+    @State private var addingMistake: MistakeDraft?
 
     private let bottomID = "bottom"
 
@@ -35,6 +36,12 @@ struct ChatView: View {
                                 onAsk: ask,
                                 onSelectVersion: { index in
                                     generation.selectVersion(index, of: message, in: conversation, context: context)
+                                },
+                                onQuizResult: { payload in
+                                    StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
+                                },
+                                onAddToMistakes: solution(for: message).map { reply in
+                                    { addingMistake = MistakeDraft(question: message, solution: reply) }
                                 }
                             )
                         }
@@ -104,6 +111,14 @@ struct ChatView: View {
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)
         }
+        .sheet(item: $addingMistake) { draft in
+            AddMistakeSheet { note in
+                StudyCenter.addManualMistake(
+                    question: draft.question, solution: draft.solution, note: note,
+                    conversation: conversation, context: context
+                )
+            }
+        }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
                 .presentationDetents([.medium, .large])
@@ -143,6 +158,18 @@ struct ChatView: View {
             draft = ""
             draftImages = []
         }
+    }
+
+    /// 用户消息后面紧跟的那条已经生成完的 AI 回答，作为错题的解答。生成中或失败时返回 nil。
+    private func solution(for message: Message) -> Message? {
+        guard message.role == .user else { return nil }
+        let messages = conversation.sortedMessages
+        guard let index = messages.firstIndex(where: { $0.id == message.id }), index + 1 < messages.count else { return nil }
+        let reply = messages[index + 1]
+        guard reply.role == .assistant, reply.status == .complete || reply.status == .stopped, !reply.content.isEmpty else {
+            return nil
+        }
+        return reply
     }
 
     /// 组件里的"问问 AI"：直接发出，不经过输入框。
@@ -254,5 +281,48 @@ private struct ConversationInstructionsSheet: View {
             .onAppear { text = conversation.instructions }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+struct MistakeDraft: Identifiable {
+    let id = UUID()
+    let question: Message
+    let solution: Message
+}
+
+/// 把一道自己问过的题加入错题本，可以写一句备注。
+private struct AddMistakeSheet: View {
+    let onSave: (String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var note = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("例如：符号判断错了", text: $note, axis: .vertical)
+                        .lineLimit(2...5)
+                } header: {
+                    Text("备注（可选）")
+                } footer: {
+                    Text("会保存这条提问和后面那条 AI 解答。复习时先看题目，自己想好后再看解答。")
+                }
+            }
+            .navigationTitle("加入错题本")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("加入") {
+                        onSave(note)
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 }

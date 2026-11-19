@@ -10,6 +10,9 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
     @AppStorage(AppSettingsKey.simpleMode) private var simpleMode = false
+    @AppStorage(ReviewReminder.enabledKey) private var reminderEnabled = false
+    @AppStorage(ReviewReminder.minutesKey) private var reminderMinutes = ReviewReminder.defaultMinutes
+    @State private var permissionDenied = false
     @AppStorage(AppSettingsKey.usdToCNY) private var usdToCNY = AppSettingsKey.defaultUSDToCNY
     @State private var path = NavigationPath()
 
@@ -51,6 +54,32 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("复习提醒", isOn: $reminderEnabled)
+                    if reminderEnabled {
+                        DatePicker("提醒时间", selection: reminderTime, displayedComponents: .hourAndMinute)
+                    }
+                } header: {
+                    Text("复习")
+                } footer: {
+                    Text(permissionDenied
+                         ? "通知权限被关闭了，请在系统设置 → 通知 → Study Agent 里打开。"
+                         : "每天在这个时间提醒一次，只在有到期的错题时才提醒。")
+                }
+                .onChange(of: reminderEnabled) {
+                    Task {
+                        if reminderEnabled {
+                            let granted = await ReviewReminder.requestPermission()
+                            if !granted {
+                                permissionDenied = true
+                                reminderEnabled = false
+                            }
+                        }
+                        ReviewReminder.reschedule(in: context)
+                    }
+                }
+                .onChange(of: reminderMinutes) { ReviewReminder.reschedule(in: context) }
+
+                Section {
                     LabeledContent("美元汇率") {
                         TextField("7.2", value: $usdToCNY, format: .number)
                             .keyboardType(.decimalPad)
@@ -88,6 +117,19 @@ struct SettingsView: View {
         .onDisappear {
             try? context.save()
         }
+    }
+
+    /// 提醒时间以"从 0 点开始的分钟数"保存，DatePicker 需要一个 Date。
+    private var reminderTime: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(byAdding: .minute, value: reminderMinutes, to: Calendar.current.startOfDay(for: .now)) ?? .now
+            },
+            set: { date in
+                let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
+                reminderMinutes = (parts.hour ?? 20) * 60 + (parts.minute ?? 0)
+            }
+        )
     }
 
     private func addProvider() {

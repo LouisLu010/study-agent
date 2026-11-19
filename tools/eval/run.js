@@ -115,6 +115,26 @@ function check(testCase, content, available) {
     const result = core.parseComponent(f.language, f.content);
     if (result.ok && result.value.warnings) result.value.warnings.forEach((w) => warnings.push(f.language + ' ' + w));
   });
+  // 测验的每道题都应该写 subject 和 topic，缺了记为警告。
+  components.filter((f) => f.language === 'quiz').forEach((f) => {
+    const result = core.parseComponent('quiz', f.content);
+    if (!result.ok) return;
+    const missing = result.value.questions.filter((q) => !q.subject || !q.topic).length;
+    if (missing) warnings.push('quiz 有 ' + missing + ' 道题没写 subject 或 topic');
+  });
+  // 题目要求某种模拟时，要用对种类。
+  if (testCase.simKind) {
+    const kinds = components.filter((f) => f.language === 'simulation').map((f) => {
+      const result = core.parseComponent('simulation', f.content);
+      return result.ok ? result.value.kind : null;
+    });
+    if (!kinds.includes(testCase.simKind)) problems.push('没有 ' + testCase.simKind + ' 模拟（用了 ' + (kinds.join('、') || '无') + '）');
+  }
+  components.forEach((f) => {
+    if (f.language !== 'simulation') return;
+    const result = core.parseComponent('simulation', f.content);
+    if (result.ok) result.value.warnings.forEach((w) => warnings.push('simulation ' + w));
+  });
   // 题目要求能调参数时，至少一个坐标图要带参数。
   if (testCase.needsParams) {
     const withParams = components.some((f) => {
