@@ -9,6 +9,10 @@ struct ModelFormFields: View {
     @Binding var supportsImages: Bool
     /// 空字符串表示使用服务商的默认值。
     @Binding var reasoningEffortRaw: String
+    @Binding var supportsWebSearch: Bool
+    /// 空字符串表示自动判断。
+    @Binding var webSearchDialectRaw: String
+    let providerKind: ProviderKind
 
     var body: some View {
         Section {
@@ -25,6 +29,20 @@ struct ModelFormFields: View {
         }
 
         Section {
+            Toggle("支持联网搜索", isOn: $supportsWebSearch)
+            if supportsWebSearch && providerKind == .openAICompatible {
+                Picker("搜索格式", selection: $webSearchDialectRaw) {
+                    Text("自动").tag("")
+                    ForEach(WebSearchDialect.allCases) { dialect in
+                        Text(dialect.displayName).tag(dialect.rawValue)
+                    }
+                }
+            }
+        } footer: {
+            Text(webSearchFooter)
+        }
+
+        Section {
             Picker("思考强度", selection: $reasoningEffortRaw) {
                 Text("默认").tag("")
                 ForEach(ReasoningEffort.allCases) { effort in
@@ -33,6 +51,19 @@ struct ModelFormFields: View {
             }
         } footer: {
             Text("只对推理模型有效。不支持这个参数的模型可能会报错，这时改回\"默认\"即可。Claude 只有设置了思考强度才会返回思考过程。")
+        }
+    }
+}
+
+extension ModelFormFields {
+    fileprivate var webSearchFooter: String {
+        switch providerKind {
+        case .anthropic:
+            "使用服务商自带的 web_search 工具。打开后，在会话输入框旁点\"联网\"即可让模型搜索。"
+        case .gemini:
+            "使用 Google 搜索接地。打开后，在会话输入框旁点\"联网\"即可让模型搜索。"
+        case .openAICompatible:
+            "使用服务商自带的搜索：DeepSeek 用 deepseek_web_search 工具，OpenAI 的 search 系列模型用 web_search_options。\"自动\"按地址和模型 ID 判断。其他服务商一般不支持。"
         }
     }
 }
@@ -46,7 +77,10 @@ struct ModelEditView: View {
                 modelID: $model.modelID,
                 displayName: $model.displayName,
                 supportsImages: $model.supportsImages,
-                reasoningEffortRaw: $model.reasoningEffortRaw
+                reasoningEffortRaw: $model.reasoningEffortRaw,
+                supportsWebSearch: $model.supportsWebSearch,
+                webSearchDialectRaw: $model.webSearchDialectRaw,
+                providerKind: model.provider?.kind ?? .openAICompatible
             )
             ModelPriceSection(model: model)
         }
@@ -65,6 +99,8 @@ struct AddModelSheet: View {
     @State private var displayName = ""
     @State private var supportsImages = false
     @State private var reasoningEffortRaw = ""
+    @State private var supportsWebSearch = false
+    @State private var webSearchDialectRaw = ""
 
     var body: some View {
         NavigationStack {
@@ -73,7 +109,10 @@ struct AddModelSheet: View {
                     modelID: $modelID,
                     displayName: $displayName,
                     supportsImages: $supportsImages,
-                    reasoningEffortRaw: $reasoningEffortRaw
+                    reasoningEffortRaw: $reasoningEffortRaw,
+                    supportsWebSearch: $supportsWebSearch,
+                    webSearchDialectRaw: $webSearchDialectRaw,
+                    providerKind: provider.kind
                 )
             }
             .navigationTitle("添加模型")
@@ -101,6 +140,8 @@ struct AddModelSheet: View {
             supportsImages: supportsImages
         )
         model.reasoningEffortRaw = reasoningEffortRaw
+        model.supportsWebSearch = supportsWebSearch
+        model.webSearchDialectRaw = webSearchDialectRaw
         context.insert(model)
         model.provider = provider
         try? context.save()

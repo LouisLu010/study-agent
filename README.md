@@ -131,6 +131,8 @@ STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
 
 回答原文和汇总保存在 `tools/eval/results/`，这个目录不提交到仓库。改了提示词或组件格式之后，都应该跑一遍。
 
+加 `--web` 只跑联网搜索的题（`cases.json` 里 `"web": true` 的题），检查该搜时搜了、不该搜时没搜、搜了就带出处。搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 `deepseek_web_search` 工具，其余用 `web_search_options`。
+
 ## 里程碑
 
 1. **M1 骨架**：工程结构、CI、服务商和模型配置、会话列表、OpenAI 兼容协议的流式纯文本聊天。

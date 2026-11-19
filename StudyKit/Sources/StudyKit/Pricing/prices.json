@@ -1,11 +1,12 @@
 {
- "updated": "2026-11-15",
- "note": "官方标价，按最低的上下文档位；不含缓存和批量折扣；DeepSeek 按高峰时段价格。",
+ "updated": "2026-11-19",
+ "note": "官方标价，按最低的上下文档位；不含缓存和批量折扣；DeepSeek 按高峰时段价格。联网搜索按每 1000 次的官方价格（webSearchPer1000）：Gemini 是 Gemini 3 起按搜索词计费的价格，不计每月免费额度；DeepSeek 自 2026-11-18 起对话中的搜索不再单独收费。",
  "providers": [
   {
    "name": "OpenAI",
    "currency": "USD",
    "source": "https://developers.openai.com/api/docs/pricing",
+   "webSearchPer1000": 10,
    "models": [
     {
      "ids": [
@@ -90,6 +91,7 @@
    "name": "Anthropic",
    "currency": "USD",
    "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+   "webSearchPer1000": 10,
    "models": [
     {
      "ids": [
@@ -154,6 +156,7 @@
    "name": "Google Gemini API",
    "currency": "USD",
    "source": "https://aistudio.google.com/docs/pricing",
+   "webSearchPer1000": 14,
    "models": [
     {
      "ids": [
@@ -225,6 +228,7 @@
    "name": "DeepSeek",
    "currency": "CNY",
    "source": "https://api-docs.deepseek.com/zh-cn/quick_start/pricing",
+   "webSearchPer1000": 0,
    "models": [
     {
      "ids": [

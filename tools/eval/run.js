@@ -3,7 +3,10 @@
  * 用真实模型测试组件：用 App 的内置提示词提问，检查回答里的组件格式和使用是否恰当。
  *
  *   STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
- *     node tools/eval/run.js --model deepseek-flash [--model grok-4.7] [--only graph-] [--simple]
+ *     node tools/eval/run.js --model deepseek-flash [--model grok-4.7] [--only graph-] [--simple] [--web]
+ *
+ * --web 只跑联网搜索的题（cases.json 里 web 为 true 的题），检查该搜时搜了、不该搜时没搜、回答带出处。
+ * 搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 deepseek_web_search 工具，其余用 web_search_options。
  *
  * 只支持 OpenAI 兼容接口。结果写在 tools/eval/results/（已被 .gitignore 忽略）。
  * Key 只从环境变量读取，不要写进仓库。
@@ -20,12 +23,13 @@ const PROMPTS = path.join(ROOT, 'StudyKit', 'Sources', 'StudyKit', 'Prompts');
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { models: [], only: null, simple: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
+  const args = { models: [], only: null, simple: false, web: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--model') args.models.push(argv[++i]);
     else if (arg === '--only') args.only = argv[++i];
     else if (arg === '--simple') args.simple = true;
+    else if (arg === '--web') args.web = true;
     else if (arg === '--concurrency') args.concurrency = Number(argv[++i]);
     else if (arg === '--cases') args.cases = argv[++i];
     else throw new Error('不认识的参数：' + arg);
@@ -45,18 +49,26 @@ function systemPrompt(simple) {
 
 // ---------- 请求 ----------
 
-async function ask(model, system, prompt) {
+/** 联网搜索的请求字段，和 App 的 WebSearchDialect 一致。 */
+function webSearchFields(model, baseURL) {
+  if ((model + ' ' + baseURL).toLowerCase().includes('deepseek')) {
+    return { tools: [{ type: 'deepseek_web_search' }] };
+  }
+  return { web_search_options: {} };
+}
+
+async function ask(model, system, prompt, webSearch) {
   const baseURL = process.env.STUDY_TEST_BASE_URL;
   const apiKey = process.env.STUDY_TEST_API_KEY;
   if (!baseURL || !apiKey) throw new Error('需要设置环境变量 STUDY_TEST_BASE_URL 和 STUDY_TEST_API_KEY');
 
-  const body = JSON.stringify({
+  const body = JSON.stringify(Object.assign({
     model,
     messages: [
       { role: 'system', content: system },
       { role: 'user', content: prompt },
     ],
-  });
+  }, webSearch ? webSearchFields(model, baseURL) : {}));
   let lastError;
   for (let attempt = 0; attempt < 2; attempt++) {
     const started = Date.now();
@@ -70,8 +82,14 @@ async function ask(model, system, prompt) {
       const text = await response.text();
       if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + text.slice(0, 200));
       const json = JSON.parse(text);
-      const message = json.choices && json.choices[0] && json.choices[0].message;
-      return { content: (message && message.content) || '', ms: Date.now() - started };
+      const message = (json.choices && json.choices[0] && json.choices[0].message) || {};
+      // 搜索次数：DeepSeek 在 usage.server_tool_use.tool_search；OpenAI 的 search 模型没有，按有没有引用算。
+      const usage = (json.usage && json.usage.server_tool_use) || {};
+      const steps = message.server_tool_calls || [];
+      const searchCalls = steps.flatMap((step) => step.calls || []).filter((call) => /search/.test(call.kind || ''));
+      const citations = (message.annotations || []).filter((a) => a.type === 'url_citation');
+      const searches = usage.tool_search || searchCalls.length || (citations.length ? 1 : 0);
+      return { content: message.content || '', citations, searches, ms: Date.now() - started };
     } catch (error) {
       lastError = error;
     }
@@ -87,6 +105,16 @@ function proseOnly(markdown) {
   const fences = core.extractFences(markdown);
   for (let k = fences.length - 1; k >= 0; k--) lines.splice(fences[k].start, fences[k].end - fences[k].start);
   return lines.join('\n');
+}
+
+/** 联网搜索的题：该搜时搜了、不该搜时没搜、搜了就要有出处。 */
+function checkWebSearch(testCase, reply) {
+  const problems = [];
+  const hasLinks = /\]\(https?:\/\//.test(reply.content);
+  if (testCase.expectSearch && !reply.searches) problems.push('该搜索时没搜');
+  if (testCase.expectSearch === false && reply.searches) problems.push('不该搜索时搜了 ' + reply.searches + ' 次');
+  if (testCase.expectSearch && reply.searches && !reply.citations.length && !hasLinks) problems.push('回答没有出处');
+  return problems;
 }
 
 function check(testCase, content, available) {
@@ -178,6 +206,7 @@ async function main() {
   // 只跑当前已经实现的组件能覆盖的题。
   const cases = allCases.filter((c) =>
     (c.expect || []).every((type) => available.includes(type)) &&
+    !!c.web === args.web &&
     (!args.only || c.id.includes(args.only)),
   );
   const system = systemPrompt(args.simple);
@@ -193,9 +222,17 @@ async function main() {
 
     const results = await runPool(cases, args.concurrency, async (testCase) => {
       try {
-        const { content, ms } = await ask(model, system, testCase.prompt);
+        const reply = await ask(model, system, testCase.prompt, !!testCase.web);
+        const { content, ms } = reply;
         fs.writeFileSync(path.join(dir, testCase.id + '.md'), content);
-        return Object.assign({ id: testCase.id, ms }, check(testCase, content, available));
+        const result = Object.assign({ id: testCase.id, ms }, check(testCase, content, available));
+        if (testCase.web) {
+          result.searches = reply.searches;
+          result.citations = reply.citations.length;
+          result.problems = result.problems.concat(checkWebSearch(testCase, reply));
+          result.pass = result.problems.length === 0;
+        }
+        return result;
       } catch (error) {
         return { id: testCase.id, error: error.message, blocks: [], problems: ['请求失败：' + error.message], pass: false };
       }
@@ -217,9 +254,10 @@ async function main() {
     results.forEach((r) => {
       const types = (r.blocks || []).map((b) => b.type + (b.ok ? '' : '✗')).join(' ') || '-';
       const time = r.ms ? (r.ms / 1000).toFixed(1) + 's' : '';
+      const web = r.searches === undefined ? '' : '  搜索 ' + r.searches + ' 次 · 引用 ' + r.citations + ' 处';
       const notes = r.problems.concat((r.warnings || []).map((w) => '（警告）' + w));
       console.log((r.pass ? '  ✓ ' : '  ✗ ') + r.id.padEnd(22) + types.padEnd(18) + time.padStart(7) +
-        (notes.length ? '  ' + notes.join('；') : ''));
+        web + (notes.length ? '  ' + notes.join('；') : ''));
     });
     const rate = blocks.length ? ((100 * validBlocks) / blocks.length).toFixed(0) + '%' : '无组件';
     console.log('  通过 ' + passed + '/' + results.length + '，组件格式正确 ' + validBlocks + '/' + blocks.length + '（' + rate + '）\n');

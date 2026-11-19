@@ -54,6 +54,10 @@ public struct OpenAICompatibleService: ChatService {
         let stream: Bool
         let streamOptions: StreamOptions
         let reasoningEffort: String?
+        /// DeepSeek 的服务端搜索工具。
+        let tools: [Tool]?
+        /// OpenAI search 系列模型的联网搜索，内容是空对象。
+        let webSearchOptions: EmptyObject?
 
         struct StreamOptions: Encodable {
             /// 让服务商在最后一个片段里返回用量。
@@ -64,10 +68,17 @@ public struct OpenAICompatibleService: ChatService {
             }
         }
 
+        struct Tool: Encodable {
+            let type: String
+        }
+
+        struct EmptyObject: Encodable {}
+
         enum CodingKeys: String, CodingKey {
-            case model, messages, stream
+            case model, messages, stream, tools
             case streamOptions = "stream_options"
             case reasoningEffort = "reasoning_effort"
+            case webSearchOptions = "web_search_options"
         }
     }
 
@@ -103,7 +114,11 @@ public struct OpenAICompatibleService: ChatService {
             messages: messages,
             stream: true,
             streamOptions: .init(),
-            reasoningEffort: request.reasoningEffort?.rawValue
+            reasoningEffort: request.reasoningEffort?.rawValue,
+            // DeepSeek 声明了搜索工具时不能再带 web_search_options，否则返回 400。
+            tools: request.webSearch && request.webSearchDialect == .deepSeek
+                ? [RequestBody.Tool(type: "deepseek_web_search")] : nil,
+            webSearchOptions: request.webSearch && request.webSearchDialect == .openAI ? RequestBody.EmptyObject() : nil
         ))
         return urlRequest
     }
@@ -113,6 +128,13 @@ public struct OpenAICompatibleService: ChatService {
     private struct StreamChunk: Decodable {
         struct Choice: Decodable {
             let delta: Delta?
+            /// DeepSeek 联网搜索的进度（扩展字段）。
+            let serverToolEvent: Lenient<ServerToolEvent>?
+
+            enum CodingKeys: String, CodingKey {
+                case delta
+                case serverToolEvent = "server_tool_event"
+            }
         }
 
         struct Delta: Decodable {
@@ -121,23 +143,77 @@ public struct OpenAICompatibleService: ChatService {
             let reasoningContent: String?
             /// OpenRouter 的思考过程字段。
             let reasoning: String?
+            /// 引用（OpenAI 和 DeepSeek 都用 url_citation），在最后一个片段里一次给出。
+            let annotations: Lenient<[Annotation]>?
 
             enum CodingKeys: String, CodingKey {
-                case content
+                case content, annotations
                 case reasoningContent = "reasoning_content"
                 case reasoning
             }
         }
 
+        struct Annotation: Decodable {
+            struct URLCitation: Decodable {
+                let url: String?
+                let title: String?
+                /// 按 Unicode 字符计的位置。
+                let endIndex: Int?
+
+                enum CodingKeys: String, CodingKey {
+                    case url, title
+                    case endIndex = "end_index"
+                }
+            }
+
+            let type: String?
+            let urlCitation: URLCitation?
+
+            enum CodingKeys: String, CodingKey {
+                case type
+                case urlCitation = "url_citation"
+            }
+        }
+
+        struct ServerToolEvent: Decodable {
+            struct Call: Decodable {
+                struct Action: Decodable {
+                    let type: String?
+                    let queries: [String]?
+                }
+
+                struct Source: Decodable {
+                    let url: String?
+                    let title: String?
+                }
+
+                let action: Action?
+                let sources: [Source]?
+            }
+
+            let type: String?
+            let call: Call?
+        }
+
         struct Usage: Decodable {
+            struct ServerToolUse: Decodable {
+                let toolSearch: Int?
+
+                enum CodingKeys: String, CodingKey {
+                    case toolSearch = "tool_search"
+                }
+            }
+
             let promptTokens: Int?
             let completionTokens: Int?
             let totalTokens: Int?
+            let serverToolUse: ServerToolUse?
 
             enum CodingKeys: String, CodingKey {
                 case promptTokens = "prompt_tokens"
                 case completionTokens = "completion_tokens"
                 case totalTokens = "total_tokens"
+                case serverToolUse = "server_tool_use"
             }
 
             /// 输出数。有的服务商（例如 grok）的 completion_tokens 不含思考过程，只算进了 total_tokens，
@@ -175,6 +251,9 @@ public struct OpenAICompatibleService: ChatService {
         }
 
         var events: [ChatStreamEvent] = []
+        if let toolEvent = chunk.choices?.first?.serverToolEvent?.value {
+            events += searchEvents(from: toolEvent)
+        }
         if let delta = chunk.choices?.first?.delta {
             if let reasoning = delta.reasoningContent ?? delta.reasoning, !reasoning.isEmpty {
                 events.append(.reasoning(reasoning))
@@ -182,11 +261,42 @@ public struct OpenAICompatibleService: ChatService {
             if let content = delta.content, !content.isEmpty {
                 events.append(.text(content))
             }
+            let citations = (delta.annotations?.value ?? []).compactMap { annotation -> Citation? in
+                guard annotation.type == nil || annotation.type == "url_citation",
+                      let info = annotation.urlCitation, let url = info.url, !url.isEmpty, let end = info.endIndex
+                else { return nil }
+                return Citation(sources: [WebSource(url: url, title: info.title ?? "")], anchor: .offset(end))
+            }
+            if !citations.isEmpty {
+                events.append(.citations(citations))
+            }
         }
         if let usage = chunk.usage, usage.promptTokens != nil || usage.completionTokens != nil {
             events.append(.usage(input: usage.promptTokens, output: usage.output))
         }
+        if let searches = chunk.usage?.serverToolUse?.toolSearch, searches > 0 {
+            events.append(.searchCount(searches))
+        }
         return .events(events)
+    }
+
+    /// DeepSeek 的搜索进度：开始搜索时给出搜索词，搜完给出结果。打开网页、读链接不算搜索。
+    private static func searchEvents(from event: StreamChunk.ServerToolEvent) -> [ChatStreamEvent] {
+        guard let call = event.call else { return [] }
+        switch event.type {
+        case "call_started":
+            guard call.action?.type == "search" else { return [] }
+            let query = (call.action?.queries ?? []).filter { !$0.isEmpty }.joined(separator: " / ")
+            return [.searching(query: query.isEmpty ? nil : query)]
+        case "call_completed":
+            let sources = (call.sources ?? []).compactMap { source -> WebSource? in
+                guard let url = source.url, !url.isEmpty else { return nil }
+                return WebSource(url: url, title: source.title ?? "")
+            }
+            return sources.isEmpty ? [] : [.searchResults(sources)]
+        default:
+            return []
+        }
     }
 
     // MARK: - 流式请求

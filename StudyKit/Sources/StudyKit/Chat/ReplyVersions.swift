@@ -10,6 +10,8 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
     public var inputTokens: Int?
     public var outputTokens: Int?
     public var costCNY: Double?
+    /// 联网搜索记录。旧版本没有这个字段，解码为 nil。
+    public var webSearchJSON: String?
 
     public init(
         content: String = "",
@@ -19,7 +21,8 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
         errorText: String? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
-        costCNY: Double? = nil
+        costCNY: Double? = nil,
+        webSearchJSON: String? = nil
     ) {
         self.content = content
         self.reasoning = reasoning
@@ -29,6 +32,7 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.costCNY = costCNY
+        self.webSearchJSON = webSearchJSON
     }
 }
 
@@ -76,7 +80,8 @@ extension Message {
             errorText: errorText,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
-            costCNY: costCNY
+            costCNY: costCNY,
+            webSearchJSON: webSearchJSON.isEmpty ? nil : webSearchJSON
         )
     }
 
@@ -89,6 +94,7 @@ extension Message {
         inputTokens = version.inputTokens
         outputTokens = version.outputTokens
         costCNY = version.costCNY
+        webSearchJSON = version.webSearchJSON ?? ""
     }
 
     /// 重新生成前调用：有内容的当前版本保留下来，消息清空，准备写入新版本。

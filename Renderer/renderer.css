@@ -56,6 +56,8 @@ blockquote {
 }
 
 a { color: var(--accent); text-decoration: none; }
+/* 联网搜索的引用角标 */
+a.sa-cite { font-size: 0.72em; vertical-align: super; line-height: 0; margin-left: 1px; white-space: nowrap; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
 img { max-width: 100%; }
 

@@ -14,10 +14,11 @@ enum UsageFormatting {
         return "约 ¥" + String(format: "%.\(min(digits, 6))f", value)
     }
 
-    /// "输入 1,200 · 输出 350 tokens · 约 ¥0.012"，没有用量时返回 nil。
-    static func summary(input: Int?, output: Int?, cost: Double?) -> String? {
+    /// "输入 1,200 · 输出 350 tokens · 搜索 2 次 · 约 ¥0.012"，没有用量时返回 nil。
+    static func summary(input: Int?, output: Int?, cost: Double?, searches: Int = 0) -> String? {
         guard input != nil || output != nil else { return nil }
         var text = "输入 \(tokens(input ?? 0)) · 输出 \(tokens(output ?? 0)) tokens"
+        if searches > 0 { text += " · 搜索 \(searches) 次" }
         if let cost { text += " · " + self.cost(cost) }
         return text
     }

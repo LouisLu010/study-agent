@@ -2015,11 +2015,32 @@
         : '[' + componentLabel(fence.language) + ']';
       lines.splice(fence.start, fence.end - fence.start, text);
     }
-    return lines.join('\n');
+    // 引用角标只留编号，链接在出处列表里。
+    return lines.join('\n').replace(CITATION_MARKER, '[$1]');
+  }
+
+  // ---------- 引用角标 ----------
+
+  // 联网搜索的引用在正文里写成 [[1]](<url>)，渲染成上标的 [1]。
+  const CITATION_LABEL = /^\[\d{1,3}\]$/;
+  const CITATION_MARKER = /\[\[(\d{1,3})\]\]\(<[^>\n]*>\)/g;
+
+  function citationPlugin(md) {
+    const fallback = md.renderer.rules.link_open ||
+      ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+    md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+      const text = tokens[idx + 1];
+      const close = tokens[idx + 2];
+      if (text && text.type === 'text' && CITATION_LABEL.test(text.content) && close && close.type === 'link_close') {
+        tokens[idx].attrJoin('class', 'sa-cite');
+      }
+      return fallback(tokens, idx, options, env, self);
+    };
   }
 
   return {
     mathPlugin,
+    citationPlugin,
     compileExpression,
     parseGraphSpec,
     fillFormula,

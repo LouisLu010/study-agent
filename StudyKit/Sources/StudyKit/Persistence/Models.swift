@@ -41,6 +41,10 @@ public final class ChatModel {
     /// 显示名称。为空时显示模型 ID。
     public var displayName: String = ""
     public var supportsImages: Bool = false
+    /// 是否支持服务商自带的联网搜索（见 docs/adr/0011）。
+    public var supportsWebSearch: Bool = false
+    /// OpenAI 兼容协议下的搜索格式（`WebSearchDialect`）。空字符串表示自动判断。
+    public var webSearchDialectRaw: String = ""
     /// 手动填写的单价（人民币 / 百万 token），优先于内置价格表。没填时为 nil。
     public var customInputPrice: Double?
     public var customOutputPrice: Double?
@@ -66,15 +70,27 @@ public final class ChatModel {
 
     /// 估算费用用的单价：手动填写的优先，否则查内置价格表。都没有时返回 nil。
     public func price(in table: PriceTable = .builtIn) -> ModelPrice? {
+        let builtIn = table.price(for: modelID)
         if let input = customInputPrice, let output = customOutputPrice {
-            return ModelPrice(input: input, output: output, currency: .cny)
+            return ModelPrice(
+                input: input,
+                output: output,
+                currency: .cny,
+                webSearchPer1000: builtIn?.webSearchPer1000,
+                webSearchCurrency: builtIn?.webSearchCurrency
+            )
         }
-        return table.price(for: modelID)
+        return builtIn
     }
 
     public var reasoningEffort: ReasoningEffort? {
         get { ReasoningEffort(rawValue: reasoningEffortRaw) }
         set { reasoningEffortRaw = newValue?.rawValue ?? "" }
+    }
+
+    /// 实际使用的搜索格式（只对 OpenAI 兼容协议有意义）。
+    public var webSearchDialect: WebSearchDialect {
+        WebSearchDialect.resolve(raw: webSearchDialectRaw, modelID: modelID, baseURL: provider?.baseURL ?? "")
     }
 }
 
@@ -89,6 +105,8 @@ public final class Conversation {
     public var titleIsAutomatic: Bool = true
     /// 会话提示词：只对这个会话生效，接在用户提示词后面发送。
     public var instructions: String = ""
+    /// 输入框旁的"联网"开关，按会话记住。模型不支持联网搜索时不生效。
+    public var webSearchEnabled: Bool = false
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 
@@ -102,16 +120,18 @@ public final class Conversation {
     }
 
     /// 整个会话的用量合计。
-    public var usageTotal: (input: Int, output: Int, cost: Double?) {
+    public var usageTotal: (input: Int, output: Int, cost: Double?, searches: Int) {
         var input = 0
         var output = 0
         var cost: Double?
+        var searches = 0
         for message in messages ?? [] where message.role == .assistant {
             input += message.inputTokens ?? 0
             output += message.outputTokens ?? 0
             if let value = message.costCNY { cost = (cost ?? 0) + value }
+            searches += message.webSearch?.effectiveCount ?? 0
         }
-        return (input, output, cost)
+        return (input, output, cost, searches)
     }
 
     public var sortedMessages: [Message] {
@@ -154,6 +174,8 @@ public final class Message {
     public var costCNY: Double?
     /// 重新生成产生的所有版本（`ReplyVersions` 的 JSON）。只有一个版本时为空。
     public var versionsJSON: String = ""
+    /// 联网搜索记录（`WebSearchRecord` 的 JSON）：搜索词、出处、搜索次数。没有搜索时为空。
+    public var webSearchJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
     /// 在会话中的顺序。
@@ -189,6 +211,11 @@ public final class Message {
     /// 按顺序排列的图片（JPEG）。
     public var imageData: [Data] {
         sortedAttachments.compactMap(\.data)
+    }
+
+    /// 这条回答的联网搜索记录。没有搜索时为 nil。
+    public var webSearch: WebSearchRecord? {
+        WebSearchRecord.decode(webSearchJSON)
     }
 }
 

@@ -130,6 +130,8 @@ final class GenerationCenter {
     ) {
         guard let model = conversation.model else { return }
 
+        // 只有会话打开了"联网"、模型也支持时才联网搜索。
+        let webSearch = conversation.webSearchEnabled && model.supportsWebSearch
         let request = ChatRequest(
             model: model.modelID,
             systemPrompt: SystemPrompt.compose(
@@ -138,7 +140,9 @@ final class GenerationCenter {
                 simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
             ),
             messages: conversation.chatHistory(),
-            reasoningEffort: model.reasoningEffort
+            reasoningEffort: model.reasoningEffort,
+            webSearch: webSearch,
+            webSearchDialect: model.webSearchDialect
         )
 
         let reply: Message
@@ -159,6 +163,7 @@ final class GenerationCenter {
         // 生成开始时的单价；生成过程中换了模型也按这个算。
         let price = model.price()
         tasks[conversationID] = Task { [weak self] in
+            var search = WebSearchRecorder()
             do {
                 for try await event in service.streamChat(request) {
                     switch event {
@@ -167,6 +172,11 @@ final class GenerationCenter {
                     case let .usage(input, output):
                         if let input { reply.inputTokens = input }
                         if let output { reply.outputTokens = output }
+                    case .searching, .searchResults, .citations, .searchCount:
+                        if let marker = search.handle(event, content: reply.content) {
+                            reply.content += marker
+                        }
+                        reply.webSearchJSON = search.record.encode()
                     }
                 }
                 reply.status = Task.isCancelled ? .stopped : .complete
@@ -178,10 +188,16 @@ final class GenerationCenter {
                     reply.errorText = ChatErrorDescription.describe(error)
                 }
             }
+            // 按位置定位的引用（DeepSeek、Gemini）要等正文完整后再插角标。
+            if webSearch || !search.record.isEmpty {
+                reply.content = search.finish(content: reply.content)
+                reply.webSearchJSON = search.record.encode()
+            }
             if let price, reply.inputTokens != nil || reply.outputTokens != nil {
                 reply.costCNY = price.costCNY(
                     inputTokens: reply.inputTokens ?? 0,
                     outputTokens: reply.outputTokens ?? 0,
+                    webSearches: search.record.effectiveCount,
                     usdToCNY: AppSettingsKey.usdToCNYRate
                 )
             }

@@ -45,17 +45,25 @@ public struct ChatRequest: Sendable, Equatable {
     public var systemPrompt: String?
     public var messages: [ChatMessage]
     public var reasoningEffort: ReasoningEffort?
+    /// 打开服务商自带的联网搜索（见 docs/adr/0011）。
+    public var webSearch: Bool
+    /// OpenAI 兼容协议下用哪家的搜索格式。其他协议忽略。
+    public var webSearchDialect: WebSearchDialect
 
     public init(
         model: String,
         systemPrompt: String? = nil,
         messages: [ChatMessage],
-        reasoningEffort: ReasoningEffort? = nil
+        reasoningEffort: ReasoningEffort? = nil,
+        webSearch: Bool = false,
+        webSearchDialect: WebSearchDialect = .openAI
     ) {
         self.model = model
         self.systemPrompt = systemPrompt
         self.messages = messages
         self.reasoningEffort = reasoningEffort
+        self.webSearch = webSearch
+        self.webSearchDialect = webSearchDialect
     }
 
     /// 去掉空白的系统提示词；为空时返回 nil。
@@ -92,6 +100,14 @@ public enum ChatStreamEvent: Sendable, Equatable {
     case reasoning(String)
     /// 用量。服务商可能分几次给出（例如先给输入、最后给输出），为 nil 的一项表示这次没有给出。
     case usage(input: Int?, output: Int?)
+    /// 模型开始一次联网搜索。搜索词这时可能还不知道（nil），之后会再给一次。
+    case searching(query: String?)
+    /// 搜索结果里的网页。
+    case searchResults([WebSource])
+    /// 正文里的引用。
+    case citations([Citation])
+    /// 到目前为止的搜索次数（累计值）。
+    case searchCount(Int)
 }
 
 /// 某种 API 协议的聊天服务。
