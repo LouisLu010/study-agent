@@ -123,12 +123,84 @@
 
   function render(text, streaming, nextOptions) {
     if (nextOptions) setOptions(nextOptions);
+    if (streaming) {
+      renderStreaming(text || '');
+      return;
+    }
+    stream = null;
     codeBlocks = [];
-    const env = { streaming: !!streaming, options, componentIndex: 0 };
+    const env = { streaming: false, options, componentIndex: 0 };
     const html = md.render(text || '', env);
     const context = { before: afterRenderHooks.map((hook) => hook.beforeReplace && hook.beforeReplace(root)) };
     root.innerHTML = html;
     afterRenderHooks.forEach((hook, i) => hook.afterReplace && hook.afterReplace(root, context.before[i], env));
+    reportHeight();
+  }
+
+  // ---------- 生成中的增量渲染 ----------
+  //
+  // 生成中每 80 毫秒渲染一次。以前每次都把整条回答从头排版，回答越长越卡。
+  // 现在已经写完的段落（core.stableLength 切出来的部分）只排一次，之后只重排最后还在写的部分。
+  // 组件编号和代码块编号跨段连续，和整段渲染时一样；生成结束时仍整条重新渲染一次。
+  //
+  // stream：{ text 已排好的部分, nodes 它占 root 的前几个子节点, componentIndex, codeCount }
+  let stream = null;
+
+  /** 把一组节点包成 hooks 能用的范围（只需要 querySelectorAll）。 */
+  function nodeScope(nodes) {
+    return {
+      querySelectorAll(selector) {
+        const found = [];
+        nodes.forEach((node) => {
+          if (node.nodeType !== 1) return;
+          if (node.matches(selector)) found.push(node);
+          found.push(...node.querySelectorAll(selector));
+        });
+        return found;
+      },
+    };
+  }
+
+  function htmlNodes(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    return Array.from(template.content.childNodes);
+  }
+
+  function renderStreaming(text) {
+    const split = core.stableLength(text);
+    if (!stream || !text.startsWith(stream.text) || split < stream.text.length) {
+      // 第一次渲染，或者内容不是接着上次写的（例如重新生成）：清空重来。
+      const before = afterRenderHooks.map((hook) => hook.beforeReplace && hook.beforeReplace(root));
+      root.innerHTML = '';
+      afterRenderHooks.forEach((hook, i) => hook.afterReplace && hook.afterReplace(root, before[i], {}));
+      stream = { text: '', nodes: 0, componentIndex: 0, codeCount: 0 };
+      codeBlocks = [];
+    }
+
+    // 摘下上次的"还在写的部分"，里面已经画好的组件交给 hooks 保留。
+    const oldTail = Array.from(root.childNodes).slice(stream.nodes);
+    const before = afterRenderHooks.map((hook) => hook.beforeReplace && hook.beforeReplace(nodeScope(oldTail)));
+    oldTail.forEach((node) => node.remove());
+    codeBlocks.length = stream.codeCount;
+
+    const env = { streaming: true, options, componentIndex: stream.componentIndex };
+    const inserted = [];
+    if (split > stream.text.length) {
+      const nodes = htmlNodes(md.render(text.slice(stream.text.length, split), env));
+      root.append(...nodes);
+      inserted.push(...nodes);
+      stream = {
+        text: text.slice(0, split),
+        nodes: stream.nodes + nodes.length,
+        componentIndex: env.componentIndex,
+        codeCount: codeBlocks.length,
+      };
+    }
+    const tail = htmlNodes(md.render(text.slice(split), env));
+    root.append(...tail);
+    inserted.push(...tail);
+    afterRenderHooks.forEach((hook, i) => hook.afterReplace && hook.afterReplace(nodeScope(inserted), before[i], env));
     reportHeight();
   }
 
