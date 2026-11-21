@@ -159,6 +159,55 @@
   }
 
   /**
+   * 生成中的回答里"已经写完的部分"有多长（第六版 C 阶段的增量渲染）。
+   * 只在空行之后切开，并且下一行顶格、不是列表项（列表和缩进的续行要和前面一起渲染）；
+   * 围栏代码块（包括组件）和块级公式里面不切。返回切点在 text 里的位置，0 表示还没有写完的段落。
+   * 切点之前的部分单独渲染，结果和整段一起渲染时这部分的结果相同。
+   */
+  function stableLength(text) {
+    const LIST_ITEM = /^([-*+]|\d{1,9}[.)])(\s|$)/;
+    let fence = null;
+    let mathClose = null;
+    let sawBlank = false;
+    let split = 0;
+    let offset = 0;
+    const lines = String(text || '').split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineStart = offset;
+      offset += line.length + 1;
+      if (fence) {
+        const close = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(line);
+        if (close && close[1][0] === fence[0] && close[1].length >= fence.length) fence = null;
+        continue;
+      }
+      if (mathClose) {
+        const at = mathClose === '$$' ? findUnescaped(line, '$$', 0, line.length) : line.indexOf(mathClose);
+        if (at >= 0) mathClose = null;
+        continue;
+      }
+      if (line.trim() === '') {
+        sawBlank = true;
+        continue;
+      }
+      if (sawBlank && line[0] !== ' ' && line[0] !== '\t' && !LIST_ITEM.test(line)) split = lineStart;
+      sawBlank = false;
+      const open = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (open) {
+        fence = open[1];
+        continue;
+      }
+      const body = line.replace(/^ {0,3}/, '');
+      if (body.startsWith('$$')) {
+        if (findUnescaped(body, '$$', 2, body.length) < 0) mathClose = '$$';
+      } else if (body.startsWith('\\[')) {
+        if (body.indexOf('\\]', 2) < 0) mathClose = '\\]';
+      }
+    }
+    return split;
+  }
+
+  /**
    * 给 markdown-it 加上 LaTeX 公式支持。
    * options.renderMath(tex, displayMode) 返回公式的 HTML。
    */
@@ -1873,6 +1922,43 @@
   };
 
   /** 解析 ```simulation 代码块：{ "kind": "...", "title": "...", "params": { ... } }。参数超出范围时取边界。 */
+  /**
+   * 模拟的镜头（第六版 C）：以前每次都按当前参数把场景缩放到正好装满画框，摆长变长了画出来却一样长。
+   * 现在拖滑块期间镜头不动（dragging 为 true），物体真的变大变小；松手后只在场景超出画框，
+   * 或者缩到不足画框四成时才换镜头，并且用动画过去。current 为 null 表示第一次画或者复位。
+   * 返回 { bounds, animate }。
+   */
+  function simulationCamera(current, desired, dragging) {
+    if (!current) return { bounds: desired, animate: false };
+    if (dragging) return { bounds: current, animate: false };
+    const w = current.xmax - current.xmin;
+    const h = current.ymax - current.ymin;
+    const eps = 1e-9 * Math.max(w, h, 1);
+    const fits = desired.xmin >= current.xmin - eps && desired.xmax <= current.xmax + eps &&
+      desired.ymin >= current.ymin - eps && desired.ymax <= current.ymax + eps;
+    const ratio = Math.max((desired.xmax - desired.xmin) / w, (desired.ymax - desired.ymin) / h);
+    if (fits && ratio >= 0.4) return { bounds: current, animate: false };
+    return { bounds: desired, animate: true };
+  }
+
+  /**
+   * 比例尺：每米 pxPerMeter 像素，比例尺最长 maxPx 像素时，取 1、2、5 × 10ⁿ 米里最长的一档。
+   * 返回 { meters, px, label }，label 自动换成 cm、mm、μm。
+   */
+  function scaleBar(pxPerMeter, maxPx) {
+    if (!(pxPerMeter > 0) || !(maxPx > 0)) return null;
+    const raw = maxPx / pxPerMeter;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const meters = [5, 2, 1].map((m) => m * mag).find((v) => v <= raw * (1 + 1e-9)) || mag;
+    const round = (v) => Number(v.toPrecision(6));
+    let label;
+    if (meters >= 1) label = round(meters) + ' m';
+    else if (meters >= 0.01) label = round(meters * 100) + ' cm';
+    else if (meters >= 0.001) label = round(meters * 1000) + ' mm';
+    else label = round(meters * 1e6) + ' μm';
+    return { meters, px: meters * pxPerMeter, label };
+  }
+
   function parseSimulationSpec(source) {
     try {
       const raw = parseJSONObject(source, '模拟');
@@ -2060,6 +2146,7 @@
 
   return {
     mathPlugin,
+    stableLength,
     citationPlugin,
     imagePlugin,
     compileExpression,
@@ -2076,6 +2163,8 @@
     parseChartSpec,
     parseSimulationSpec,
     buildSimulation,
+    simulationCamera,
+    scaleBar,
     simulationKinds,
     evaluateNumberInput,
     isNumberCorrect,

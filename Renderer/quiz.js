@@ -142,7 +142,7 @@
         });
         card.appendChild(options);
         if (q.multiple && !answered) {
-          const submit = el('button', 'sa-button quiz-submit', '提交');
+          const submit = el('button', 'sa-button is-primary quiz-submit', '提交');
           submit.disabled = !answer || !answer.choice.length;
           submit.addEventListener('click', () => {
             answers[index] = { choice: answers[index].choice };
@@ -162,7 +162,7 @@
         input.value = answer ? answer.input : '';
         row.appendChild(input);
         if (q.unit) row.appendChild(el('span', 'quiz-unit', escapeHTML(q.unit)));
-        const submit = el('button', 'sa-button quiz-submit', '提交');
+        const submit = el('button', 'sa-button is-primary quiz-submit', '提交');
         row.appendChild(submit);
         card.appendChild(row);
         if (answered) {

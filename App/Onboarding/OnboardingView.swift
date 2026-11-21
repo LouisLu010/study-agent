@@ -160,7 +160,7 @@ struct OnboardingView: View {
                 ActivityOrb(activity: .idle, size: 120)
                     .padding(.top, Theme.Spacing.xl)
                 VStack(spacing: Theme.Spacing.s) {
-                    Text("欢迎使用 Study Agent")
+                    Text("欢迎使用格物")
                         .font(.title.bold())
                     Text("为学习做的大模型聊天 App。接下来花一分钟，连上你自己的模型服务商。")
                         .foregroundStyle(.secondary)
@@ -358,7 +358,7 @@ struct OnboardingView: View {
                         .padding(Theme.Spacing.m)
                         .cardBackground()
                     Text(reminderDenied
-                         ? "通知权限被关闭了，可以以后在系统设置 → 通知 → Study Agent 里打开。"
+                         ? "通知权限被关闭了，可以以后在系统设置 → 通知 → 格物 里打开。"
                          : "可以先不开，以后在设置里打开或修改时间。")
                         .font(.caption)
                         .foregroundStyle(.secondary)

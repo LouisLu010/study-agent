@@ -69,18 +69,13 @@ struct BookmarksView: View {
                 NavigationLink {
                     BookmarkDetailView(bookmark: bookmark)
                 } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(bookmark.title).lineLimit(1)
-                        Text(PlainTextExporter.plainText(from: bookmark.content).prefix(120))
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                        Text([bookmark.subject?.rawValue ?? "分类中…", bookmark.topic, bookmark.createdAt.formatted(.dateTime.month().day())]
-                            .filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.vertical, 2)
+                    LibraryRow(
+                        title: bookmark.title,
+                        subject: bookmark.subject?.rawValue ?? "分类中…",
+                        summary: String(PlainTextExporter.plainText(from: bookmark.content).prefix(120)),
+                        meta: [bookmark.topic, bookmark.createdAt.formatted(.dateTime.month().day())]
+                            .filter { !$0.isEmpty }.joined(separator: " · ")
+                    )
                 }
             }
             .onDelete { offsets in

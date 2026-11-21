@@ -70,7 +70,7 @@ private struct UserMessageView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
+                        .background(Color.accentColor.opacity(0.22), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
                 }
             }
         }
@@ -133,6 +133,12 @@ private struct AssistantMessageView: View {
     var body: some View {
         let search = message.webSearch
         VStack(alignment: .leading, spacing: 8) {
+            if !message.modelName.isEmpty {
+                Text(message.modelName)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if let search, !search.queries.isEmpty || isStreaming {
                 WebSearchSummaryView(record: search, isSearching: isStreaming && message.content.isEmpty)
             }
@@ -279,7 +285,8 @@ private struct AssistantMessageView: View {
             }
         }
         .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // 最后一条回答的操作栏正常显示，之前的淡一些，不抢正文。
+        .foregroundStyle(canRegenerate ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
         .buttonStyle(.borderless)
     }
 
@@ -340,47 +347,18 @@ private struct AssistantMessageView: View {
     }
 }
 
-/// 思考过程，默认折叠。
+/// 思考过程。聊天列表里只显示一行标题，生成时下面滚动显示最后两行；全文在单独的面板里看。
+/// 不在列表里展开长文字：几万字的思考过程放在聊天列表里，滑动时 SwiftUI 要一直排版，很卡。
 private struct ReasoningView: View {
     let reasoning: String
     let isThinking: Bool
 
-    @State private var isExpanded = false
+    @State private var showsFull = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                expandButton
-                Spacer()
-                if isExpanded {
-                    Button {
-                        UIPasteboard.general.string = reasoning
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("复制思考过程")
-                }
-            }
-
-            if isExpanded {
-                ReasoningText(text: reasoning)
-                    .padding(.leading, 10)
-                    .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(.quaternary)
-                            .frame(width: 2)
-                    }
-            }
-        }
-    }
-
-    private var expandButton: some View {
-            // 不加展开动画：动画会让整个聊天列表跟着重排每一帧，内容长时很卡。
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
             Button {
-                isExpanded.toggle()
+                showsFull = true
             } label: {
                 HStack(spacing: 6) {
                     if isThinking {
@@ -391,12 +369,74 @@ private struct ReasoningView: View {
                     Text(isThinking ? "正在思考…" : "思考过程")
                     Image(systemName: "chevron.right")
                         .font(.caption)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .accessibilityHint("查看完整的思考过程")
+
+            if isThinking {
+                Text(Self.preview(of: reasoning))
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2, reservesSpace: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, Theme.Spacing.s)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(.quaternary)
+                            .frame(width: 2)
+                    }
+            }
+        }
+        .sheet(isPresented: $showsFull) {
+            ReasoningSheet(reasoning: reasoning, isThinking: isThinking)
+        }
+    }
+
+    /// 最后两行。只看末尾一小段，不管思考过程多长都很快。
+    static func preview(of text: String) -> String {
+        let tail = text.suffix(240)
+        let lines = tail.split(separator: "\n", omittingEmptySubsequences: true).suffix(2)
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// 完整的思考过程，在自己的滚动视图里按段懒加载。
+private struct ReasoningSheet: View {
+    let reasoning: String
+    let isThinking: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var didCopy = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                ReasoningText(text: reasoning)
+                    .padding(Theme.Spacing.l)
+            }
+            .navigationTitle(isThinking ? "正在思考…" : "思考过程")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("完成") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        UIPasteboard.general.string = reasoning
+                        didCopy = true
+                    } label: {
+                        Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                            .contentTransition(.symbolEffect(.replace))
+                    }
+                    .accessibilityLabel("复制思考过程")
+                    .sensoryFeedback(.success, trigger: didCopy) { _, copied in copied }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

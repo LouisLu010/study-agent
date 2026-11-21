@@ -6,7 +6,7 @@
 
   const components = window.StudyComponents;
 
-  const COLORS = ['#007aff', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#5ac8fa'];
+  const COLORS = ['#3b82f6', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#5ac8fa'];
   let boardCounter = 0;
 
   function palette(dark) {

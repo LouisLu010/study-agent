@@ -30,11 +30,16 @@ struct AboutView: View {
             Section {
                 VStack(spacing: Theme.Spacing.m) {
                     ActivityOrb(activity: .idle, size: 64)
-                    Text("Study Agent")
+                    Text("格物")
                         .font(.headline)
                     Text("版本 \(version)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // 自签工具可能改掉 Bundle ID，后台任务会因此失效；排查问题时用。
+                    Text(Bundle.main.bundleIdentifier ?? "")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.tertiary)
+                        .textSelection(.enabled)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, Theme.Spacing.s)

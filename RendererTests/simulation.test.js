@@ -182,3 +182,30 @@ test('化学平衡：趋向 K 并且加入反应物后重新平衡', () => {
   // 平衡时正逆反应速率相等
   close(last.rf / last.rr, 1, 0.02);
 });
+
+test('模拟镜头：拖动时不动，松手后只在放不下或太小时才换', () => {
+  const box = (a, b, c, d) => ({ xmin: a, xmax: b, ymin: c, ymax: d });
+  const pendulum = (L) => core.buildSimulation('pendulum', { L, theta0: 20, g: 9.8 }).bounds;
+  // 第一次画：直接用场景自己的范围。
+  assert.deepEqual(core.simulationCamera(null, pendulum(1), false), { bounds: pendulum(1), animate: false });
+  // 拖动中：不管参数怎么变，镜头都不动，摆长 3 m 时画出来就是 1 m 时的 3 倍。
+  for (const L of [0.2, 0.5, 2, 3, 5]) {
+    assert.deepEqual(core.simulationCamera(pendulum(1), pendulum(L), true).bounds, pendulum(1));
+  }
+  // 松手：放得下、也不算太小时保持不动。
+  assert.deepEqual(core.simulationCamera(pendulum(1), pendulum(0.6), false), { bounds: pendulum(1), animate: false });
+  // 放不下：换镜头，用动画。
+  assert.deepEqual(core.simulationCamera(pendulum(1), pendulum(3), false), { bounds: pendulum(3), animate: true });
+  // 缩到不足四成：换镜头。
+  assert.equal(core.simulationCamera(pendulum(1), pendulum(0.3), false).animate, true);
+  assert.equal(core.simulationCamera(box(0, 10, 0, 10), box(1, 5, 1, 3), false).animate, false);
+});
+
+test('比例尺：取 1、2、5 档，换单位', () => {
+  assert.deepEqual(core.scaleBar(100, 80), { meters: 0.5, px: 50, label: '50 cm' });
+  assert.deepEqual(core.scaleBar(30, 80), { meters: 2, px: 60, label: '2 m' });
+  assert.equal(core.scaleBar(4000, 80).label, '2 cm');
+  assert.equal(core.scaleBar(2e5, 80).label, '200 μm');
+  assert.equal(core.scaleBar(80, 80).label, '1 m');
+  assert.equal(core.scaleBar(0, 80), null);
+});

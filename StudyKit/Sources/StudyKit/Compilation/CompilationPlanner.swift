@@ -10,7 +10,12 @@ public enum CompilationPlanner {
         public var papers: [PaperPlan]
     }
 
-    public static func listPapersRequest(model: String, request: String, reasoningEffort: ReasoningEffort?, today: Date = .now) -> ChatRequest {
+    /// webSearchDialect 要传模型自己的联网格式（`ChatModel.webSearchDialect`）。第六版之前漏传了，
+    /// DeepSeek 模型在汇编里收到的是 OpenAI 的 web_search_options，等于没开联网搜索。
+    public static func listPapersRequest(
+        model: String, request: String, reasoningEffort: ReasoningEffort?,
+        webSearchDialect: WebSearchDialect = .openAI, today: Date = .now
+    ) -> ChatRequest {
         ChatRequest(
             model: model,
             systemPrompt: """
@@ -24,7 +29,8 @@ public enum CompilationPlanner {
             """,
             messages: [ChatMessage(role: .user, text: request)],
             reasoningEffort: reasoningEffort,
-            webSearch: true
+            webSearch: true,
+            webSearchDialect: webSearchDialect
         )
     }
 
@@ -59,7 +65,8 @@ public enum CompilationPlanner {
         request: String,
         paper: PaperPlan,
         onlyNumber: String? = nil,
-        reasoningEffort: ReasoningEffort?
+        reasoningEffort: ReasoningEffort?,
+        webSearchDialect: WebSearchDialect = .openAI
     ) -> ChatRequest {
         let target = onlyNumber.map { "只找这份试卷的第 \($0) 题。" } ?? "找出这份试卷里所有符合要求的题。"
         return ChatRequest(
@@ -76,7 +83,8 @@ public enum CompilationPlanner {
             """,
             messages: [ChatMessage(role: .user, text: "要求：\(request)\n试卷：\(paper.title)\n\(target)")],
             reasoningEffort: reasoningEffort,
-            webSearch: true
+            webSearch: true,
+            webSearchDialect: webSearchDialect
         )
     }
 

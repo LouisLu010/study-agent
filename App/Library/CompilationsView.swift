@@ -71,20 +71,11 @@ private struct CompilationRow: View {
     @Environment(CompilationCenter.self) private var center
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.m) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text(compilation.title).lineLimit(1)
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+        LibraryRow(title: compilation.title, summary: compilation.request, meta: statusText) {
             if center.isRunning(compilation) {
-                Spacer()
                 ActivityOrb(activity: compilation.status == .listing ? .searching : .background)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var statusText: String {
@@ -194,6 +185,8 @@ struct CompilationDetailView: View {
                         ActivityOrb(activity: .searching)
                         Text(center.progress[compilation.id] ?? "正在联网查找试卷…")
                     }
+                    BackgroundStatusRow()
+                    CollectionActivityView(compilationID: compilation.id, isRunning: isRunning)
                 }
             case .failed:
                 Section {
@@ -314,6 +307,7 @@ struct CompilationDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                BackgroundStatusRow()
                 Button("停止", systemImage: "stop.fill", role: .destructive) { center.stop(compilation) }
             } else if compilation.status != .done {
                 if let error = compilation.errorText {
@@ -323,6 +317,7 @@ struct CompilationDetailView: View {
                     center.startCollecting(compilation, context: context)
                 }
             }
+            CollectionActivityView(compilationID: compilation.id, isRunning: isRunning)
             DisclosureGroup("试卷（\(done)/\(papers.count)）") {
                 ForEach(papers) { paper in
                     HStack {

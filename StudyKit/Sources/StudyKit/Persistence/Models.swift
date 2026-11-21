@@ -178,6 +178,8 @@ public final class Message {
     public var webSearchJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
+    /// 生成这条回答的模型名（显示在回答上方）。第六版之前的回答为空。
+    public var modelName: String = ""
     /// 在会话中的顺序。
     public var index: Int = 0
     public var createdAt: Date = Date()

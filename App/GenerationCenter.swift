@@ -155,6 +155,7 @@ final class GenerationCenter {
             reply.conversation = conversation
         }
 
+        reply.modelName = model.name
         conversation.updatedAt = .now
         try? context.save()
 

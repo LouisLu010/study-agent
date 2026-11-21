@@ -33,19 +33,30 @@ extension View {
     }
 
     /// 玻璃效果，只用在输入框底栏、引导页底部按钮和"回到底部"按钮上。
-    /// iOS 26 用系统的 Liquid Glass；iOS 18 用材质背景加一圈很淡的描边。
+    /// iOS 26 用系统的 Liquid Glass；iOS 18 用较厚的材质背景加一圈很淡的描边（下面滚过的内容不会透得太清楚）。
     @ViewBuilder
     func glassSurface<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
             glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
-            background(.regularMaterial, in: shape)
+            background(.thickMaterial, in: shape)
                 .overlay(shape.stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
         }
     }
 }
 
 extension View {
+    /// 浮在滚动内容底部的一栏（聊天的输入框）。iOS 26 用 safeAreaBar，系统会让滚到栏下面的内容渐渐模糊，
+    /// 栏里的文字不会被下面的内容盖住；iOS 18 用 safeAreaInset。
+    @ViewBuilder
+    func bottomBar<Bar: View>(@ViewBuilder _ bar: () -> Bar) -> some View {
+        if #available(iOS 26.0, *) {
+            safeAreaBar(edge: .bottom, spacing: 0, content: bar)
+        } else {
+            safeAreaInset(edge: .bottom, spacing: 0, content: bar)
+        }
+    }
+
     /// 引导页底部的主按钮：iOS 26 用带主题色的玻璃按钮，iOS 18 用实心的主题色按钮（材质背景在纯色页面上看不出按钮）。
     @ViewBuilder
     func primaryButtonStyle() -> some View {

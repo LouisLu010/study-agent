@@ -92,7 +92,7 @@ final class WebViewHandle {
             UIColor.systemBackground.setFill()
             context.fill(CGRect(origin: .zero, size: size))
             content.draw(at: CGPoint(x: padding, y: padding))
-            let footer = "Study Agent" as NSString
+            let footer = "格物" as NSString
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.preferredFont(forTextStyle: .caption1),
                 .foregroundColor: UIColor.tertiaryLabel,
