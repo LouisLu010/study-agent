@@ -107,6 +107,8 @@ private struct AssistantMessageView: View {
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
     @State private var isBookmarked = false
+    /// 每点一次收藏加一，只在点按时播放图标动画（打开页面时读到已收藏不播放）。
+    @State private var bookmarkTaps = 0
     @State private var noteDraft: NoteDraftRequest?
 
     init(
@@ -295,8 +297,10 @@ private struct AssistantMessageView: View {
                 }
             } label: {
                 Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .contentTransition(.symbolEffect(.replace))
             }
             .accessibilityLabel("复制")
+            .sensoryFeedback(.success, trigger: didCopy) { _, copied in copied }
 
             if canRegenerate {
                 Button(action: onRegenerate) {
@@ -307,8 +311,11 @@ private struct AssistantMessageView: View {
 
             Button {
                 isBookmarked = StudyCenter.toggleBookmark(message, context: context)
+                bookmarkTaps += 1
             } label: {
                 Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: bookmarkTaps)
             }
             .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
             .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }

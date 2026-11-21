@@ -15,13 +15,26 @@ struct ChatView: View {
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
     @State private var addingMistake: MistakeDraft?
+    /// 往上翻超过一屏时显示"回到底部"按钮。
+    @State private var showJumpToBottom = false
+    /// 每发一条消息加一，用来触发震动。
+    @State private var sendCount = 0
+    /// 测验答完一道题，用来触发答对或答错的震动。
+    @State private var quizFeedback: QuizFeedback?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let bottomID = "bottom"
+
+    /// 消息出现的动画。打开"减弱动态效果"后不用动画。
+    private var messageAnimation: Animation? {
+        reduceMotion ? nil : .smooth(duration: 0.35)
+    }
 
     var body: some View {
         let messages = conversation.sortedMessages
         let isGenerating = generation.isGenerating(conversation)
         let lastAssistantID = messages.last(where: { $0.role == .assistant })?.id
+        let lastReplyCompleted = messages.last?.status == .complete
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -38,11 +51,17 @@ struct ChatView: View {
                                 generation.selectVersion(index, of: message, in: conversation, context: context)
                             },
                             onQuizResult: { payload in
+                                quizFeedback = QuizFeedback(correct: (payload["correct"] as? NSNumber)?.boolValue ?? false)
                                 StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
                             },
                             onAddToMistakes: solution(for: message).map { reply in
                                 { addingMistake = MistakeDraft(question: message, solution: reply) }
                             }
+                        )
+                        .transition(
+                            message.role == .user
+                                ? AnyTransition.move(edge: .bottom).combined(with: .opacity)
+                                : AnyTransition.opacity
                         )
                     }
                     Color.clear
@@ -57,11 +76,36 @@ struct ChatView: View {
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .onChange(of: messages.count) {
-                withAnimation { proxy.scrollTo(bottomID, anchor: .bottom) }
+                withAnimation(messageAnimation) { proxy.scrollTo(bottomID, anchor: .bottom) }
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentSize.height - geometry.visibleRect.maxY > geometry.containerSize.height
+            } action: { _, isFar in
+                withAnimation(reduceMotion ? nil : .snappy) { showJumpToBottom = isFar }
+            }
+            .overlay {
+                if messages.isEmpty {
+                    EmptyChatView { draft = $0 }
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if showJumpToBottom && !messages.isEmpty {
+                    jumpToBottomButton(proxy)
+                        .padding(.bottom, Theme.Spacing.s)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 composer(isGenerating: isGenerating)
             }
+        }
+        .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
+        .sensoryFeedback(.success, trigger: isGenerating) { wasGenerating, nowGenerating in
+            // 回答正常生成完时轻震一下；停止或失败时不震。
+            wasGenerating && !nowGenerating && lastReplyCompleted
+        }
+        .sensoryFeedback(trigger: quizFeedback) { _, feedback in
+            feedback.map { $0.correct ? SensoryFeedback.success : SensoryFeedback.error }
         }
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -138,6 +182,20 @@ struct ChatView: View {
         }
     }
 
+    private func jumpToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+        Button {
+            withAnimation(messageAnimation) { proxy.scrollTo(bottomID, anchor: .bottom) }
+        } label: {
+            Image(systemName: "arrow.down")
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .glassSurface(in: Circle(), interactive: true)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("回到底部")
+    }
+
     private func composer(isGenerating: Bool) -> some View {
         ComposerView(
             text: $draft,
@@ -171,9 +229,12 @@ struct ChatView: View {
         let text = trimmedDraft
         let images = draftImages.map(\.data)
         perform {
-            try generation.send(text, images: images, in: conversation, context: context)
+            try withAnimation(messageAnimation) {
+                try generation.send(text, images: images, in: conversation, context: context)
+            }
             draft = ""
             draftImages = []
+            sendCount += 1
         }
     }
 
@@ -195,7 +256,12 @@ struct ChatView: View {
             errorMessage = "请等当前回答生成完再提问。"
             return
         }
-        perform { try generation.send(text, in: conversation, context: context) }
+        perform {
+            try withAnimation(messageAnimation) {
+                try generation.send(text, in: conversation, context: context)
+            }
+            sendCount += 1
+        }
     }
 
     private func regenerate(_ message: Message) {
@@ -299,6 +365,12 @@ private struct ConversationInstructionsSheet: View {
         }
         .presentationDetents([.medium, .large])
     }
+}
+
+/// 测验答完一道题的结果。每次都是新的 id，同样的对错连续出现也会触发震动。
+private struct QuizFeedback: Equatable {
+    let id = UUID()
+    let correct: Bool
 }
 
 struct MistakeDraft: Identifiable {

@@ -31,6 +31,9 @@ struct ReviewSessionView: View {
                 card(queue[position])
             }
         }
+        .sensoryFeedback(trigger: answered) { _, result in
+            result.map { $0 ? SensoryFeedback.success : SensoryFeedback.error }
+        }
         .navigationTitle(queue.isEmpty || position >= queue.count ? "复习" : "复习 \(position + 1) / \(queue.count)")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -113,7 +116,7 @@ struct ReviewSessionView: View {
                     : "回到第一档，明天再复习",
                 systemImage: correct ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill"
             )
-            .foregroundStyle(correct ? .green : .orange)
+            .foregroundStyle(correct ? Theme.success : .orange)
             HStack {
                 Button("再来几道类似的", systemImage: "sparkles") { practiceSimilar(mistake) }
                     .buttonStyle(.bordered)

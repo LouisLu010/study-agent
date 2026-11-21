@@ -59,6 +59,7 @@ struct ComposerView: View {
                 } label: {
                     Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
                         .font(.largeTitle)
+                        .contentTransition(.symbolEffect(.replace))
                         .frame(width: buttonSize, height: buttonSize)
                 }
                 .disabled(!isGenerating && !canSend)
@@ -154,6 +155,7 @@ struct ComposerView: View {
         } label: {
             Image(systemName: "globe")
                 .font(.title3)
+                .symbolEffect(.bounce, value: webSearchEnabled)
                 .foregroundStyle(isOn ? AnyShapeStyle(.white) : (webSearchAllowed ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary)))
                 .frame(width: buttonSize, height: buttonSize)
                 .background(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), in: Circle())
