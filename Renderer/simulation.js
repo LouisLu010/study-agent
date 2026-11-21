@@ -20,11 +20,12 @@
       secondary: dark ? '#98989d' : '#6e6e73',
       grid: dark ? '#3a3a3c' : '#e5e5ea',
       line: dark ? '#8e8e93' : '#3a3a3c',
-      fill: dark ? '#1c1c1e' : '#f2f2f7',
+      // 和组件卡片的底色一样（renderer.css 的 --card），画布是透明的。
+      fill: dark ? '#1c1c1e' : '#f6f6f8',
       accent: dark ? '#4d8eff' : '#2563eb',
       orange: '#ff9500',
-      green: '#34c759',
-      red: '#ff3b30',
+      green: dark ? '#4ade80' : '#16a34a',
+      red: dark ? '#ff6b6b' : '#e5383b',
       purple: '#af52de',
     };
   }
@@ -411,11 +412,20 @@
 
     // 播放控制
     const bar = el('div', 'simulation-bar');
-    const playButton = el('button', 'sa-button', '暂停');
+    const playButton = el('button', 'sa-button is-primary', '暂停');
     const replayButton = el('button', 'sa-button', '重播');
-    const speedButton = el('button', 'sa-button', '1×');
+    // 播放速度：分段选择。
+    const speedGroup = el('div', 'sa-segmented');
+    speedGroup.setAttribute('role', 'group');
+    speedGroup.setAttribute('aria-label', '播放速度');
+    const speedButtons = SPEEDS.map((s) => {
+      const button = el('button', s === 1 ? 'is-selected' : '', s + '×');
+      button.dataset.speed = String(s);
+      speedGroup.appendChild(button);
+      return button;
+    });
     const clock = el('span', 'simulation-clock');
-    bar.append(playButton, replayButton, speedButton, clock);
+    bar.append(playButton, replayButton, speedGroup, clock);
     container.appendChild(bar);
 
     // 结果、实时读数、参数
@@ -559,9 +569,11 @@
       paint();
       loop();
     });
-    speedButton.addEventListener('click', () => {
-      speed = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length];
-      speedButton.textContent = speed + '×';
+    speedButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        speed = Number(button.dataset.speed);
+        speedButtons.forEach((b) => b.classList.toggle('is-selected', b === button));
+      });
     });
     reset.addEventListener('click', () => {
       Object.assign(values, spec.defaults);

@@ -9,7 +9,7 @@
   const core = window.StudyCore;
   const graph = window.StudyGraph;
 
-  const COLORS = ['#007aff', '#ff9500', '#34c759', '#ff3b30', '#af52de', '#5ac8fa', '#ffcc00', '#a2845e'];
+  const COLORS = ['#3b82f6', '#ff9500', '#34c759', '#ff3b30', '#af52de', '#5ac8fa', '#ffcc00', '#a2845e'];
 
   function withAlpha(hex, alpha) {
     const n = parseInt(hex.slice(1), 16);

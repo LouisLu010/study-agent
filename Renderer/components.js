@@ -56,8 +56,9 @@
   // ---------- 代码块 → HTML ----------
 
   function placeholderHTML(type, key, hash) {
+    // data-label 是卡片顶上那行小字（组件种类），由 CSS 显示。
     return '<div class="sa-component sa-component-loading" data-type="' + type + '" data-key="' + key +
-      '" data-hash="' + hash + '"></div>\n';
+      '" data-hash="' + hash + '" data-label="' + escapeHTML(core.componentLabel(type)) + '"></div>\n';
   }
 
   function pendingHTML(type) {
