@@ -2038,9 +2038,30 @@
     };
   }
 
+  // ---------- 图片尺寸 ----------
+
+  // 汇编里的原图写成 ![](sa-asset:id "w=554,h=255")：标题里是网页上的显示尺寸，转成宽度，不显示成提示文字。
+  const IMAGE_SIZE = /^w=(\d{1,4})(?:,h=(\d{1,4}))?$/;
+
+  function imagePlugin(md) {
+    const fallback = md.renderer.rules.image;
+    md.renderer.rules.image = (tokens, idx, options, env, self) => {
+      const token = tokens[idx];
+      const match = IMAGE_SIZE.exec(token.attrGet('title') || '');
+      if (match) {
+        const attrs = token.attrs.filter((a) => a[0] !== 'title');
+        token.attrs = attrs;
+        token.attrSet('width', match[1]);
+        token.attrJoin('class', 'sa-figure');
+      }
+      return fallback(tokens, idx, options, env, self);
+    };
+  }
+
   return {
     mathPlugin,
     citationPlugin,
+    imagePlugin,
     compileExpression,
     parseGraphSpec,
     fillFormula,

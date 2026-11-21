@@ -12,6 +12,8 @@ enum AppSettingsKey {
     /// 美元兑人民币的汇率，用来把美元价格折算成人民币。
     static let usdToCNY = "usdToCNY"
     static let defaultUSDToCNY = 7.2
+    /// 强力保活：生成汇编期间开后台定位，让 App 在后台持续运行（见 docs/adr/0012）。
+    static let strongKeepAlive = "strongKeepAlive"
 
     static var usdToCNYRate: Double {
         let value = UserDefaults.standard.double(forKey: usdToCNY)

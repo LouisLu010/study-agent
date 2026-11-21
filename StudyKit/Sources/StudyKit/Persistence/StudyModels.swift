@@ -51,6 +51,10 @@ public final class Mistake {
     @Relationship(deleteRule: .cascade, inverse: \MistakeImage.mistake)
     public var images: [MistakeImage]? = []
 
+    /// 从汇编加入的原题：题目和解答 Markdown 里 `sa-asset:` 引用的图片（独立副本）。
+    @Relationship(deleteRule: .cascade, inverse: \StoredImage.mistake)
+    public var storedImages: [StoredImage]? = []
+
     public init(kind: MistakeKind) {
         self.kindRaw = kind.rawValue
     }
@@ -166,6 +170,6 @@ public enum StudyAgentSchema {
     public static let models: [any PersistentModel.Type] = [
         Provider.self, ChatModel.self, Conversation.self, Message.self, Attachment.self,
         Mistake.self, MistakeImage.self, Bookmark.self, StudyEvent.self,
-        ResearchNote.self,
+        ResearchNote.self, Compilation.self, ExamQuestion.self, StoredImage.self,
     ]
 }

@@ -1,0 +1,63 @@
+import Foundation
+
+/// 汇编进行到哪一步。
+public enum CompilationStatus: String, Sendable {
+    /// 正在请模型列出试卷。
+    case listing
+    /// 试卷列好了，等用户勾选确认。
+    case choosing
+    /// 正在逐份试卷查题。
+    case collecting
+    /// 中途停下（用户停止、App 被系统暂停或关闭），可以继续。
+    case paused
+    case done
+    /// 列试卷失败。
+    case failed
+}
+
+/// 汇编里的一份试卷和它的进度，序列化后存在 `Compilation.papersJSON`。
+public struct PaperPlan: Codable, Sendable, Equatable, Identifiable {
+    public enum State: String, Codable, Sendable {
+        case pending, done, failed
+    }
+
+    public var id: UUID
+    public var title: String
+    /// 题号前面显示的简称，例如"北京卷""海淀一模"。
+    public var shortTitle: String
+    public var year: String
+    public var selected: Bool
+    public var state: State
+    /// 收进汇编的题数。
+    public var found: Int
+    /// 失败原因或说明。
+    public var note: String
+
+    public init(title: String, shortTitle: String = "", year: String, selected: Bool = true) {
+        self.id = UUID()
+        self.title = title
+        self.shortTitle = shortTitle
+        self.year = year
+        self.selected = selected
+        self.state = .pending
+        self.found = 0
+        self.note = ""
+    }
+}
+
+public enum ExamQuestionStatus: String, Sendable {
+    /// 原文和图都取到了。
+    case complete
+    /// 取到了原文，但有图没取到。
+    case imagesMissing
+    /// 所有出处都没取到原文。
+    case notFetched
+}
+
+public enum AnswerKind: String, Sendable {
+    case none = ""
+    case official
+    /// 题库网站附带的答案和解析。
+    case site
+    case ai
+}

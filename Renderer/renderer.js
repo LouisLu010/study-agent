@@ -52,6 +52,7 @@
   const md = window.markdownit({ html: false, linkify: true, breaks: false });
   core.mathPlugin(md, { renderMath });
   core.citationPlugin(md);
+  core.imagePlugin(md);
 
   md.renderer.rules.table_open = () => '<div class="table-wrap"><table>\n';
   md.renderer.rules.table_close = () => '</table></div>\n';

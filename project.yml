@@ -22,6 +22,12 @@ targets:
         buildPhase: resources
     dependencies:
       - package: StudyKit
+    # 汇编在后台继续运行（见 docs/adr/0012）：系统长任务的标识符和定位保活。XcodeGen 生成这个文件，不提交。
+    info:
+      path: App/Info.plist
+      properties:
+        UIBackgroundModes: [location, processing]
+        BGTaskSchedulerPermittedIdentifiers: [com.louislu.studyagent.compilation.*]
     settings:
       base:
         PRODUCT_NAME: StudyAgent
@@ -34,6 +40,7 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Study Agent
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_NSCameraUsageDescription: 拍下题目发给模型
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 只在打开"强力保活"并生成汇编时使用，让 App 在后台继续运行。不记录、不发送位置。
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"

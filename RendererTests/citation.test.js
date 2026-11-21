@@ -29,3 +29,13 @@ test('纯文字里角标只留编号', () => {
   assert.equal(core.toPlainText('答案是 B。[[1]](<https://a.com>)[[12]](<https://b.com/q?x=1>)'), '答案是 B。[1][12]');
   assert.equal(core.toPlainText('[官网](https://c.com)'), '[官网](https://c.com)');
 });
+
+test('图片标题里的尺寸转成宽度', () => {
+  const md = markdownit({ html: false, linkify: true });
+  core.imagePlugin(md);
+  assert.equal(
+    md.render('看图![](sa-asset:ABC "w=554,h=255")'),
+    '<p>看图<img src="sa-asset:ABC" alt="" width="554" class="sa-figure"></p>\n'
+  );
+  assert.equal(md.render('![](x.png "说明")'), '<p><img src="x.png" alt="" title="说明"></p>\n');
+});

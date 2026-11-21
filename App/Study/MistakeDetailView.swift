@@ -150,7 +150,10 @@ struct ManualQuestionView: View {
                     }
                 }
             }
-            if !mistake.questionText.isEmpty {
+            if mistake.questionText.contains("sa-asset:") || mistake.questionText.contains("$") {
+                // 从汇编加入的原题是 Markdown，里面有公式和原图。
+                RenderedContentView(id: mistake.id, content: mistake.questionText)
+            } else if !mistake.questionText.isEmpty {
                 Text(mistake.questionText)
                     .textSelection(.enabled)
             }
@@ -169,7 +172,10 @@ enum MistakePrompts {
         let question: String
         switch mistake.kind {
         case .quiz: question = mistake.previewText
-        case .manual: question = mistake.questionText.isEmpty ? "（原题是一张图片，参考下面的解答）\n" + mistake.solution : mistake.questionText
+        case .manual:
+            question = mistake.questionText.isEmpty
+                ? "（原题是一张图片，参考下面的解答）\n" + mistake.solution
+                : CompilationCenter.textForModel(mistake.questionText)
         }
         var lines = ["我之前做错了下面这道题，请出 3 道考查同一知识点的类似练习题，用测验组件出，难度相近或稍难一点。"]
         if let subject = mistake.subject { lines.append("科目：\(subject.rawValue)") }

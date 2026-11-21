@@ -14,3 +14,4 @@ Payload/
 tools/eval/results/
 
 .DS_Store
+App/Info.plist

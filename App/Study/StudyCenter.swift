@@ -10,6 +10,7 @@ enum SidebarItem: Hashable {
     case bookmarks
     case stats
     case notes
+    case compilations
 }
 
 /// 侧边栏的选择放在环境里，错题本、收藏等页面也能跳到某个会话。
@@ -115,6 +116,33 @@ enum StudyCenter {
             ? "（题目是一张图片）解答：\n" + solution.content
             : question.content + "\n\n解答：\n" + solution.content
         classify(mistake, content: content, model: conversation.model, context: context)
+    }
+
+    // MARK: - 从汇编加入
+
+    /// 把汇编里的一道原题加入错题本：题目、答案和图片都复制一份（见 docs/adr/0009）。
+    static func addExamQuestion(_ question: ExamQuestion, context: ModelContext) {
+        let mistake = Mistake(kind: .manual)
+        var content = question.content
+        var answer = question.answer
+        context.insert(mistake)
+        // 图片换成新的副本，删掉汇编后错题里的图仍然在。
+        for image in question.images ?? [] {
+            guard let data = image.data else { continue }
+            let copy = StoredImage(data: data, contentType: image.contentType)
+            context.insert(copy)
+            copy.mistake = mistake
+            content = content.replacingOccurrences(of: image.id.uuidString, with: copy.id.uuidString)
+            answer = answer.replacingOccurrences(of: image.id.uuidString, with: copy.id.uuidString)
+        }
+        mistake.questionText = "**\(question.label)**\n\n" + content
+        mistake.solution = answer.isEmpty ? "（这道题还没有答案，可以在汇编里点\"写 AI 解析\"。）" : answer
+        mistake.note = question.answerKind == .ai ? "解答是 AI 解析" : ""
+        mistake.subject = question.compilation?.subject
+        ReviewSchedule.reset(mistake)
+        try? context.save()
+        ReviewReminder.reschedule(in: context)
+        classify(mistake, content: CompilationCenter.textForModel(content), model: ModelLookup.defaultModel(in: context), context: context)
     }
 
     // MARK: - 补科目和知识点

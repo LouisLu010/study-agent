@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
     @AppStorage(AppSettingsKey.simpleMode) private var simpleMode = false
+    @AppStorage(AppSettingsKey.strongKeepAlive) private var strongKeepAlive = false
     @AppStorage(ReviewReminder.enabledKey) private var reminderEnabled = false
     @AppStorage(ReviewReminder.minutesKey) private var reminderMinutes = ReviewReminder.defaultMinutes
     @State private var permissionDenied = false
@@ -51,6 +52,14 @@ struct SettingsView: View {
                     Text("回答方式")
                 } footer: {
                     Text("打开后模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
+                }
+
+                Section {
+                    Toggle("强力保活", isOn: $strongKeepAlive)
+                } header: {
+                    Text("汇编")
+                } footer: {
+                    Text("生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活后，生成期间会使用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。")
                 }
 
                 Section {

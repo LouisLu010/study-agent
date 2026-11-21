@@ -56,6 +56,9 @@ blockquote {
 }
 
 a { color: var(--accent); text-decoration: none; }
+/* 汇编里的原图：按网页上的宽度显示，窄屏时缩小 */
+img { max-width: 100%; height: auto; vertical-align: middle; }
+img.sa-figure { background: #fff; }
 /* 联网搜索的引用角标 */
 a.sa-cite { font-size: 0.72em; vertical-align: super; line-height: 0; margin-left: 1px; white-space: nowrap; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
@@ -347,3 +350,19 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 .simulation-bar { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .simulation-clock { margin-left: auto; color: var(--secondary); font-size: 0.85em; font-variant-numeric: tabular-nums; }
 .simulation-live { border-top: 1px solid var(--border); padding-top: 6px; }
+
+/* ---------- 汇编 PDF ---------- */
+body.print { color: #000; background: #fff; font: 11pt/1.65 -apple-system, "PingFang SC", sans-serif; color-scheme: light; }
+body.print a { color: #000; }
+.print-title { font-size: 18pt; text-align: center; margin: 0 0 4pt; }
+.print-subtitle { text-align: center; color: #555; font-size: 9pt; margin: 0 0 14pt; }
+.print-question { margin: 0 0 6pt; }
+.print-label { font-weight: 600; margin: 10pt 0 4pt; break-after: avoid; page-break-after: avoid; }
+.print-space { height: 90pt; }
+.print-missing { color: #888; }
+.print-answers { break-before: page; page-break-before: always; }
+.print-answers h2 { font-size: 14pt; text-align: center; margin: 0 0 10pt; }
+.print-kind { font-weight: normal; font-size: 8.5pt; color: #555; border: 0.5pt solid #999; border-radius: 3pt; padding: 0 3pt; margin-left: 6pt; }
+body.print img { break-inside: avoid; page-break-inside: avoid; }
+body.print table { border-collapse: collapse; }
+body.print td, body.print th { border: 0.5pt solid #666; padding: 2pt 5pt; }
