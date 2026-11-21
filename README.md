@@ -127,6 +127,8 @@
 2. 用 Sideloadly 把它装到 iPhone 或 iPad 上，登录你的 Apple ID。
 3. 在设备的"设置 → 通用 → VPN 与设备管理"里信任你的 Apple ID，然后打开 App。
 
+发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的未签名 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上，下载不需要登录，也不会过期。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
+
 ## 第一次使用
 
 第一次打开 App 会出现引导：选一个服务商预设（DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter，或者"其他"自己填地址），粘贴 API Key，App 拉一次模型列表来确认 Key 能用，然后选一个默认模型，可选打开复习提醒，最后直接进入一个新会话。引导可以跳过，设置 → 其他 → "重新查看引导"可以再走一遍。
