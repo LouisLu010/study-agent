@@ -32,7 +32,43 @@ final class CompilationCenter {
     /// 因为切到别的 App 被系统打断的汇编。回到 App 时自动继续。
     private(set) var interrupted: Set<UUID> = []
 
-    static let interruptedText = "切到别的 App 后，系统断开了网络。回到格物后会自动继续。"
+    /// 收集过程里的一行，显示在汇编页面上（只在内存里，App 重启后清空）。
+    struct ActivityLine: Identifiable {
+        enum Kind { case step, search, page, success, warning }
+        let id = UUID()
+        let time = Date.now
+        let kind: Kind
+        let text: String
+    }
+    typealias Logger = (ActivityLine.Kind, String) -> Void
+
+    /// 每个汇编最近的收集过程，最多 80 行。
+    private(set) var activity: [UUID: [ActivityLine]] = [:]
+    /// 这一轮开始的时间和已经搜索的次数，用来显示"已搜索 N 次 · 用时"。
+    private(set) var runStats: [UUID: (started: Date, searches: Int)] = [:]
+
+    private func logger(for id: UUID) -> Logger {
+        { [weak self] kind, text in self?.log(id, kind, text) }
+    }
+
+    private func log(_ id: UUID, _ kind: ActivityLine.Kind, _ text: String) {
+        var lines = activity[id] ?? []
+        // 同一句话连着出现（模型反复搜同一个词）只记一次。
+        if let last = lines.last, last.kind == kind, last.text == text { return }
+        lines.append(ActivityLine(kind: kind, text: text))
+        if lines.count > 80 { lines.removeFirst(lines.count - 80) }
+        activity[id] = lines
+        if kind == .search, var stats = runStats[id] {
+            stats.searches += 1
+            runStats[id] = stats
+        }
+    }
+
+    private func beginRun(_ id: UUID) {
+        runStats[id] = (.now, 0)
+    }
+
+    static let interruptedText = "切到别的 App 后，系统暂停了格物，网络也断开了。已经保存进度，回到格物后会自动继续。打开设置里的强力保活就不会被暂停。"
 
     func isRunning(_ compilation: Compilation) -> Bool {
         tasks[compilation.id] != nil
@@ -76,11 +112,17 @@ final class CompilationCenter {
                 self?.tasks[id] = nil
                 self?.progress[id] = nil
             }
+            let log = self?.logger(for: id)
+            self?.beginRun(id)
+            log?(.step, "开始联网查找符合要求的试卷")
             do {
                 let (model, service) = try Self.resolve(compilation, context: context)
                 let raw = try await Self.run(
-                    CompilationPlanner.listPapersRequest(model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model)),
-                    service: service, model: model, compilation: compilation
+                    CompilationPlanner.listPapersRequest(
+                        model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
+                    ),
+                    service: service, model: model, compilation: compilation, log: log
                 )
                 guard let list = CompilationPlanner.parsePaperList(raw, fallbackTitle: compilation.request) else {
                     throw CompilationError.unreadableReply
@@ -89,7 +131,9 @@ final class CompilationCenter {
                 compilation.subject = list.subject ?? .other
                 compilation.papers = list.papers
                 compilation.status = .choosing
+                log?(.success, "列出了 \(list.papers.count) 份试卷")
             } catch {
+                log?(.warning, "查找试卷没有完成：\(ChatErrorDescription.describe(error))")
                 compilation.status = .failed
                 if self?.interrupted.contains(id) == true || (!Task.isCancelled && Self.isBackgroundInterruption(error, since: started)) {
                     self?.interrupted.insert(id)
@@ -195,6 +239,8 @@ final class CompilationCenter {
         let (model, service) = resolved
         let selected = compilation.papers.filter(\.selected)
         var stopped = false
+        let log = logger(for: compilation.id)
+        beginRun(compilation.id)
 
         for paper in selected where paper.state == .pending {
             if Task.isCancelled { stopped = true; break }
@@ -209,14 +255,17 @@ final class CompilationCenter {
 
             var updated = paper
             let started = Date.now
+            log(.step, "第 \(done + 1)/\(selected.count) 份：\(name)")
             do {
                 let raw = try await Self.run(
                     CompilationPlanner.findQuestionsRequest(
-                        model: model.modelID, request: compilation.request, paper: paper, reasoningEffort: Self.effort(for: model)
+                        model: model.modelID, request: compilation.request, paper: paper, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
                     ),
-                    service: service, model: model, compilation: compilation
+                    service: service, model: model, compilation: compilation, log: log
                 )
                 guard let questions = CompilationPlanner.parseFoundQuestions(raw) else { throw CompilationError.unreadableReply }
+                log(.success, questions.isEmpty ? "这份试卷里没有符合要求的题" : "找到 \(questions.count) 道符合要求的题，开始取原文")
                 for item in questions {
                     if Task.isCancelled { throw CancellationError() }
                     progress[compilation.id] = "正在取第 \(item.number) 题：\(name)"
@@ -230,7 +279,7 @@ final class CompilationCenter {
                     question.candidateURLs = item.urls
                     context.insert(question)
                     question.compilation = compilation
-                    await Self.fetch(question, context: context)
+                    await Self.fetch(question, context: context, log: log)
                     try? context.save()
                 }
                 updated.state = .done
@@ -246,6 +295,7 @@ final class CompilationCenter {
                 } else {
                     updated.state = .failed
                     updated.note = ChatErrorDescription.describe(error)
+                    log(.warning, "这份没查成功：\(updated.note)")
                 }
             }
             var papers = compilation.papers
@@ -282,22 +332,25 @@ final class CompilationCenter {
                 refetchingQuestions.remove(question.id)
                 BackgroundKeeper.shared.end(id: question.id, success: question.status == .complete)
             }
-            await Self.fetch(question, context: context)
+            let log = logger(for: compilation.id)
+            log(.step, "重新获取\(question.label)")
+            await Self.fetch(question, context: context, log: log)
             if question.status != .complete, let resolved = try? Self.resolve(compilation, context: context) {
                 let (model, service) = resolved
                 let paper = PaperPlan(title: question.paperTitle, shortTitle: question.paperShortTitle, year: question.year)
                 if let raw = try? await Self.run(
                     CompilationPlanner.findQuestionsRequest(
                         model: model.modelID, request: compilation.request, paper: paper,
-                        onlyNumber: question.number.isEmpty ? nil : question.number, reasoningEffort: Self.effort(for: model)
+                        onlyNumber: question.number.isEmpty ? nil : question.number, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
                     ),
-                    service: service, model: model, compilation: compilation
+                    service: service, model: model, compilation: compilation, log: log
                 ), let found = CompilationPlanner.parseFoundQuestions(raw)?.first {
                     let previous = question.candidateURLs
                     question.anchor = found.anchor
                     question.lastAnchor = found.lastAnchor
                     question.candidateURLs = found.urls + previous.filter { !found.urls.contains($0) }
-                    await Self.fetch(question, context: context)
+                    await Self.fetch(question, context: context, log: log)
                 }
             }
             try? context.save()
@@ -373,7 +426,9 @@ final class CompilationCenter {
     }
 
     /// 发一次请求，返回正文；用量和搜索次数记到汇编上。
-    private static func run(_ request: ChatRequest, service: any ChatService, model: ChatModel, compilation: Compilation) async throws -> String {
+    private static func run(
+        _ request: ChatRequest, service: any ChatService, model: ChatModel, compilation: Compilation, log: Logger? = nil
+    ) async throws -> String {
         var text = ""
         var input: Int?
         var output: Int?
@@ -396,6 +451,14 @@ final class CompilationCenter {
                 if let newOutput { output = newOutput }
             case .reasoning: break
             case .searching, .searchResults, .citations, .searchCount:
+                if case let .searching(query) = event, let query, !query.isEmpty {
+                    log?(.search, "搜索：\(query)")
+                }
+                if case let .searchResults(sources) = event, !sources.isEmpty {
+                    var hosts: [String] = []
+                    for host in sources.compactMap(\.host) where !hosts.contains(host) && hosts.count < 3 { hosts.append(host) }
+                    log?(.page, "看了 \(sources.count) 个网页" + (hosts.isEmpty ? "" : "：" + hosts.joined(separator: "、")))
+                }
                 _ = recorder.handle(event, content: text)
             }
         }
@@ -403,17 +466,25 @@ final class CompilationCenter {
     }
 
     /// 按候选网页的顺序下载、定位、取原题和图片。原文和图都取到就停；只取到部分时继续找更好的。
-    static func fetch(_ question: ExamQuestion, context: ModelContext) async {
+    static func fetch(_ question: ExamQuestion, context: ModelContext, log: Logger? = nil) async {
         let anchor = question.anchor
         let lastAnchor = question.lastAnchor
         var best: (url: URL, result: QuestionExtractor.Result, images: [Int: (Data, String)])?
         for url in CompilationPlanner.orderedCandidates(question.candidateURLs) {
             if Task.isCancelled { return }
-            guard let html = try? await PageFetcher.html(url) else { continue }
+            let host = url.host() ?? url.absoluteString
+            log?(.page, "\(question.label)：打开 \(host)")
+            guard let html = try? await PageFetcher.html(url) else {
+                log?(.warning, "\(host) 打不开，换下一个网页")
+                continue
+            }
             let extracted = await Task.detached {
                 QuestionExtractor.extract(html: html, baseURL: url, anchor: anchor, lastAnchor: lastAnchor)
             }.value
-            guard case let .success(result) = extracted else { continue }
+            guard case let .success(result) = extracted else {
+                log?(.warning, "\(host) 上没找到这道题，换下一个网页")
+                continue
+            }
             var images: [Int: (Data, String)] = [:]
             for (index, address) in result.imageURLs.enumerated() {
                 guard let imageURL = URL(string: address), let image = try? await PageFetcher.image(imageURL, referer: url) else { continue }
@@ -427,6 +498,7 @@ final class CompilationCenter {
         }
         guard let best else {
             if question.content.isEmpty { question.status = .notFetched }
+            log?(.warning, "\(question.label)：没能取到原文")
             return
         }
         for image in question.images ?? [] { context.delete(image) }
@@ -447,6 +519,9 @@ final class CompilationCenter {
         }
         let allImages = best.images.count == best.result.imageURLs.count
         question.status = allImages && !best.result.probablyMissingImages ? .complete : .imagesMissing
+        let figures = best.result.imageURLs.isEmpty ? "" : "，图 \(best.images.count)/\(best.result.imageURLs.count)"
+        log?(question.status == .complete ? .success : .warning,
+             "\(question.label)：取到原文\(figures)" + (question.answerKind == .site ? "，带网站解析" : ""))
     }
 
     /// 发给模型的题目文字：图片换成"[图]"。

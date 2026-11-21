@@ -29,7 +29,7 @@ targets:
       path: App/Info.plist
       properties:
         UIBackgroundModes: [location, processing]
-        BGTaskSchedulerPermittedIdentifiers: [com.louislu.studyagent.compilation.*]
+        BGTaskSchedulerPermittedIdentifiers: [com.louislu.studyagent.compilation.run, com.louislu.studyagent.compilation.*]
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans]
     settings:

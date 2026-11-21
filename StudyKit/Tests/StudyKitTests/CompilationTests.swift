@@ -191,4 +191,15 @@ import Testing
         #expect(find.webSearch)
         #expect(find.messages.first?.text.contains("只找这份试卷的第 17 题") == true)
     }
+
+    /// DeepSeek 模型的汇编请求要用 deepseek_web_search，不能用默认的 web_search_options。
+    @Test func requestsCarryWebSearchDialect() {
+        let paper = PaperPlan(title: "2025年高考化学北京卷", year: "2025")
+        let list = CompilationPlanner.listPapersRequest(model: "deepseek-flash", request: "有机大题", reasoningEffort: .high, webSearchDialect: .deepSeek)
+        #expect(list.webSearchDialect == .deepSeek)
+        let find = CompilationPlanner.findQuestionsRequest(
+            model: "deepseek-flash", request: "有机大题", paper: paper, reasoningEffort: .high, webSearchDialect: .deepSeek
+        )
+        #expect(find.webSearchDialect == .deepSeek)
+    }
 }

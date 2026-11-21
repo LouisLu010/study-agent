@@ -185,6 +185,8 @@ struct CompilationDetailView: View {
                         ActivityOrb(activity: .searching)
                         Text(center.progress[compilation.id] ?? "正在联网查找试卷…")
                     }
+                    BackgroundStatusRow()
+                    CollectionActivityView(compilationID: compilation.id, isRunning: isRunning)
                 }
             case .failed:
                 Section {
@@ -305,6 +307,7 @@ struct CompilationDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                BackgroundStatusRow()
                 Button("停止", systemImage: "stop.fill", role: .destructive) { center.stop(compilation) }
             } else if compilation.status != .done {
                 if let error = compilation.errorText {
@@ -314,6 +317,7 @@ struct CompilationDetailView: View {
                     center.startCollecting(compilation, context: context)
                 }
             }
+            CollectionActivityView(compilationID: compilation.id, isRunning: isRunning)
             DisclosureGroup("试卷（\(done)/\(papers.count)）") {
                 ForEach(papers) { paper in
                     HStack {
