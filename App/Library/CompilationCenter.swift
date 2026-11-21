@@ -118,7 +118,10 @@ final class CompilationCenter {
             do {
                 let (model, service) = try Self.resolve(compilation, context: context)
                 let raw = try await Self.run(
-                    CompilationPlanner.listPapersRequest(model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model)),
+                    CompilationPlanner.listPapersRequest(
+                        model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
+                    ),
                     service: service, model: model, compilation: compilation, log: log
                 )
                 guard let list = CompilationPlanner.parsePaperList(raw, fallbackTitle: compilation.request) else {
@@ -256,7 +259,8 @@ final class CompilationCenter {
             do {
                 let raw = try await Self.run(
                     CompilationPlanner.findQuestionsRequest(
-                        model: model.modelID, request: compilation.request, paper: paper, reasoningEffort: Self.effort(for: model)
+                        model: model.modelID, request: compilation.request, paper: paper, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
                     ),
                     service: service, model: model, compilation: compilation, log: log
                 )
@@ -337,7 +341,8 @@ final class CompilationCenter {
                 if let raw = try? await Self.run(
                     CompilationPlanner.findQuestionsRequest(
                         model: model.modelID, request: compilation.request, paper: paper,
-                        onlyNumber: question.number.isEmpty ? nil : question.number, reasoningEffort: Self.effort(for: model)
+                        onlyNumber: question.number.isEmpty ? nil : question.number, reasoningEffort: Self.effort(for: model),
+                        webSearchDialect: model.webSearchDialect
                     ),
                     service: service, model: model, compilation: compilation, log: log
                 ), let found = CompilationPlanner.parseFoundQuestions(raw)?.first {
