@@ -7,6 +7,7 @@ struct ConversationListView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
+    @Environment(AppNavigation.self) private var navigation
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
     @Query private var models: [ChatModel]
     @Query(filter: #Predicate<Mistake> { $0.masteredAt == nil }) private var activeMistakes: [Mistake]
@@ -71,9 +72,12 @@ struct ConversationListView: View {
         .overlay {
             if conversations.isEmpty {
                 if models.isEmpty {
-                    OrbEmptyState(title: "还没有模型", message: "先在设置里添加一个服务商和模型。") {
-                        Button("打开设置") { showSettings = true }
-                            .buttonStyle(.borderedProminent)
+                    OrbEmptyState(title: "还没有模型", message: "先添加一个服务商和模型。") {
+                        VStack(spacing: Theme.Spacing.s) {
+                            Button("开始设置") { navigation.showsOnboarding = true }
+                                .buttonStyle(.borderedProminent)
+                            Button("打开设置") { showSettings = true }
+                        }
                     }
                 }
                 // 有模型但还没有会话时不盖住列表，顶部的错题本等入口仍然可以点。
@@ -90,7 +94,13 @@ struct ConversationListView: View {
                 Button("新会话", systemImage: "square.and.pencil", action: newConversation)
             }
         }
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $showSettings, onDismiss: {
+            // 在设置里点了"重新查看引导"：设置完全关掉后再显示引导。
+            if navigation.onboardingAfterSettings {
+                navigation.onboardingAfterSettings = false
+                navigation.showsOnboarding = true
+            }
+        }) {
             SettingsView()
         }
         .alert(

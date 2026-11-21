@@ -5,6 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppNavigation.self) private var navigation
     @Query(sort: \Provider.createdAt) private var providers: [Provider]
     @Query(sort: \ChatModel.createdAt) private var models: [ChatModel]
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
@@ -16,6 +17,9 @@ struct SettingsView: View {
     @State private var permissionDenied = false
     @AppStorage(AppSettingsKey.usdToCNY) private var usdToCNY = AppSettingsKey.defaultUSDToCNY
     @State private var path = NavigationPath()
+    @State private var showAddProvider = false
+    /// 在"添加服务商"里选好的预设，等选择页关掉后再建服务商并打开它。
+    @State private var pickedPreset: ProviderPreset?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -33,7 +37,7 @@ struct SettingsView: View {
                     }
                     .onDelete(perform: deleteProviders)
 
-                    Button("添加服务商", systemImage: "plus", action: addProvider)
+                    Button("添加服务商", systemImage: "plus") { showAddProvider = true }
 
                     Picker("默认模型", selection: $defaultModelID) {
                         Text("未设置").tag("")
@@ -90,6 +94,10 @@ struct SettingsView: View {
                             .multilineTextAlignment(.trailing)
                     }
                     Toggle("强力保活", isOn: $strongKeepAlive)
+                    Button("重新查看引导") {
+                        navigation.onboardingAfterSettings = true
+                        dismiss()
+                    }
                     NavigationLink("关于") { AboutView() }
                 } header: {
                     Text("其他")
@@ -115,6 +123,9 @@ struct SettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showAddProvider, onDismiss: addPickedProvider) {
+            AddProviderSheet { pickedPreset = $0 }
+        }
         .onDisappear {
             try? context.save()
         }
@@ -133,10 +144,10 @@ struct SettingsView: View {
         )
     }
 
-    private func addProvider() {
-        let kind = ProviderKind.openAICompatible
-        let provider = Provider(name: "新服务商", kind: kind, baseURL: kind.defaultBaseURL)
-        context.insert(provider)
+    private func addPickedProvider() {
+        guard let preset = pickedPreset else { return }
+        pickedPreset = nil
+        let provider = ProviderSetup.makeProvider(from: preset, in: context)
         path.append(provider)
     }
 

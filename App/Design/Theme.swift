@@ -45,6 +45,18 @@ extension View {
     }
 }
 
+extension View {
+    /// 引导页底部的主按钮：iOS 26 用带主题色的玻璃按钮，iOS 18 用实心的主题色按钮（材质背景在纯色页面上看不出按钮）。
+    @ViewBuilder
+    func primaryButtonStyle() -> some View {
+        if #available(iOS 26.0, *) {
+            buttonStyle(.glassProminent)
+        } else {
+            buttonStyle(.borderedProminent)
+        }
+    }
+}
+
 /// 小球表示的模型活动（见 GLOSSARY「小球」）。普通加载（PDF 转图片、拉模型列表）不用小球，仍用系统转圈。
 enum OrbActivity {
     /// 等模型回复、验证 API Key、整理资料这类"模型在干活"。
