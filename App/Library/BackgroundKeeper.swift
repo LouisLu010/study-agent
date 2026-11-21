@@ -1,6 +1,7 @@
 import BackgroundTasks
 import CoreLocation
 import Foundation
+import Observation
 import UIKit
 
 /// 汇编在后台继续运行（见 docs/adr/0012）：
@@ -11,9 +12,38 @@ import UIKit
 /// 查找试卷、逐份查题、重新获取一道题、写 AI 解析都算一项"工作"，可以同时有好几项。
 /// 第一项开始时申请后台运行，最后一项结束时释放。系统进度显示最近开始的那一项。
 @MainActor
+@Observable
 final class BackgroundKeeper: NSObject {
     static let shared = BackgroundKeeper()
-    static let identifierPrefix = "com.louislu.studyagent.compilation"
+
+    /// 系统长任务的标识符。按运行时的 Bundle ID 拼，只注册一次、之后重复提交：
+    /// 同一个标识符注册两次会让 App 被系统结束，而每次用新的标识符要靠 Info.plist 里的通配符匹配，
+    /// 自签安装时不一定可靠。Info.plist 里同时登记了这个固定的标识符和 compilation.* 通配符。
+    static var taskIdentifier: String {
+        (Bundle.main.bundleIdentifier ?? "com.louislu.studyagent") + ".compilation.run"
+    }
+    private static var registered: Bool?
+
+    /// 系统长任务（iOS 26 的 BGContinuedProcessingTask）这一次有没有批下来。
+    enum SystemTask: Equatable {
+        /// 没有在跑的工作。
+        case idle
+        /// iOS 26 以下没有这个接口。
+        case unsupported
+        /// 已经提交，等系统答复。
+        case waiting
+        /// 系统批了，切到别的 App 也会继续。
+        case running
+        /// 没批下来，原因给用户看。
+        case refused(String)
+    }
+
+    private(set) var systemTask = SystemTask.idle
+    /// 强力保活的后台定位正在运行。
+    private(set) var locationActive = false
+
+    /// 现在切到别的 App 能不能继续运行。
+    var isProtected: Bool { locationActive || systemTask == .running }
 
     private struct Job {
         var title: String
@@ -23,19 +53,19 @@ final class BackgroundKeeper: NSObject {
         var onExpire: () -> Void
     }
 
-    private var jobs: [UUID: Job] = [:]
+    @ObservationIgnored private var jobs: [UUID: Job] = [:]
     /// 开始的先后顺序，最后一个显示在系统进度里。
-    private var order: [UUID] = []
+    @ObservationIgnored private var order: [UUID] = []
     /// 当前这一步里收到的流式事件数，用来让进度条在一次长请求中也慢慢往前走。
     /// 系统会结束长时间没有进度的 BGContinuedProcessingTask。
-    private var ticks = 0
+    @ObservationIgnored private var ticks = 0
 
-    private var locationManager: CLLocationManager?
-    private var continuedTask: AnyObject?
-    private var legacyTask: UIBackgroundTaskIdentifier = .invalid
+    @ObservationIgnored private var locationManager: CLLocationManager?
+    @ObservationIgnored private var continuedTask: AnyObject?
+    @ObservationIgnored private var legacyTask: UIBackgroundTaskIdentifier = .invalid
 
     /// App 最近一次进入后台的时间。用来判断一次网络错误是不是因为切到了别的 App。
-    private(set) var lastEnteredBackground: Date?
+    @ObservationIgnored private(set) var lastEnteredBackground: Date?
 
     override init() {
         super.init()
@@ -105,7 +135,17 @@ final class BackgroundKeeper: NSObject {
         }
         if #available(iOS 26.0, *) {
             submitContinuedTask(title: title, subtitle: subtitle)
+        } else {
+            systemTask = .unsupported
         }
+    }
+
+    /// 在汇编页面上点"打开强力保活"：请求定位权限，拿到了就打开设置并立刻开始后台定位。
+    func enableStrongKeepAlive() async -> Bool {
+        guard await LocationPermission.shared.request() == .granted else { return false }
+        UserDefaults.standard.set(true, forKey: AppSettingsKey.strongKeepAlive)
+        if !jobs.isEmpty && locationManager == nil { startLocation() }
+        return true
     }
 
     private func stopKeepAlive(success: Bool) {
@@ -114,6 +154,7 @@ final class BackgroundKeeper: NSObject {
             task.setTaskCompleted(success: success)
         }
         continuedTask = nil
+        systemTask = .idle
         stopLocation()
         if legacyTask != .invalid {
             UIApplication.shared.endBackgroundTask(legacyTask)
@@ -143,18 +184,40 @@ final class BackgroundKeeper: NSObject {
 
     @available(iOS 26.0, *)
     private func submitContinuedTask(title: String, subtitle: String) {
-        // 每次用新的标识符：同一个标识符注册两次会让 App 被系统结束。
-        let identifier = "\(Self.identifierPrefix).\(UUID().uuidString)"
+        let identifier = Self.taskIdentifier
+        if Self.registered == nil {
+            Self.registered = register(identifier)
+        }
+        guard Self.registered == true else {
+            // 注册失败只有一个原因：Info.plist 里没有这个标识符。自签工具改了 Bundle ID 时就会这样。
+            systemTask = .refused("安装时 Bundle ID 被改成了 \(Bundle.main.bundleIdentifier ?? "?")，系统不认这个 App 登记的后台任务")
+            return
+        }
+        systemTask = .waiting
+        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
+        request.strategy = .fail
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            systemTask = .refused("系统拒绝了后台任务：\(error.localizedDescription)")
+            return
+        }
+        // 系统批了会在一瞬间回调；几秒都没有回调就是没批（自签安装时常见，系统不报错）。
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard let self, self.systemTask == .waiting, !self.jobs.isEmpty else { return }
+            self.systemTask = .refused("系统没有启动后台任务，自签安装的 App 常遇到")
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private func register(_ identifier: String) -> Bool {
         // 必须用 .main：这个闭包写在 @MainActor 的类里，Swift 6 会把它当成只能在主线程运行，
         // 进入时检查当前线程。传 nil 时系统在后台队列上调用它，检查不通过，App 直接闪退
         // （_dispatch_assert_queue_fail）。编译器对这种情况不报警告。
-        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             BackgroundKeeper.shared.attach(task)
         }
-        guard registered else { return }
-        let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
-        request.strategy = .fail
-        try? BGTaskScheduler.shared.submit(request)
     }
 
     @available(iOS 26.0, *)
@@ -165,6 +228,7 @@ final class BackgroundKeeper: NSObject {
             return
         }
         continuedTask = task
+        systemTask = .running
         task.expirationHandler = Self.expirationHandler()
         refresh()
     }
@@ -207,12 +271,14 @@ final class BackgroundKeeper: NSObject {
         manager.allowsBackgroundLocationUpdates = true
         manager.startUpdatingLocation()
         locationManager = manager
+        locationActive = true
     }
 
     private func stopLocation() {
         locationManager?.stopUpdatingLocation()
         locationManager?.allowsBackgroundLocationUpdates = false
         locationManager = nil
+        locationActive = false
     }
 }
 

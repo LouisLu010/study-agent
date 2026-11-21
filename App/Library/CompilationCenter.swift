@@ -32,7 +32,7 @@ final class CompilationCenter {
     /// 因为切到别的 App 被系统打断的汇编。回到 App 时自动继续。
     private(set) var interrupted: Set<UUID> = []
 
-    static let interruptedText = "切到别的 App 后，系统断开了网络。回到格物后会自动继续。"
+    static let interruptedText = "切到别的 App 后，系统暂停了格物，网络也断开了。已经保存进度，回到格物后会自动继续。打开设置里的强力保活就不会被暂停。"
 
     func isRunning(_ compilation: Compilation) -> Bool {
         tasks[compilation.id] != nil
