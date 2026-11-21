@@ -127,6 +127,8 @@
 2. 用 Sideloadly 把它装到 iPhone 或 iPad 上，登录你的 Apple ID。
 3. 在设备的"设置 → 通用 → VPN 与设备管理"里信任你的 Apple ID，然后打开 App。
 
+发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的未签名 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上，下载不需要登录，也不会过期。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
+
 ## 第一次使用
 
 1. 点左上角的齿轮打开设置，点"添加服务商"，选择协议，填写 API 地址和 API Key。
