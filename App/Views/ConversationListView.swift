@@ -43,9 +43,10 @@ struct ConversationListView: View {
                     HStack(spacing: Theme.Spacing.s) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(conversation.title)
+                                .fontWeight(.medium)
                                 .lineLimit(1)
                             Text((conversation.model?.name ?? "未选择模型") + " · " + conversation.updatedAt.formatted(.relative(presentation: .named)))
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -85,7 +86,7 @@ struct ConversationListView: View {
                 ContentUnavailableView.search(text: searchText)
             }
         }
-        .navigationTitle("Study Agent")
+        .navigationTitle("格物")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button("设置", systemImage: "gearshape") { showSettings = true }

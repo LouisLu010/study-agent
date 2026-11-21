@@ -70,7 +70,7 @@ struct SettingsView: View {
                     Text("复习")
                 } footer: {
                     Text(permissionDenied
-                         ? "通知权限被关闭了，请在系统设置 → 通知 → Study Agent 里打开。"
+                         ? "通知权限被关闭了，请在系统设置 → 通知 → 格物 里打开。"
                          : "每天在这个时间提醒一次，只在有到期的错题时才提醒。")
                 }
                 .onChange(of: reminderEnabled) {

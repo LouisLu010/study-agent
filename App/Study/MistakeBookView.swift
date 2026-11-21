@@ -169,18 +169,11 @@ private struct MistakeRow: View {
     let mistake: Mistake
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(mistake.previewText.isEmpty ? "（图片题）" : mistake.previewText)
-                .lineLimit(2)
-            HStack(spacing: 6) {
-                Text([mistake.subject?.rawValue ?? "分类中…", mistake.topic].filter { !$0.isEmpty }.joined(separator: " · "))
-                Spacer()
-                Text(MistakeFormatting.status(mistake))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 2)
+        LibraryRow(
+            title: mistake.previewText.isEmpty ? "（图片题）" : mistake.previewText,
+            subject: mistake.subject?.rawValue ?? "分类中…",
+            meta: [mistake.topic, MistakeFormatting.status(mistake)].filter { !$0.isEmpty }.joined(separator: " · ")
+        )
     }
 }
 

@@ -1,4 +1,4 @@
-# Study Agent
+# 格物
 
 一个运行在 iPhone 和 iPad 上的大模型聊天客户端，目标是让学习类对话（数学、物理、化学等）达到 ChatGPT 官方客户端的体验：第一版做到公式、化学式和坐标图的显示效果，第二版加入类似 ChatGPT Intelligent UI 的交互式回答。
 

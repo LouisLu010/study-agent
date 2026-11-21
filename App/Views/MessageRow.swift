@@ -70,7 +70,7 @@ private struct UserMessageView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
+                        .background(Color.accentColor.opacity(0.22), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
                 }
             }
         }
@@ -133,6 +133,12 @@ private struct AssistantMessageView: View {
     var body: some View {
         let search = message.webSearch
         VStack(alignment: .leading, spacing: 8) {
+            if !message.modelName.isEmpty {
+                Text(message.modelName)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
             if let search, !search.queries.isEmpty || isStreaming {
                 WebSearchSummaryView(record: search, isSearching: isStreaming && message.content.isEmpty)
             }
@@ -279,7 +285,8 @@ private struct AssistantMessageView: View {
             }
         }
         .font(.subheadline)
-        .foregroundStyle(.secondary)
+        // 最后一条回答的操作栏正常显示，之前的淡一些，不抢正文。
+        .foregroundStyle(canRegenerate ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
         .buttonStyle(.borderless)
     }
 

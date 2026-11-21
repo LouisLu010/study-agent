@@ -30,7 +30,7 @@ struct AboutView: View {
             Section {
                 VStack(spacing: Theme.Spacing.m) {
                     ActivityOrb(activity: .idle, size: 64)
-                    Text("Study Agent")
+                    Text("格物")
                         .font(.headline)
                     Text("版本 \(version)")
                         .font(.caption)

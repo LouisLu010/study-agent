@@ -71,20 +71,11 @@ private struct CompilationRow: View {
     @Environment(CompilationCenter.self) private var center
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.m) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text(compilation.title).lineLimit(1)
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+        LibraryRow(title: compilation.title, summary: compilation.request, meta: statusText) {
             if center.isRunning(compilation) {
-                Spacer()
                 ActivityOrb(activity: compilation.status == .listing ? .searching : .background)
             }
         }
-        .padding(.vertical, 2)
     }
 
     private var statusText: String {
