@@ -5,6 +5,8 @@ options:
   deploymentTarget:
     iOS: "18.0"
   createIntermediateGroups: true
+  # App 只有中文。声明成中文后，日期（例如"2 小时前"）和系统自带的文字也按中文显示。
+  developmentLanguage: zh-Hans
 
 packages:
   StudyKit:
@@ -27,7 +29,9 @@ targets:
       path: App/Info.plist
       properties:
         UIBackgroundModes: [location, processing]
-        BGTaskSchedulerPermittedIdentifiers: [com.louislu.studyagent.compilation.*]
+        BGTaskSchedulerPermittedIdentifiers: [com.louislu.studyagent.compilation.run, com.louislu.studyagent.compilation.*]
+        CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans]
     settings:
       base:
         PRODUCT_NAME: StudyAgent
@@ -37,7 +41,8 @@ targets:
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: "YES"
-        INFOPLIST_KEY_CFBundleDisplayName: Study Agent
+        # 第六版起叫"格物"。Bundle ID 不变，覆盖安装时数据还在。
+        INFOPLIST_KEY_CFBundleDisplayName: 格物
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # 主题色取自图标的蓝色：浅色 #2563EB，深色 #4D8EFF。渲染器的 --accent 用同样的值。
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

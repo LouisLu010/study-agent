@@ -61,7 +61,7 @@
       controls.innerHTML = '';
       controls.appendChild(el('span', 'steps-progress', revealed + ' / ' + total));
       if (revealed < total) {
-        const next = el('button', 'sa-button steps-next', '下一步');
+        const next = el('button', 'sa-button is-primary steps-next', '下一步');
         next.addEventListener('click', () => setRevealed(revealed + 1));
         const all = el('button', 'sa-button', '全部展开');
         all.addEventListener('click', () => setRevealed(total));

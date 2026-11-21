@@ -95,7 +95,7 @@ struct ChatView: View {
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .bottomBar {
                 composer(isGenerating: isGenerating)
             }
         }
