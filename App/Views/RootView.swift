@@ -24,6 +24,8 @@ struct RootView: View {
                     BookmarksView()
                 case .stats:
                     StudyStatsView()
+                case .notes:
+                    ResearchNotesView()
                 case nil:
                     ContentUnavailableView(
                         "没有选中的会话",

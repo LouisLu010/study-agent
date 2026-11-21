@@ -5,34 +5,6 @@ import SwiftData
 // 错题、收藏和学习记录。和其他模型一样遵守 CloudKit 的约束（见 docs/adr/0004）。
 // 错题和收藏都保存独立副本（见 docs/adr/0009）。
 
-public enum Subject: String, CaseIterable, Identifiable, Sendable {
-    case math = "数学"
-    case physics = "物理"
-    case chemistry = "化学"
-    case biology = "生物"
-    case chinese = "语文"
-    case english = "英语"
-    case other = "其他"
-
-    public var id: String { rawValue }
-
-    /// 把模型写的科目归到固定的几个里，归不上算"其他"；空字符串返回 nil（表示还没分类）。
-    public static func normalize(_ text: String) -> Subject? {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else { return nil }
-        if let match = allCases.first(where: { value.contains($0.rawValue) }) { return match }
-        switch value.lowercased() {
-        case "math", "mathematics": return .math
-        case "physics": return .physics
-        case "chemistry": return .chemistry
-        case "biology": return .biology
-        case "chinese": return .chinese
-        case "english": return .english
-        default: return .other
-        }
-    }
-}
-
 public enum MistakeKind: String, Sendable {
     /// 测验里答错的题，可以在本地判分。
     case quiz
@@ -194,5 +166,6 @@ public enum StudyAgentSchema {
     public static let models: [any PersistentModel.Type] = [
         Provider.self, ChatModel.self, Conversation.self, Message.self, Attachment.self,
         Mistake.self, MistakeImage.self, Bookmark.self, StudyEvent.self,
+        ResearchNote.self,
     ]
 }

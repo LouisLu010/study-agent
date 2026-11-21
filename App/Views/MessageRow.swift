@@ -107,6 +107,7 @@ private struct AssistantMessageView: View {
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
     @State private var isBookmarked = false
+    @State private var noteDraft: NoteDraftRequest?
 
     init(
         message: Message,
@@ -214,6 +215,9 @@ private struct AssistantMessageView: View {
             ShareSheet(items: item.items)
                 .presentationDetents([.medium, .large])
         }
+        .sheet(item: $noteDraft) { request in
+            NoteDraftSheet(request: request)
+        }
         .confirmationDialog(
             "公式",
             isPresented: Binding(
@@ -308,6 +312,13 @@ private struct AssistantMessageView: View {
             }
             .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
             .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }
+
+            Button {
+                noteDraft = .reply(message)
+            } label: {
+                Image(systemName: "doc.text.magnifyingglass")
+            }
+            .accessibilityLabel("整理成资料")
 
             Button {
                 Task {
@@ -462,10 +473,12 @@ private struct WebSearchSummaryView: View {
 }
 
 /// 回答末尾的出处列表。编号和正文里的角标一致；点按用系统浏览器打开。
-private struct SourceListView: View {
+struct SourceListView: View {
     let sources: [WebSource]
     /// 有引用时按 [1] [2] 编号；只有搜索结果时不编号。
     let numbered: Bool
+    /// 不为 nil 时每个出处后面有删除按钮。
+    var onDelete: ((Int) -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -495,6 +508,18 @@ private struct SourceListView: View {
                         }
                         .font(.footnote)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .overlay(alignment: .trailing) {
+                        if let onDelete {
+                            Button(role: .destructive) {
+                                onDelete(index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("删除出处")
+                        }
                     }
                 }
             }

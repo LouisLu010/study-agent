@@ -32,6 +32,9 @@ struct ConversationListView: View {
                     NavigationLink(value: SidebarItem.bookmarks) {
                         Label("收藏", systemImage: "bookmark")
                     }
+                    NavigationLink(value: SidebarItem.notes) {
+                        Label("资料", systemImage: "doc.text.magnifyingglass")
+                    }
                     NavigationLink(value: SidebarItem.stats) {
                         Label("学习记录", systemImage: "chart.bar")
                     }

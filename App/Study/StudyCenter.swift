@@ -9,6 +9,7 @@ enum SidebarItem: Hashable {
     case mistakes
     case bookmarks
     case stats
+    case notes
 }
 
 /// 侧边栏的选择放在环境里，错题本、收藏等页面也能跳到某个会话。

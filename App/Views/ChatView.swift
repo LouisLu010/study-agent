@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var draftImages: [PendingImage] = []
     @State private var errorMessage: String?
     @State private var editingMessage: Message?
+    @State private var noteDraft: NoteDraftRequest?
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
     @State private var addingMistake: MistakeDraft?
@@ -94,6 +95,10 @@ struct ChatView: View {
             ) {
                 showInstructions = true
             }
+            Button("整理成资料", systemImage: "doc.text.magnifyingglass") {
+                noteDraft = .conversation(conversation)
+            }
+            .disabled(conversation.sortedMessages.isEmpty || isGenerating)
             Button("导出为 Markdown", systemImage: "square.and.arrow.up") {
                 do {
                     shareItem = ShareItem(items: [try ConversationExporter.markdownFile(for: conversation)])
@@ -113,6 +118,9 @@ struct ChatView: View {
                     Text(usage)
                 }
             }
+        }
+        .sheet(item: $noteDraft) { request in
+            NoteDraftSheet(request: request)
         }
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)
