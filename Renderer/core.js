@@ -2015,11 +2015,53 @@
         : '[' + componentLabel(fence.language) + ']';
       lines.splice(fence.start, fence.end - fence.start, text);
     }
-    return lines.join('\n');
+    // 引用角标只留编号，链接在出处列表里。
+    return lines.join('\n').replace(CITATION_MARKER, '[$1]');
+  }
+
+  // ---------- 引用角标 ----------
+
+  // 联网搜索的引用在正文里写成 [[1]](<url>)，渲染成上标的 [1]。
+  const CITATION_LABEL = /^\[\d{1,3}\]$/;
+  const CITATION_MARKER = /\[\[(\d{1,3})\]\]\(<[^>\n]*>\)/g;
+
+  function citationPlugin(md) {
+    const fallback = md.renderer.rules.link_open ||
+      ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options));
+    md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+      const text = tokens[idx + 1];
+      const close = tokens[idx + 2];
+      if (text && text.type === 'text' && CITATION_LABEL.test(text.content) && close && close.type === 'link_close') {
+        tokens[idx].attrJoin('class', 'sa-cite');
+      }
+      return fallback(tokens, idx, options, env, self);
+    };
+  }
+
+  // ---------- 图片尺寸 ----------
+
+  // 汇编里的原图写成 ![](sa-asset:id "w=554,h=255")：标题里是网页上的显示尺寸，转成宽度，不显示成提示文字。
+  const IMAGE_SIZE = /^w=(\d{1,4})(?:,h=(\d{1,4}))?$/;
+
+  function imagePlugin(md) {
+    const fallback = md.renderer.rules.image;
+    md.renderer.rules.image = (tokens, idx, options, env, self) => {
+      const token = tokens[idx];
+      const match = IMAGE_SIZE.exec(token.attrGet('title') || '');
+      if (match) {
+        const attrs = token.attrs.filter((a) => a[0] !== 'title');
+        token.attrs = attrs;
+        token.attrSet('width', match[1]);
+        token.attrJoin('class', 'sa-figure');
+      }
+      return fallback(tokens, idx, options, env, self);
+    };
   }
 
   return {
     mathPlugin,
+    citationPlugin,
+    imagePlugin,
     compileExpression,
     parseGraphSpec,
     fillFormula,

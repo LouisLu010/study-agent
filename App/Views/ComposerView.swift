@@ -12,6 +12,11 @@ struct ComposerView: View {
     let onSend: () -> Void
     let onStop: () -> Void
     let onImagesNotAllowed: () -> Void
+    /// 这个会话是否打开了"联网"。
+    @Binding var webSearchEnabled: Bool
+    /// 当前模型是否支持联网搜索。不支持时按钮显示为灰色，点按时提示原因。
+    let webSearchAllowed: Bool
+    let onWebSearchNotAllowed: () -> Void
 
     @State private var showPhotoPicker = false
     @State private var showCamera = false
@@ -39,6 +44,7 @@ struct ComposerView: View {
 
             HStack(alignment: .bottom, spacing: 8) {
                 attachmentMenu
+                webSearchButton
 
                 TextField("发消息", text: $text, axis: .vertical)
                     .lineLimit(1...6)
@@ -128,6 +134,27 @@ struct ComposerView: View {
                     .foregroundStyle(.tertiary)
             }
         }
+    }
+
+    /// "联网"开关。打开后由模型决定这一轮要不要搜索。
+    private var webSearchButton: some View {
+        let isOn = webSearchEnabled && webSearchAllowed
+        return Button {
+            if webSearchAllowed {
+                webSearchEnabled.toggle()
+            } else {
+                onWebSearchNotAllowed()
+            }
+        } label: {
+            Image(systemName: "globe")
+                .font(.system(size: 21))
+                .foregroundStyle(isOn ? AnyShapeStyle(.white) : (webSearchAllowed ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary)))
+                .frame(width: 34, height: 34)
+                .background(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), in: Circle())
+                .frame(height: 40)
+        }
+        .accessibilityLabel("联网搜索")
+        .accessibilityValue(isOn ? "已打开" : "已关闭")
     }
 
     private var attachmentIcon: some View {

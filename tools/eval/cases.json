@@ -451,5 +451,58 @@
       "geometry",
       "graph"
     ]
+  },
+  {
+    "id": "web-gaokao-organic",
+    "web": true,
+    "expectSearch": true,
+    "prompt": "2025 年高考全国一卷（新课标Ⅰ卷）化学的有机推断大题考的是什么物质的合成？请说明出处。",
+    "expect": [],
+    "allow": [
+      "steps",
+      "quiz"
+    ]
+  },
+  {
+    "id": "web-exam-numbers",
+    "web": true,
+    "expectSearch": true,
+    "prompt": "2026 年全国高考报名人数是多少？和 2025 年比有什么变化？",
+    "expect": [],
+    "allow": [
+      "chart"
+    ]
+  },
+  {
+    "id": "web-recent-math",
+    "web": true,
+    "expectSearch": true,
+    "prompt": "2026 年高考数学新课标Ⅰ卷的最后一道大题考的是什么内容？",
+    "expect": [],
+    "allow": [
+      "steps",
+      "graph"
+    ]
+  },
+  {
+    "id": "web-no-derivative",
+    "web": true,
+    "expectSearch": false,
+    "prompt": "求函数 y = x^3 - 3x 的极值。",
+    "expect": [],
+    "allow": [
+      "graph",
+      "steps"
+    ]
+  },
+  {
+    "id": "web-no-concept",
+    "web": true,
+    "expectSearch": false,
+    "prompt": "用两三句话解释一下勒夏特列原理。",
+    "expect": [],
+    "allow": [
+      "steps"
+    ]
   }
 ]

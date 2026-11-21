@@ -6,6 +6,7 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
     @Environment(AppNavigation.self) private var navigation
+    @Environment(CompilationCenter.self) private var compilations
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -24,6 +25,10 @@ struct RootView: View {
                     BookmarksView()
                 case .stats:
                     StudyStatsView()
+                case .notes:
+                    ResearchNotesView()
+                case .compilations:
+                    CompilationsView()
                 case nil:
                     ContentUnavailableView(
                         "没有选中的会话",
@@ -35,6 +40,7 @@ struct RootView: View {
         }
         .task {
             generation.recoverInterruptedMessages(in: context)
+            compilations.recoverInterrupted(in: context)
         }
         .onChange(of: scenePhase) {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。

@@ -107,6 +107,7 @@ private struct AssistantMessageView: View {
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
     @State private var isBookmarked = false
+    @State private var noteDraft: NoteDraftRequest?
 
     init(
         message: Message,
@@ -128,7 +129,12 @@ private struct AssistantMessageView: View {
     private var isStreaming: Bool { message.status == .streaming }
 
     var body: some View {
+        let search = message.webSearch
         VStack(alignment: .leading, spacing: 8) {
+            if let search, !search.queries.isEmpty || isStreaming {
+                WebSearchSummaryView(record: search, isSearching: isStreaming && message.content.isEmpty)
+            }
+
             if !message.reasoning.isEmpty {
                 ReasoningView(
                     reasoning: message.reasoning,
@@ -137,7 +143,7 @@ private struct AssistantMessageView: View {
             }
 
             if message.content.isEmpty {
-                if isStreaming && message.reasoning.isEmpty {
+                if isStreaming && message.reasoning.isEmpty && search == nil {
                     ProgressView()
                         .frame(height: 24)
                 }
@@ -187,12 +193,17 @@ private struct AssistantMessageView: View {
                 EmptyView()
             }
 
+            if !isStreaming, let sources = search?.displayedSources, !sources.isEmpty {
+                SourceListView(sources: sources, numbered: !(search?.sources.isEmpty ?? true))
+            }
+
             if !isStreaming && (hasActions || showsVersionSwitcher) {
                 actionBar
             }
 
             if !isStreaming, let usage = UsageFormatting.summary(
-                input: message.inputTokens, output: message.outputTokens, cost: message.costCNY
+                input: message.inputTokens, output: message.outputTokens, cost: message.costCNY,
+                searches: search?.effectiveCount ?? 0
             ) {
                 Text(usage)
                     .font(.caption2)
@@ -203,6 +214,9 @@ private struct AssistantMessageView: View {
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(item: $noteDraft) { request in
+            NoteDraftSheet(request: request)
         }
         .confirmationDialog(
             "公式",
@@ -271,7 +285,9 @@ private struct AssistantMessageView: View {
     private var copyAndRegenerate: some View {
             Button {
                 // 组件代码块换成可读的文字再复制。
-                UIPasteboard.general.string = PlainTextExporter.plainText(from: message.content)
+                var text = PlainTextExporter.plainText(from: message.content)
+                if let sources = message.webSearch?.sourcesText { text += "\n\n" + sources }
+                UIPasteboard.general.string = text
                 didCopy = true
                 Task {
                     try? await Task.sleep(for: .seconds(1.5))
@@ -296,6 +312,13 @@ private struct AssistantMessageView: View {
             }
             .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
             .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }
+
+            Button {
+                noteDraft = .reply(message)
+            } label: {
+                Image(systemName: "doc.text.magnifyingglass")
+            }
+            .accessibilityLabel("整理成资料")
 
             Button {
                 Task {
@@ -386,5 +409,122 @@ private struct ReasoningText: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+/// 回答上方的一行：生成时显示"正在搜索：…"，完成后显示"搜索了 N 次"，点开列出搜过的词。
+private struct WebSearchSummaryView: View {
+    let record: WebSearchRecord
+    let isSearching: Bool
+
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                isExpanded.toggle()
+            } label: {
+                HStack(spacing: 6) {
+                    if isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "globe")
+                    }
+                    Text(title)
+                        .lineLimit(1)
+                    if !record.queries.isEmpty {
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .disabled(record.queries.isEmpty)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(record.queries.indices, id: \.self) { index in
+                        Label(record.queries[index], systemImage: "magnifyingglass")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, 10)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(.quaternary)
+                        .frame(width: 2)
+                }
+            }
+        }
+    }
+
+    private var title: String {
+        if isSearching {
+            if let query = record.queries.last { return "正在搜索：\(query)" }
+            return "正在搜索…"
+        }
+        return "搜索了 \(record.effectiveCount) 次"
+    }
+}
+
+/// 回答末尾的出处列表。编号和正文里的角标一致；点按用系统浏览器打开。
+struct SourceListView: View {
+    let sources: [WebSource]
+    /// 有引用时按 [1] [2] 编号；只有搜索结果时不编号。
+    let numbered: Bool
+    /// 不为 nil 时每个出处后面有删除按钮。
+    var onDelete: ((Int) -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("出处")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(sources.indices, id: \.self) { index in
+                let source = sources[index]
+                if let url = URL(string: source.url) {
+                    Link(destination: url) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            if numbered {
+                                Text("[\(index + 1)]")
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(source.displayTitle)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                if let host = source.host, host != source.displayTitle {
+                                    Text(host)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                        }
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .overlay(alignment: .trailing) {
+                        if let onDelete {
+                            Button(role: .destructive) {
+                                onDelete(index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.borderless)
+                            .accessibilityLabel("删除出处")
+                        }
+                    }
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
     }
 }

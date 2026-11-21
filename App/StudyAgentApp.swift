@@ -6,13 +6,15 @@ import SwiftUI
 struct StudyAgentApp: App {
     @State private var generation = GenerationCenter()
     @State private var navigation = AppNavigation()
+    @State private var compilations = CompilationCenter()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(generation)
                 .environment(navigation)
+                .environment(compilations)
         }
-        .modelContainer(for: StudyAgentSchema.models)
+        .modelContainer(AppStore.container)
     }
 }

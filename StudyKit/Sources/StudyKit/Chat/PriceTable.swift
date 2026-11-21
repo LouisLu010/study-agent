@@ -10,23 +10,44 @@ public struct ModelPrice: Equatable, Sendable {
     public var input: Double
     public var output: Double
     public var currency: Currency
+    /// 联网搜索每 1000 次的价格。没有时为 nil，不计搜索费。
+    public var webSearchPer1000: Double?
+    /// 搜索单价的币种。手动填写 token 单价（人民币）时，搜索单价仍沿用价格表里的币种。
+    public var webSearchCurrency: Currency
 
-    public init(input: Double, output: Double, currency: Currency) {
+    public init(
+        input: Double,
+        output: Double,
+        currency: Currency,
+        webSearchPer1000: Double? = nil,
+        webSearchCurrency: Currency? = nil
+    ) {
         self.input = input
         self.output = output
         self.currency = currency
+        self.webSearchPer1000 = webSearchPer1000
+        self.webSearchCurrency = webSearchCurrency ?? currency
     }
 
     /// 换算成人民币单价。
     public func inCNY(usdToCNY rate: Double) -> ModelPrice {
-        guard currency == .usd else { return self }
-        return ModelPrice(input: input * rate, output: output * rate, currency: .cny)
+        let tokenRate = currency == .usd ? rate : 1
+        let searchRate = webSearchCurrency == .usd ? rate : 1
+        return ModelPrice(
+            input: input * tokenRate,
+            output: output * tokenRate,
+            currency: .cny,
+            webSearchPer1000: webSearchPer1000.map { $0 * searchRate },
+            webSearchCurrency: .cny
+        )
     }
 
-    /// 一次请求的估算费用（人民币）。
-    public func costCNY(inputTokens: Int, outputTokens: Int, usdToCNY rate: Double) -> Double {
+    /// 一次请求的估算费用（人民币），包括联网搜索的费用。
+    public func costCNY(inputTokens: Int, outputTokens: Int, webSearches: Int = 0, usdToCNY rate: Double) -> Double {
         let price = inCNY(usdToCNY: rate)
-        return (Double(inputTokens) * price.input + Double(outputTokens) * price.output) / 1_000_000
+        let tokens = (Double(inputTokens) * price.input + Double(outputTokens) * price.output) / 1_000_000
+        let searches = Double(max(0, webSearches)) * (price.webSearchPer1000 ?? 0) / 1000
+        return tokens + searches
     }
 }
 
@@ -38,10 +59,14 @@ public struct PriceTable: Sendable {
                 let ids: [String]
                 let input: Double
                 let output: Double
+                /// 这个模型自己的搜索单价，优先于服务商的。
+                let webSearchPer1000: Double?
             }
 
             let name: String
             let currency: ModelPrice.Currency
+            /// 联网搜索每 1000 次的价格（服务商币种）。
+            let webSearchPer1000: Double?
             let models: [Model]
         }
 
@@ -73,7 +98,12 @@ public struct PriceTable: Sendable {
         var prices: [String: ModelPrice] = [:]
         for provider in file.providers {
             for model in provider.models {
-                let price = ModelPrice(input: model.input, output: model.output, currency: provider.currency)
+                let price = ModelPrice(
+                    input: model.input,
+                    output: model.output,
+                    currency: provider.currency,
+                    webSearchPer1000: model.webSearchPer1000 ?? provider.webSearchPer1000
+                )
                 for id in model.ids {
                     prices[Self.normalize(id)] = price
                 }

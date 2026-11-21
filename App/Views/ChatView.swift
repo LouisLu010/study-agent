@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var draftImages: [PendingImage] = []
     @State private var errorMessage: String?
     @State private var editingMessage: Message?
+    @State private var noteDraft: NoteDraftRequest?
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
     @State private var addingMistake: MistakeDraft?
@@ -69,7 +70,12 @@ struct ChatView: View {
                 canSend: canSend,
                 onSend: send,
                 onStop: { generation.stop(conversation) },
-                onImagesNotAllowed: { errorMessage = GenerationError.modelDoesNotSupportImages.localizedDescription }
+                onImagesNotAllowed: { errorMessage = GenerationError.modelDoesNotSupportImages.localizedDescription },
+                webSearchEnabled: $conversation.webSearchEnabled,
+                webSearchAllowed: conversation.model?.supportsWebSearch ?? false,
+                onWebSearchNotAllowed: {
+                    errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
+                }
             )
             .frame(maxWidth: 820)
             .frame(maxWidth: .infinity)
@@ -89,6 +95,10 @@ struct ChatView: View {
             ) {
                 showInstructions = true
             }
+            Button("整理成资料", systemImage: "doc.text.magnifyingglass") {
+                noteDraft = .conversation(conversation)
+            }
+            .disabled(conversation.sortedMessages.isEmpty || isGenerating)
             Button("导出为 Markdown", systemImage: "square.and.arrow.up") {
                 do {
                     shareItem = ShareItem(items: [try ConversationExporter.markdownFile(for: conversation)])
@@ -101,12 +111,16 @@ struct ChatView: View {
             if let usage = UsageFormatting.summary(
                 input: total.input > 0 ? total.input : nil,
                 output: total.output > 0 ? total.output : nil,
-                cost: total.cost
+                cost: total.cost,
+                searches: total.searches
             ) {
                 Section("本会话用量") {
                     Text(usage)
                 }
             }
+        }
+        .sheet(item: $noteDraft) { request in
+            NoteDraftSheet(request: request)
         }
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)

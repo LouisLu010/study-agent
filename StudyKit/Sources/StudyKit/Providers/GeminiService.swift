@@ -53,9 +53,20 @@ public struct GeminiService: ChatService {
             let thinkingLevel: String?
         }
 
+        /// Google 搜索接地。内容是空对象。
+        struct Tool: Encodable {
+            struct GoogleSearch: Encodable {}
+            let googleSearch = GoogleSearch()
+
+            enum CodingKeys: String, CodingKey {
+                case googleSearch = "google_search"
+            }
+        }
+
         let contents: [Content]
         let systemInstruction: Content?
         let generationConfig: GenerationConfig
+        let tools: [Tool]?
     }
 
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
@@ -76,7 +87,8 @@ public struct GeminiService: ChatService {
             generationConfig: .init(thinkingConfig: .init(
                 includeThoughts: true,
                 thinkingLevel: request.reasoningEffort?.rawValue
-            ))
+            )),
+            tools: request.webSearch ? [RequestBody.Tool()] : nil
         )
 
         var urlRequest = URLRequest(url: url)
@@ -96,6 +108,32 @@ public struct GeminiService: ChatService {
             }
 
             let content: CandidateContent?
+            let groundingMetadata: Lenient<GroundingMetadata>?
+        }
+
+        /// 联网搜索的结果：搜索词、用到的网页、正文里哪段话依据哪些网页。每个片段给的都是累计值。
+        struct GroundingMetadata: Decodable {
+            struct Chunk: Decodable {
+                struct Web: Decodable {
+                    let uri: String?
+                    let title: String?
+                }
+
+                let web: Web?
+            }
+
+            struct Support: Decodable {
+                struct Segment: Decodable {
+                    let text: String?
+                }
+
+                let segment: Segment?
+                let groundingChunkIndices: [Int]?
+            }
+
+            let webSearchQueries: [String]?
+            let groundingChunks: [Chunk]?
+            let groundingSupports: [Support]?
         }
 
         struct UsageMetadata: Decodable {
@@ -132,7 +170,39 @@ public struct GeminiService: ChatService {
                 ?? usage.thoughtsTokenCount
             events.append(.usage(input: usage.promptTokenCount, output: output))
         }
+        if let grounding = chunk.candidates?.first?.groundingMetadata?.value {
+            events += groundingEvents(grounding)
+        }
         return .events(events)
+    }
+
+    /// 接地信息转成搜索事件。Gemini 3 起按搜索词计费，搜索次数就是搜索词的个数。
+    private static func groundingEvents(_ grounding: StreamChunk.GroundingMetadata) -> [ChatStreamEvent] {
+        var events: [ChatStreamEvent] = []
+        let queries = (grounding.webSearchQueries ?? []).filter { !$0.isEmpty }
+        events += queries.map { .searching(query: $0) }
+        let sources: [WebSource?] = (grounding.groundingChunks ?? []).map { chunk in
+            guard let uri = chunk.web?.uri, !uri.isEmpty else { return nil }
+            return WebSource(url: uri, title: chunk.web?.title ?? "")
+        }
+        let found = sources.compactMap { $0 }
+        if !found.isEmpty {
+            events.append(.searchResults(found))
+        }
+        let citations = (grounding.groundingSupports ?? []).compactMap { support -> Citation? in
+            guard let text = support.segment?.text, !text.isEmpty else { return nil }
+            let cited = (support.groundingChunkIndices ?? []).compactMap { index -> WebSource? in
+                sources.indices.contains(index) ? sources[index] : nil
+            }
+            return cited.isEmpty ? nil : Citation(sources: cited, anchor: .afterText(text))
+        }
+        if !citations.isEmpty {
+            events.append(.citations(citations))
+        }
+        if !queries.isEmpty {
+            events.append(.searchCount(queries.count))
+        }
+        return events
     }
 
     // MARK: - 流式请求

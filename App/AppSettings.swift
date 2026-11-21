@@ -12,6 +12,8 @@ enum AppSettingsKey {
     /// 美元兑人民币的汇率，用来把美元价格折算成人民币。
     static let usdToCNY = "usdToCNY"
     static let defaultUSDToCNY = 7.2
+    /// 强力保活：生成汇编期间开后台定位，让 App 在后台持续运行（见 docs/adr/0012）。
+    static let strongKeepAlive = "strongKeepAlive"
 
     static var usdToCNYRate: Double {
         let value = UserDefaults.standard.double(forKey: usdToCNY)
@@ -21,6 +23,16 @@ enum AppSettingsKey {
 
 @MainActor
 enum ModelLookup {
+    /// 这个模型对应的聊天服务。
+    static func service(for model: ChatModel) throws -> any ChatService {
+        guard let provider = model.provider else { throw GenerationError.noModel }
+        return try ChatServiceFactory.makeService(
+            kind: provider.kind,
+            baseURL: provider.baseURL,
+            apiKey: KeychainStore.apiKey(for: provider.id) ?? ""
+        )
+    }
+
     /// 默认模型；没有设置时返回最早添加的模型。
     static func defaultModel(in context: ModelContext) -> ChatModel? {
         let descriptor = FetchDescriptor<ChatModel>(sortBy: [SortDescriptor(\.createdAt)])
