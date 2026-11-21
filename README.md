@@ -204,6 +204,16 @@ STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
 
 加 `--web` 只跑联网搜索的题（`cases.json` 里 `"web": true` 的题），检查该搜时搜了、不该搜时没搜、搜了就带出处。搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 `deepseek_web_search` 工具，其余用 `web_search_options`。
 
+### 第七版 C0：汇编工具试验
+
+`tools/eval/tools-trial.js` 比较三种做法：第五版的流水线（`v5`）、工具循环加"另发一次只开联网搜索的请求"来找寻（`model`）、工具循环加 DeepSeek Search API 来找寻（`api`）。题目在 `tools/eval/tools-cases.json`，每道题是一份试卷里的有机大题。获取工具用简化的提取：只按题干开头的几个字定位、返回文字，不取图。
+
+```sh
+STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [--only gk-]
+```
+
+也可以在 Actions 页面手动运行 "C0 tools trial"，Key 放在仓库的 Actions secret `STUDY_TEST_API_KEY` 里。每道题每种做法一份 Markdown（调用记录和取到的原文），另有 `summary.json`；命令行最后几行是结论：通过几道、平均每题多少钱、是否达到"至少 4/5、费用不超过第五版 2 倍"。自动判断的"正确"是取到了文字、像有机大题、网页上有这份试卷的年份和地区，最后仍要人工看一遍取到的原文。
+
 ## 里程碑
 
 1. **M1 骨架**：工程结构、CI、服务商和模型配置、会话列表、OpenAI 兼容协议的流式纯文本聊天。
