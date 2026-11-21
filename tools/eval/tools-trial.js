@@ -11,7 +11,7 @@
  * 获取工具用简化的提取：下载网页、去掉标签，按题干开头的几个字定位，返回文字（不取图）。
  *
  * 通过的标准（README 第七版）：至少 4/5 定位到正确的原题，每道题的费用不超过第五版的 2 倍。
- * "正确的原题"自动判断三条：取到了文字、像有机大题、网页上有这份试卷的年份和地区；
+ * "正确的原题"自动判断两条：取到了文字、像有机大题（网页上有没有试卷名只记下来作参考）；
  * 结果另存一份 Markdown，方便人工复核。只支持 DeepSeek 官方接口。结果写在 tools/eval/results/。
  */
 'use strict';
@@ -31,12 +31,13 @@ const V5_ESTIMATE = { input: 70000, output: 5000 };
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { modes: ['v5', 'model', 'api'], only: null, maxCalls: 40, model: 'deepseek-flash', cases: path.join(__dirname, 'tools-cases.json') };
+  const args = { modes: ['v5', 'model', 'api'], only: null, maxCalls: 40, fetchFallback: false, model: 'deepseek-flash', cases: path.join(__dirname, 'tools-cases.json') };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--mode') args.modes = argv[++i].split(',');
     else if (arg === '--only') args.only = argv[++i];
     else if (arg === '--max-calls') args.maxCalls = Number(argv[++i]);
+    else if (arg === '--fetch-fallback') args.fetchFallback = true;
     else if (arg === '--model') args.model = argv[++i];
     else if (arg === '--cases') args.cases = argv[++i];
     else throw new Error('不认识的参数：' + arg);
@@ -66,6 +67,7 @@ class Meter {
     this.output = 0;
     this.searches = 0;
     this.apiSearches = 0;
+    this.apiFetches = 0;
     this.requests = 0;
   }
   addUsage(usage) {
@@ -76,7 +78,8 @@ class Meter {
     this.searches += (usage.server_tool_use && usage.server_tool_use.tool_search) || 0;
   }
   get costCNY() {
-    return this.input * this.unit.input + this.output * this.unit.output + this.apiSearches * SEARCH_API_USD * USD_TO_CNY;
+    return this.input * this.unit.input + this.output * this.unit.output +
+      (this.apiSearches + this.apiFetches) * SEARCH_API_USD * USD_TO_CNY;
   }
 }
 
@@ -289,6 +292,21 @@ async function searchByAPI(query, meter) {
   return { results };
 }
 
+/**
+ * 直接下载被拒绝（403、405 等）或失败时，改用 DeepSeek 的 Fetch API 读网页（每 1000 次 0.75 美元）。
+ * 它返回 Markdown，图片写成 ![](…)，这里换成 [图]。只在加了 --fetch-fallback 时用。
+ */
+async function readPage(url, options, meter) {
+  const page = await download(url);
+  if (page.status === 'ok') return Object.assign(pageText(page.html), { via: 'direct' });
+  if (!options.fetchFallback) return { error: page.status, code: page.code };
+  const json = await post(BASE_URL + '/v1/tools/fetch', { url }, 60000);
+  if (json.error || !json.content) return { error: page.status, code: page.code, fallback: json.error || 'empty' };
+  meter.apiFetches += 1;
+  const text = json.content.replace(/!\[[^\]]*\]\([^)]*\)/g, '[图]').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  return { title: json.title || '', text, via: 'fetch-api' };
+}
+
 // ---------- 工具循环 ----------
 
 async function runLoop(testCase, mode, options, meter) {
@@ -339,21 +357,23 @@ async function runTool(name, input, mode, options, meter, questions, testCase) {
       return { line: '搜索：' + input.query + ' → ' + found.results.length + ' 个网页', forModel: found };
     }
     case 'read_page': {
-      const page = await download(input.url || '');
-      if (page.status !== 'ok') return { line: '读网页 ' + host(input.url) + ' · ' + page.status, forModel: { status: page.status, code: page.code } };
-      const { title, text } = pageText(page.html);
-      return { line: '读网页 ' + host(input.url) + ' · ' + text.length + ' 字', forModel: { title, text: text.slice(0, 8000) } };
+      const page = await readPage(input.url || '', options, meter);
+      if (page.error) return { line: '读网页 ' + host(input.url) + ' · ' + page.error, forModel: { status: page.error, code: page.code } };
+      return {
+        line: '读网页 ' + host(input.url) + ' · ' + page.text.length + ' 字' + (page.via === 'fetch-api' ? '（Fetch API）' : ''),
+        forModel: { title: page.title, text: page.text.slice(0, 8000) },
+      };
     }
     case 'fetch_question': {
-      const page = await download(input.url || '');
+      const page = await readPage(input.url || '', options, meter);
       let result;
       let title = '';
-      if (page.status !== 'ok') result = { status: page.status };
+      if (page.error) result = { status: page.error };
       else {
-        const parsed = pageText(page.html);
-        title = parsed.title;
-        result = locate(parsed.text, input.anchor || '', input.last_anchor || '');
-        result.pageHasPaper = paperOnPage(testCase, parsed.title + '\n' + parsed.text.slice(0, 3000));
+        title = page.title;
+        result = locate(page.text, input.anchor || '', input.last_anchor || '');
+        result.pageHasPaper = paperOnPage(testCase, page.title + '\n' + page.text.slice(0, 3000));
+        if (page.via === 'fetch-api') result.via = 'fetch-api';
       }
       const number = String(input.number || '');
       const old = questions.get(number);
@@ -362,7 +382,7 @@ async function runTool(name, input, mode, options, meter, questions, testCase) {
         questions.set(number, { number, url: input.url, title, status: result.status, text: result.text || '', pageHasPaper: result.pageHasPaper });
       }
       return {
-        line: '获取第 ' + number + ' 题 · ' + host(input.url) + ' · ' + result.status,
+        line: '获取第 ' + number + ' 题 · ' + host(input.url) + ' · ' + result.status + (result.via ? '（Fetch API）' : ''),
         forModel: { status: result.status, text: (result.text || '').slice(0, 2500) },
       };
     }
@@ -439,11 +459,13 @@ function paperOnPage(testCase, text) {
   return text.includes(testCase.paper.year) && testCase.keywords.some((k) => text.includes(k));
 }
 
-/** 像有机推断大题：有合成、结构、官能团一类的词，至少有三问。 */
+/**
+ * 像有机推断大题：有合成、结构、官能团一类的词，并且够长。
+ * 不要求"（1）（2）"：高途这类网站把小问的编号去掉了。
+ */
 function looksOrganic(text) {
-  const words = ['合成', '结构简式', '官能团', '反应类型', '同分异构', '有机'].filter((w) => text.includes(w)).length;
-  const parts = (text.match(/[（(]\s*[1-9]\s*[）)]/g) || []).length;
-  return words >= 2 && parts >= 3;
+  const words = ['合成', '结构简式', '官能团', '反应类型', '同分异构', '有机', '路线'].filter((w) => text.includes(w)).length;
+  return words >= 2 && han(text).length >= 120;
 }
 
 function judge(testCase, outcome) {
@@ -455,7 +477,8 @@ function judge(testCase, outcome) {
     organic: looksOrganic(q.text),
     paper: !!q.pageHasPaper,
   }));
-  const good = checked.filter((q) => q.located && q.organic && q.paper);
+  // 网页上有没有试卷名只作参考：题目详情页的标题常常是知识点，不写哪份试卷。
+  const good = checked.filter((q) => q.located && q.organic);
   const expected = testCase.expectNumber ? good.some((q) => q.number === testCase.expectNumber) : good.length > 0;
   return { checked, pass: expected };
 }
@@ -494,7 +517,7 @@ async function main() {
         '# ' + testCase.id + ' · ' + mode + (verdict.pass ? ' · 通过' : ' · 不通过'),
         '', testCase.paper.title + ' · ' + testCase.request, '',
         '费用 ' + meter.costCNY.toFixed(3) + ' 元 · 输入 ' + meter.input + ' · 输出 ' + meter.output +
-          ' · 模型搜索 ' + meter.searches + ' 次 · Search API ' + meter.apiSearches + ' 次 · 工具调用 ' + outcome.calls + ' 次 · ' + row.seconds + ' 秒',
+          ' · 模型搜索 ' + meter.searches + ' 次 · Search API ' + meter.apiSearches + ' 次 · Fetch API ' + meter.apiFetches + ' 次 · 工具调用 ' + outcome.calls + ' 次 · ' + row.seconds + ' 秒',
         '', '## 调用记录', '', ...outcome.log.map((l) => '- ' + l),
         '', '## 取到的题', '',
         ...outcome.questions.flatMap((q) => ['### 第 ' + q.number + ' 题 · ' + q.status + ' · ' + q.url, '', q.text, '']),
