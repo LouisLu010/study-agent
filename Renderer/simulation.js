@@ -30,6 +30,9 @@
     };
   }
 
+  /** 这一帧里第一次等比例映射，用来画比例尺。每帧开始时清空。 */
+  let frameFit = null;
+
   /** 把世界坐标（米）映射到画布像素，保持等比例，四周留边距。 */
   function fit(bounds, rect, padding, equal) {
     const w = Math.max(bounds.xmax - bounds.xmin, 1e-6);
@@ -39,12 +42,14 @@
     if (equal !== false) sx = sy = Math.min(sx, sy);
     const ox = rect.x + (rect.w - sx * w) / 2;
     const oy = rect.y + (rect.h - sy * h) / 2;
-    return {
+    const result = {
       x: (x) => ox + (x - bounds.xmin) * sx,
       y: (y) => oy + (bounds.ymax - y) * sy,
       sx,
       sy,
     };
+    if (equal !== false && !frameFit) frameFit = result;
+    return result;
   }
 
   /** 好看的刻度：1、2、5 × 10ⁿ。 */
@@ -310,7 +315,8 @@
     const s = model.at(t);
     // 上方：轨道和小车
     const top = { x: rect.x, y: rect.y, w: rect.w, h: rect.h * 0.34 };
-    const [xmin, xmax] = model.xRange;
+    // 用 model.bounds（框架换成了当前镜头），拖动初速度时轨道比例不变。
+    const { xmin, xmax } = model.bounds;
     const span = Math.max(xmax - xmin, 1);
     const v = fit({ xmin: xmin - span * 0.08, xmax: xmax + span * 0.08, ymin: 0, ymax: 1 }, top, 12, false);
     const trackY = top.y + top.h - 14;
@@ -381,6 +387,39 @@
   // ---------- 组件框架 ----------
 
   const SPEEDS = [0.5, 1, 2];
+  /** 画比例尺的模拟：画面是等比例的真实尺寸。抛体运动有自己的刻度，不画。 */
+  const RULER = new Set(['pendulum', 'electric_deflection', 'magnetic_circle', 'mass_spectrometer']);
+  const CAMERA_MS = 400;
+
+  function reducedMotion() {
+    return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  function lerpBounds(a, b, k) {
+    const e = (1 - Math.cos(Math.PI * k)) / 2;
+    const mix = (x, y) => x + (y - x) * e;
+    return { xmin: mix(a.xmin, b.xmin), xmax: mix(a.xmax, b.xmax), ymin: mix(a.ymin, b.ymin), ymax: mix(a.ymax, b.ymax) };
+  }
+
+  function ruler(c, rect, colors) {
+    if (!frameFit) return;
+    const bar = core.scaleBar(frameFit.sx, Math.min(120, rect.w * 0.28));
+    if (!bar || bar.px < 12) return;
+    const x2 = rect.x + rect.w - 14;
+    const x1 = x2 - bar.px;
+    const y = rect.y + 18;
+    c.save();
+    c.strokeStyle = colors.secondary;
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.moveTo(x1, y - 4);
+    c.lineTo(x1, y);
+    c.lineTo(x2, y);
+    c.lineTo(x2, y - 4);
+    c.stroke();
+    c.restore();
+    text(c, bar.label, (x1 + x2) / 2, y + 10, colors.secondary, 'center', 10);
+  }
 
   function el(tag, className, content) {
     const element = document.createElement(tag);
@@ -449,11 +488,20 @@
       panel.appendChild(row);
       sliders[p.name] = input;
       labels[p.name] = value;
+      input.addEventListener('pointerdown', beginDrag);
+      input.addEventListener('touchstart', beginDrag, { passive: true });
       input.addEventListener('input', () => {
+        beginDrag();
         values[p.name] = Number(input.value);
         rebuild();
       });
-      input.addEventListener('change', save);
+      input.addEventListener('change', () => {
+        save();
+        endDrag();
+      });
+      input.addEventListener('pointerup', endDrag);
+      input.addEventListener('touchend', endDrag);
+      input.addEventListener('touchcancel', endDrag);
     });
     const reset = el('button', 'sa-button graph-reset', '复位');
     panel.appendChild(reset);
@@ -466,6 +514,62 @@
     let visible = false;
     let frame = 0;
     let last = 0;
+    // 镜头：camera 是要停下的范围，anim 是正在过去的动画。拖滑块期间 dragging 为 true，镜头不动；
+    // ghost 是开始拖动前的样子，拖动时画成淡色虚影。
+    let camera = null;
+    let anim = null;
+    let cameraFrame = 0;
+    let dragging = false;
+    let ghost = null;
+
+    function beginDrag() {
+      if (dragging) return;
+      dragging = true;
+      ghost = model ? { model, values: Object.assign({}, values) } : null;
+    }
+
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      ghost = null;
+      updateCamera();
+      paint();
+    }
+
+    function updateCamera() {
+      if (!model || !model.bounds) return;
+      const from = cameraNow(performance.now());
+      const next = core.simulationCamera(from, model.bounds, dragging);
+      if (next.animate && from && !reducedMotion()) {
+        anim = { from, to: next.bounds, start: performance.now() };
+        animateCamera();
+      } else {
+        anim = null;
+      }
+      camera = next.bounds;
+    }
+
+    function cameraNow(now) {
+      if (!anim) return camera;
+      const k = (now - anim.start) / CAMERA_MS;
+      if (k >= 1) {
+        anim = null;
+        return camera;
+      }
+      return lerpBounds(anim.from, anim.to, Math.max(0, k));
+    }
+
+    // 暂停时动画循环不跑，镜头动画自己请求帧。
+    function animateCamera() {
+      if (cameraFrame) return;
+      const step = () => {
+        cameraFrame = 0;
+        if (!anim) return;
+        if (!(playing && visible)) paint();
+        cameraFrame = requestAnimationFrame(step);
+      };
+      cameraFrame = requestAnimationFrame(step);
+    }
 
     function readoutRows(target, items) {
       target.innerHTML = '';
@@ -503,6 +607,7 @@
         labels[p.name].textContent = core.formatNumber(values[p.name], core.decimalsForStep(p.step)) + (p.unit ? ' ' + p.unit : '');
       });
       reset.hidden = isDefault();
+      if (!dragging) updateCamera();
       if (model) readoutRows(results, model.results);
       time = 0;
       playing = true;
@@ -526,7 +631,26 @@
         text(c, '这组参数下没有运动', width / 2, height / 2, palette().secondary, 'center', 13);
         return;
       }
-      render(c, model, time, { colors: palette(), rect: { x: 0, y: 0, w: width, h: height }, values });
+      const colors = palette();
+      const rect = { x: 0, y: 0, w: width, h: height };
+      const bounds = cameraNow(performance.now()) || model.bounds;
+      // 渲染函数都按 model.bounds 定镜头，这里换成当前镜头的范围，其余照旧。
+      const shown = (m) => (m.bounds ? Object.assign(Object.create(m), { bounds }) : m);
+      frameFit = null;
+      if (ghost && ghost.model && ghost.model.duration > 0) {
+        // 虚影：开始拖动前的样子，画在 t = 0，不画文字。
+        c.save();
+        c.globalAlpha = 0.22;
+        c.fillText = () => {};
+        try {
+          render(c, shown(ghost.model), 0, { colors, rect, values: ghost.values });
+        } catch (error) { /* 虚影画不出来就不画 */ }
+        delete c.fillText;
+        c.restore();
+      }
+      frameFit = null;
+      render(c, shown(model), time, { colors, rect, values });
+      if (RULER.has(spec.kind)) ruler(c, rect, colors);
       readoutRows(live, model.live(time));
       clock.textContent = model.clock ? model.clock(time) : 't = ' + core.formatNumber(time, 2) + ' s';
       playButton.textContent = playing ? '暂停' : (Number.isFinite(model.duration) && time >= model.duration ? '播放' : '继续');
@@ -579,6 +703,9 @@
       Object.assign(values, spec.defaults);
       spec.params.forEach((p) => { sliders[p.name].value = String(values[p.name]); });
       ctx.setState(null);
+      // 复位：镜头直接回到默认参数的范围。
+      camera = null;
+      anim = null;
       rebuild();
     });
 
@@ -594,7 +721,9 @@
     container.simulation = {
       stop() {
         if (frame) cancelAnimationFrame(frame);
+        if (cameraFrame) cancelAnimationFrame(cameraFrame);
         frame = 0;
+        cameraFrame = 0;
         observer.disconnect();
         resize.disconnect();
       },

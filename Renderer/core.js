@@ -1922,6 +1922,43 @@
   };
 
   /** 解析 ```simulation 代码块：{ "kind": "...", "title": "...", "params": { ... } }。参数超出范围时取边界。 */
+  /**
+   * 模拟的镜头（第六版 C）：以前每次都按当前参数把场景缩放到正好装满画框，摆长变长了画出来却一样长。
+   * 现在拖滑块期间镜头不动（dragging 为 true），物体真的变大变小；松手后只在场景超出画框，
+   * 或者缩到不足画框四成时才换镜头，并且用动画过去。current 为 null 表示第一次画或者复位。
+   * 返回 { bounds, animate }。
+   */
+  function simulationCamera(current, desired, dragging) {
+    if (!current) return { bounds: desired, animate: false };
+    if (dragging) return { bounds: current, animate: false };
+    const w = current.xmax - current.xmin;
+    const h = current.ymax - current.ymin;
+    const eps = 1e-9 * Math.max(w, h, 1);
+    const fits = desired.xmin >= current.xmin - eps && desired.xmax <= current.xmax + eps &&
+      desired.ymin >= current.ymin - eps && desired.ymax <= current.ymax + eps;
+    const ratio = Math.max((desired.xmax - desired.xmin) / w, (desired.ymax - desired.ymin) / h);
+    if (fits && ratio >= 0.4) return { bounds: current, animate: false };
+    return { bounds: desired, animate: true };
+  }
+
+  /**
+   * 比例尺：每米 pxPerMeter 像素，比例尺最长 maxPx 像素时，取 1、2、5 × 10ⁿ 米里最长的一档。
+   * 返回 { meters, px, label }，label 自动换成 cm、mm、μm。
+   */
+  function scaleBar(pxPerMeter, maxPx) {
+    if (!(pxPerMeter > 0) || !(maxPx > 0)) return null;
+    const raw = maxPx / pxPerMeter;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const meters = [5, 2, 1].map((m) => m * mag).find((v) => v <= raw * (1 + 1e-9)) || mag;
+    const round = (v) => Number(v.toPrecision(6));
+    let label;
+    if (meters >= 1) label = round(meters) + ' m';
+    else if (meters >= 0.01) label = round(meters * 100) + ' cm';
+    else if (meters >= 0.001) label = round(meters * 1000) + ' mm';
+    else label = round(meters * 1e6) + ' μm';
+    return { meters, px: meters * pxPerMeter, label };
+  }
+
   function parseSimulationSpec(source) {
     try {
       const raw = parseJSONObject(source, '模拟');
@@ -2126,6 +2163,8 @@
     parseChartSpec,
     parseSimulationSpec,
     buildSimulation,
+    simulationCamera,
+    scaleBar,
     simulationKinds,
     evaluateNumberInput,
     isNumberCorrect,
