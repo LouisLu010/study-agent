@@ -374,7 +374,7 @@ final class CompilationCenter {
     }
 
     /// 发给模型的题目文字：图片换成"[图]"。
-    static func textForModel(_ markdown: String) -> String {
+    nonisolated static func textForModel(_ markdown: String) -> String {
         markdown.replacingOccurrences(of: #"!\[\]\(sa-asset:[^)]*\)"#, with: "[图]", options: .regularExpression)
     }
 
@@ -396,7 +396,7 @@ final class CompilationCenter {
     }
 
     /// 正文里按顺序出现的图片 id。
-    static func imageIDs(in markdown: String) -> [UUID] {
+    nonisolated static func imageIDs(in markdown: String) -> [UUID] {
         let pattern = try! NSRegularExpression(pattern: #"sa-asset:([0-9A-Fa-f-]{36})"#)
         let ns = markdown as NSString
         return pattern.matches(in: markdown, range: NSRange(location: 0, length: ns.length)).compactMap {
