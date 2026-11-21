@@ -20,7 +20,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Form {
-                Section("服务商") {
+                Section("服务商和模型") {
                     ForEach(providers) { provider in
                         NavigationLink(value: provider) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -34,10 +34,8 @@ struct SettingsView: View {
                     .onDelete(perform: deleteProviders)
 
                     Button("添加服务商", systemImage: "plus", action: addProvider)
-                }
 
-                Section("默认模型") {
-                    Picker("新会话使用", selection: $defaultModelID) {
+                    Picker("默认模型", selection: $defaultModelID) {
                         Text("未设置").tag("")
                         ForEach(models) { model in
                             Text("\(model.provider?.name ?? "") · \(model.name)")
@@ -47,19 +45,16 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                        Text("用户提示词")
+                        TextEditor(text: $customInstructions)
+                            .frame(minHeight: 120)
+                    }
                     Toggle("简洁模式", isOn: $simpleMode)
                 } header: {
-                    Text("回答方式")
+                    Text("回答")
                 } footer: {
-                    Text("打开后模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
-                }
-
-                Section {
-                    Toggle("强力保活", isOn: $strongKeepAlive)
-                } header: {
-                    Text("汇编")
-                } footer: {
-                    Text("生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活后，生成期间会使用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。")
+                    Text("用户提示词对所有会话生效，例如：我是高二学生，讲解要循序渐进。\n简洁模式打开后，模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
                 }
 
                 Section {
@@ -94,19 +89,16 @@ struct SettingsView: View {
                             .keyboardType(.decimalPad)
                             .multilineTextAlignment(.trailing)
                     }
+                    Toggle("强力保活", isOn: $strongKeepAlive)
+                    NavigationLink("关于") { AboutView() }
                 } header: {
-                    Text("用量")
+                    Text("其他")
                 } footer: {
-                    Text("费用统一按人民币显示，美元价格按这个汇率折算。内置价格是各服务商官网的标价，更新于 \(PriceTable.builtIn.updated)，不计缓存和批量折扣，所以显示的金额是估算值。")
-                }
+                    Text("""
+                    费用统一按人民币显示，美元价格按这个汇率折算。内置价格是各服务商官网的标价，更新于 \(PriceTable.builtIn.updated)，不计缓存和批量折扣，所以显示的金额是估算值。
 
-                Section {
-                    TextEditor(text: $customInstructions)
-                        .frame(minHeight: 120)
-                } header: {
-                    Text("用户提示词")
-                } footer: {
-                    Text("对所有会话生效，例如：我是高二学生，讲解要循序渐进。")
+                    生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活后，生成期间会使用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。
+                    """)
                 }
             }
             .navigationTitle("设置")

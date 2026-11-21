@@ -264,10 +264,9 @@ struct ResearchNotesView: View {
         }
         .overlay {
             if notes.isEmpty {
-                ContentUnavailableView(
-                    "还没有资料",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("在会话标题菜单或回答下方点\"整理成资料\"，模型会把内容和出处整理成一份总结保存到这里。")
+                OrbEmptyState(
+                    title: "还没有资料",
+                    message: "在会话标题菜单或回答下方点\"整理成资料\"，模型会把内容和出处整理成一份总结保存到这里。"
                 )
             } else if filtered.isEmpty {
                 ContentUnavailableView.search(text: searchText)

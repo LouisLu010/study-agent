@@ -42,11 +42,10 @@ struct CompilationsView: View {
         }
         .overlay {
             if compilations.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有汇编", systemImage: "books.vertical")
-                } description: {
-                    Text("用一句话说要什么题，例如\"近 3 年高考有机大题\"。模型联网找到试卷和原题，App 取下原文和原图，排版成 PDF。")
-                } actions: {
+                OrbEmptyState(
+                    title: "还没有汇编",
+                    message: "用一句话说要什么题，例如\"近 3 年高考有机大题\"。模型联网找到试卷和原题，App 取下原文和原图，排版成 PDF。"
+                ) {
                     Button("新建汇编") { showNew = true }
                         .buttonStyle(.borderedProminent)
                 }

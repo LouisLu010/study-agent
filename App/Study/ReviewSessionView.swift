@@ -24,7 +24,7 @@ struct ReviewSessionView: View {
             if !didStart {
                 ProgressView()
             } else if queue.isEmpty {
-                ContentUnavailableView("今天没有要复习的题", systemImage: "checkmark.circle", description: Text("答错的题会在第二天出现在这里。"))
+                OrbEmptyState(title: "今天没有要复习的题", message: "答错的题会在第二天出现在这里。")
             } else if position >= queue.count {
                 finished
             } else {
@@ -130,11 +130,7 @@ struct ReviewSessionView: View {
     }
 
     private var finished: some View {
-        ContentUnavailableView {
-            Label("复习完成", systemImage: "party.popper")
-        } description: {
-            Text("这一轮复习了 \(queue.count) 道题，答对 \(correctCount) 道。")
-        }
+        OrbEmptyState(title: "复习完成", message: "这一轮复习了 \(queue.count) 道题，答对 \(correctCount) 道。")
     }
 
     // MARK: - 操作

@@ -21,6 +21,8 @@ struct RootView: View {
                         .id(conversation.id)
                 case .mistakes:
                     MistakeBookView()
+                case .review:
+                    ReviewSessionView()
                 case .bookmarks:
                     BookmarksView()
                 case .stats:
@@ -30,11 +32,7 @@ struct RootView: View {
                 case .compilations:
                     CompilationsView()
                 case nil:
-                    ContentUnavailableView(
-                        "没有选中的会话",
-                        systemImage: "bubble.left.and.bubble.right",
-                        description: Text("点右上角的按钮新建一个会话。")
-                    )
+                    OrbEmptyState(title: "没有选中的会话", message: "点右上角的按钮新建一个会话。")
                 }
             }
         }

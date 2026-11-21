@@ -7,6 +7,7 @@ import SwiftData
 enum SidebarItem: Hashable {
     case conversation(Conversation)
     case mistakes
+    case review
     case bookmarks
     case stats
     case notes
