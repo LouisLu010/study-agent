@@ -52,6 +52,8 @@ struct RootView: View {
         .onChange(of: scenePhase) {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。
             if scenePhase != .inactive { ReviewReminder.reschedule(in: context) }
+            // 回到前台：继续因为切到别的 App 被系统打断的汇编。
+            if scenePhase == .active { compilations.resumeInterrupted(in: context) }
         }
     }
 }

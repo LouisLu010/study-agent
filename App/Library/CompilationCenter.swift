@@ -29,6 +29,10 @@ final class CompilationCenter {
     private(set) var busyQuestions: Set<UUID> = []
     /// 正在重新获取的题（busyQuestions 的一部分），界面上用"重试"的小球。
     private(set) var refetchingQuestions: Set<UUID> = []
+    /// 因为切到别的 App 被系统打断的汇编。回到 App 时自动继续。
+    private(set) var interrupted: Set<UUID> = []
+
+    static let interruptedText = "切到别的 App 后，系统断开了网络。回到格物后会自动继续。"
 
     func isRunning(_ compilation: Compilation) -> Bool {
         tasks[compilation.id] != nil
@@ -61,6 +65,12 @@ final class CompilationCenter {
         try? context.save()
         progress[compilation.id] = "正在联网查找试卷…"
         let id = compilation.id
+        interrupted.remove(id)
+        // 查找试卷是一次很长的联网请求（深度搜索要几分钟），切到别的 App 时也要在后台继续。
+        BackgroundKeeper.shared.begin(id: id, title: "汇编：\(compilation.request)", subtitle: "正在联网查找试卷") { [weak self] in
+            self?.interrupt(id)
+        }
+        let started = Date.now
         tasks[id] = Task { [weak self] in
             defer {
                 self?.tasks[id] = nil
@@ -81,10 +91,16 @@ final class CompilationCenter {
                 compilation.status = .choosing
             } catch {
                 compilation.status = .failed
-                compilation.errorText = Task.isCancelled ? "已停止。" : ChatErrorDescription.describe(error)
+                if self?.interrupted.contains(id) == true || (!Task.isCancelled && Self.isBackgroundInterruption(error, since: started)) {
+                    self?.interrupted.insert(id)
+                    compilation.errorText = Self.interruptedText
+                } else {
+                    compilation.errorText = Task.isCancelled ? "已停止。" : ChatErrorDescription.describe(error)
+                }
             }
             compilation.updatedAt = .now
             try? context.save()
+            BackgroundKeeper.shared.end(id: id, success: compilation.status == .choosing)
         }
     }
 
@@ -104,19 +120,51 @@ final class CompilationCenter {
         try? context.save()
 
         let id = compilation.id
-        BackgroundKeeper.shared.begin(title: "汇编：\(compilation.title)") { [weak self] in
-            self?.stop(compilation)
+        interrupted.remove(id)
+        BackgroundKeeper.shared.begin(id: id, title: "汇编：\(compilation.title)") { [weak self] in
+            self?.interrupt(id)
         }
         tasks[id] = Task { [weak self] in
             await self?.collect(compilation, context: context)
-            BackgroundKeeper.shared.end(success: compilation.status == .done)
+            BackgroundKeeper.shared.end(id: id, success: compilation.status == .done)
             self?.tasks[id] = nil
             self?.progress[id] = nil
         }
     }
 
     func stop(_ compilation: Compilation) {
+        // 用户自己停下的，回到 App 时不自动继续。
+        interrupted.remove(compilation.id)
         tasks[compilation.id]?.cancel()
+    }
+
+    /// 系统要结束后台运行：停下保存进度，记下来，回到 App 时自动继续。
+    private func interrupt(_ id: UUID) {
+        guard tasks[id] != nil else { return }
+        interrupted.insert(id)
+        tasks[id]?.cancel()
+    }
+
+    /// 回到前台时，继续被切到后台打断的汇编。
+    func resumeInterrupted(in context: ModelContext) {
+        for id in interrupted where tasks[id] == nil {
+            interrupted.remove(id)
+            let descriptor = FetchDescriptor<Compilation>(predicate: #Predicate { $0.id == id })
+            guard let compilation = try? context.fetch(descriptor).first else { continue }
+            switch compilation.status {
+            case .failed: listPapers(compilation, context: context)
+            case .paused: startCollecting(compilation, context: context)
+            default: break
+            }
+        }
+    }
+
+    /// 这次网络错误是不是因为请求进行中 App 被切到了后台：iOS 挂起 App 时会断开它的连接。
+    static func isBackgroundInterruption(_ error: any Error, since start: Date) -> Bool {
+        let codes: [URLError.Code] = [.networkConnectionLost, .notConnectedToInternet, .timedOut, .cannotConnectToHost]
+        guard let code = (error as? URLError)?.code, codes.contains(code) else { return false }
+        if UIApplication.shared.applicationState != .active { return true }
+        return (BackgroundKeeper.shared.lastEnteredBackground ?? .distantPast) >= start
     }
 
     /// App 上次在生成过程中被关闭时，把汇编标成可以继续。
@@ -154,9 +202,13 @@ final class CompilationCenter {
             let name = paper.shortTitle.isEmpty ? paper.title : paper.shortTitle
             let found = compilation.questions?.count ?? 0
             progress[compilation.id] = "正在查第 \(done + 1)/\(selected.count) 份：\(name)"
-            BackgroundKeeper.shared.update(completed: done, total: selected.count, subtitle: "第 \(done + 1)/\(selected.count) 份 · 已找到 \(found) 题")
+            BackgroundKeeper.shared.update(
+                id: compilation.id, completed: done, total: selected.count,
+                subtitle: "第 \(done + 1)/\(selected.count) 份 · 已找到 \(found) 题"
+            )
 
             var updated = paper
+            let started = Date.now
             do {
                 let raw = try await Self.run(
                     CompilationPlanner.findQuestionsRequest(
@@ -187,6 +239,10 @@ final class CompilationCenter {
             } catch {
                 if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     stopped = true
+                } else if Self.isBackgroundInterruption(error, since: started) {
+                    // 切到后台被断开：这份试卷不算失败，回到 App 后从它继续。
+                    interrupted.insert(compilation.id)
+                    stopped = true
                 } else {
                     updated.state = .failed
                     updated.note = ChatErrorDescription.describe(error)
@@ -203,7 +259,9 @@ final class CompilationCenter {
 
         let remaining = compilation.papers.contains { $0.selected && $0.state != .done }
         compilation.status = stopped || remaining ? .paused : .done
-        if !stopped, remaining {
+        if interrupted.contains(compilation.id) {
+            compilation.errorText = Self.interruptedText
+        } else if !stopped, remaining {
             compilation.errorText = "有试卷没查成功，可以点\"继续\"再试一次。"
         }
         compilation.updatedAt = .now
@@ -217,10 +275,12 @@ final class CompilationCenter {
         guard !busyQuestions.contains(question.id), let compilation = question.compilation else { return }
         busyQuestions.insert(question.id)
         refetchingQuestions.insert(question.id)
+        BackgroundKeeper.shared.begin(id: question.id, title: "汇编：重新获取\(question.label)", subtitle: "正在重新获取")
         Task {
             defer {
                 busyQuestions.remove(question.id)
                 refetchingQuestions.remove(question.id)
+                BackgroundKeeper.shared.end(id: question.id, success: question.status == .complete)
             }
             await Self.fetch(question, context: context)
             if question.status != .complete, let resolved = try? Self.resolve(compilation, context: context) {
@@ -256,8 +316,12 @@ final class CompilationCenter {
     func writeAIExplanation(_ question: ExamQuestion, context: ModelContext) {
         guard !busyQuestions.contains(question.id), let compilation = question.compilation else { return }
         busyQuestions.insert(question.id)
+        BackgroundKeeper.shared.begin(id: question.id, title: "汇编：\(question.label)", subtitle: "正在写 AI 解析")
         Task {
-            defer { busyQuestions.remove(question.id) }
+            defer {
+                busyQuestions.remove(question.id)
+                BackgroundKeeper.shared.end(id: question.id, success: !question.answer.isEmpty)
+            }
             do {
                 let (model, service) = try Self.resolve(compilation, context: context, needsSearch: false)
                 let images = model.supportsImages ? Self.jpegImages(of: question) : []
@@ -279,6 +343,7 @@ final class CompilationCenter {
                 question.answerSite = ""
                 var answer = ""
                 for try await event in service.streamChat(request) {
+                    BackgroundKeeper.shared.tick()
                     if case let .text(delta) = event {
                         answer += delta
                         question.answer = answer
@@ -323,6 +388,7 @@ final class CompilationCenter {
             }
         }
         for try await event in service.streamChat(request) {
+            BackgroundKeeper.shared.tick()
             switch event {
             case let .text(delta): text += delta
             case let .usage(newInput, newOutput):
