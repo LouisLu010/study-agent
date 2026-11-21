@@ -70,7 +70,7 @@ private struct UserMessageView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
+                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
                 }
             }
         }
@@ -107,6 +107,8 @@ private struct AssistantMessageView: View {
     @State private var webHandle = WebViewHandle()
     @State private var shareItem: ShareItem?
     @State private var isBookmarked = false
+    /// 每点一次收藏加一，只在点按时播放图标动画（打开页面时读到已收藏不播放）。
+    @State private var bookmarkTaps = 0
     @State private var noteDraft: NoteDraftRequest?
 
     init(
@@ -144,7 +146,7 @@ private struct AssistantMessageView: View {
 
             if message.content.isEmpty {
                 if isStreaming && message.reasoning.isEmpty && search == nil {
-                    ProgressView()
+                    ActivityOrb(activity: .working)
                         .frame(height: 24)
                 }
             } else {
@@ -295,8 +297,10 @@ private struct AssistantMessageView: View {
                 }
             } label: {
                 Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .contentTransition(.symbolEffect(.replace))
             }
             .accessibilityLabel("复制")
+            .sensoryFeedback(.success, trigger: didCopy) { _, copied in copied }
 
             if canRegenerate {
                 Button(action: onRegenerate) {
@@ -307,8 +311,11 @@ private struct AssistantMessageView: View {
 
             Button {
                 isBookmarked = StudyCenter.toggleBookmark(message, context: context)
+                bookmarkTaps += 1
             } label: {
                 Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+                    .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.bounce, value: bookmarkTaps)
             }
             .accessibilityLabel(isBookmarked ? "取消收藏" : "收藏")
             .onAppear { isBookmarked = StudyCenter.bookmark(for: message.id, in: context) != nil }
@@ -377,8 +384,7 @@ private struct ReasoningView: View {
             } label: {
                 HStack(spacing: 6) {
                     if isThinking {
-                        ProgressView()
-                            .controlSize(.small)
+                        ActivityOrb(activity: .reasoning, size: 18)
                     } else {
                         Image(systemName: "brain")
                     }
@@ -426,8 +432,7 @@ private struct WebSearchSummaryView: View {
             } label: {
                 HStack(spacing: 6) {
                     if isSearching {
-                        ProgressView()
-                            .controlSize(.small)
+                        ActivityOrb(activity: .searching, size: 18)
                     } else {
                         Image(systemName: "globe")
                     }
@@ -524,7 +529,7 @@ struct SourceListView: View {
                 }
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(Theme.Spacing.m)
+        .cardBackground()
     }
 }

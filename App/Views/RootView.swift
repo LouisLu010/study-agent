@@ -8,6 +8,7 @@ struct RootView: View {
     @Environment(AppNavigation.self) private var navigation
     @Environment(CompilationCenter.self) private var compilations
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(AppSettingsKey.onboardingSeen) private var onboardingSeen = false
 
     var body: some View {
         @Bindable var navigation = navigation
@@ -21,6 +22,8 @@ struct RootView: View {
                         .id(conversation.id)
                 case .mistakes:
                     MistakeBookView()
+                case .review:
+                    ReviewSessionView()
                 case .bookmarks:
                     BookmarksView()
                 case .stats:
@@ -30,17 +33,21 @@ struct RootView: View {
                 case .compilations:
                     CompilationsView()
                 case nil:
-                    ContentUnavailableView(
-                        "没有选中的会话",
-                        systemImage: "bubble.left.and.bubble.right",
-                        description: Text("点右上角的按钮新建一个会话。")
-                    )
+                    OrbEmptyState(title: "没有选中的会话", message: "点右上角的按钮新建一个会话。")
                 }
             }
+        }
+        .fullScreenCover(isPresented: $navigation.showsOnboarding) {
+            OnboardingView()
         }
         .task {
             generation.recoverInterruptedMessages(in: context)
             compilations.recoverInterrupted(in: context)
+            // 本机还没有服务商、也没跳过过引导时显示引导（见 GLOSSARY「引导」）。
+            let providerCount = (try? context.fetchCount(FetchDescriptor<Provider>())) ?? 0
+            if providerCount == 0 && !onboardingSeen {
+                navigation.showsOnboarding = true
+            }
         }
         .onChange(of: scenePhase) {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。

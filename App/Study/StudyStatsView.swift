@@ -15,11 +15,7 @@ struct StudyStatsView: View {
                 summary
 
                 if events.isEmpty && mistakes.isEmpty {
-                    ContentUnavailableView(
-                        "还没有学习记录",
-                        systemImage: "chart.bar",
-                        description: Text("在会话里做测验、复习错题之后，这里会显示统计。")
-                    )
+                    OrbEmptyState(title: "还没有学习记录", message: "在会话里做测验、复习错题之后，这里会显示统计。")
                 } else {
                     // 图表的内容随数据变化，用内容的哈希区分 WebView，数据变了就重新渲染。
                     chart(StudyStats.dailyChart(daily))
@@ -67,8 +63,8 @@ private struct StatTile: View {
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, Theme.Spacing.m)
+        .cardBackground()
     }
 }
 

@@ -101,7 +101,7 @@ struct PDFPagePickerSheet: View {
             VStack(spacing: 4) {
                 PDFThumbnail(page: source.document.page(at: index))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
                             .stroke(isSelected ? Color.accentColor : Color(.separator), lineWidth: isSelected ? 3 : 1)
                     )
                     .overlay(alignment: .topTrailing) {
@@ -153,7 +153,7 @@ private struct PDFThumbnail: View {
                     .aspectRatio(0.75, contentMode: .fit)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
         .task {
             image = page?.thumbnail(of: CGSize(width: 240, height: 320), for: .cropBox)
         }

@@ -4,7 +4,7 @@
   --secondary: #6e6e73;
   --border: #d1d1d6;
   --fill: #f2f2f7;
-  --accent: #007aff;
+  --accent: #2563eb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -13,7 +13,7 @@
     --secondary: #98989d;
     --border: #3a3a3c;
     --fill: #1c1c1e;
-    --accent: #0a84ff;
+    --accent: #4d8eff;
   }
 }
 
@@ -215,7 +215,10 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 .graph-reset[hidden] { display: none; }
 
 /* 测验 */
-:root { --green: #34c759; --red: #ff3b30; --green-fill: rgba(52, 199, 89, 0.14); --red-fill: rgba(255, 59, 48, 0.12); }
+:root { --green: #16a34a; --red: #ff3b30; --green-fill: rgba(22, 163, 74, 0.12); --red-fill: rgba(255, 59, 48, 0.12); }
+@media (prefers-color-scheme: dark) {
+  :root { --green: #4ade80; --green-fill: rgba(74, 222, 128, 0.14); }
+}
 .quiz, .steps {
   border: 1px solid var(--border);
   border-radius: 12px;

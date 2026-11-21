@@ -14,6 +14,8 @@ enum AppSettingsKey {
     static let defaultUSDToCNY = 7.2
     /// 强力保活：生成汇编期间开后台定位，让 App 在后台持续运行（见 docs/adr/0012）。
     static let strongKeepAlive = "strongKeepAlive"
+    /// 用户已经看完或跳过了引导。本机没有服务商、这一项也没有时，打开 App 会显示引导。
+    static let onboardingSeen = "onboardingSeen"
 
     static var usdToCNYRate: Double {
         let value = UserDefaults.standard.double(forKey: usdToCNY)

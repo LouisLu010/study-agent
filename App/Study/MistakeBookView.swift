@@ -134,10 +134,9 @@ struct MistakeBookView: View {
         }
         .overlay {
             if mistakes.isEmpty {
-                ContentUnavailableView(
-                    "还没有错题",
-                    systemImage: "checkmark.seal",
-                    description: Text("测验里答错的题会自动加入这里。也可以长按自己问过的题，选\"加入错题本\"。")
+                OrbEmptyState(
+                    title: "还没有错题",
+                    message: "测验里答错的题会自动加入这里。也可以长按自己问过的题，选\"加入错题本\"。"
                 )
             } else if filtered.isEmpty {
                 ContentUnavailableView("没有符合条件的错题", systemImage: "line.3.horizontal.decrease.circle")

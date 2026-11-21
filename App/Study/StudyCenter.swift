@@ -7,6 +7,7 @@ import SwiftData
 enum SidebarItem: Hashable {
     case conversation(Conversation)
     case mistakes
+    case review
     case bookmarks
     case stats
     case notes
@@ -18,6 +19,10 @@ enum SidebarItem: Hashable {
 @Observable
 final class AppNavigation {
     var selection: SidebarItem?
+    /// 是否显示引导。
+    var showsOnboarding = false
+    /// 在设置里点了"重新查看引导"：等设置关掉后再显示引导。
+    var onboardingAfterSettings = false
 
     func open(conversationID: UUID?, in context: ModelContext) -> Bool {
         guard let id = conversationID else { return false }

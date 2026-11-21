@@ -7,6 +7,7 @@ struct ConversationListView: View {
 
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
+    @Environment(AppNavigation.self) private var navigation
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
     @Query private var models: [ChatModel]
     @Query(filter: #Predicate<Mistake> { $0.masteredAt == nil }) private var activeMistakes: [Mistake]
@@ -24,35 +25,35 @@ struct ConversationListView: View {
     var body: some View {
         List(selection: $selection) {
             if searchText.isEmpty {
-                Section {
-                    NavigationLink(value: SidebarItem.mistakes) {
-                        Label("错题本", systemImage: "exclamationmark.bubble")
-                            .badge(dueCount)
-                    }
-                    NavigationLink(value: SidebarItem.bookmarks) {
-                        Label("收藏", systemImage: "bookmark")
-                    }
-                    NavigationLink(value: SidebarItem.notes) {
-                        Label("资料", systemImage: "doc.text.magnifyingglass")
-                    }
-                    NavigationLink(value: SidebarItem.compilations) {
-                        Label("汇编", systemImage: "books.vertical")
-                    }
-                    NavigationLink(value: SidebarItem.stats) {
-                        Label("学习记录", systemImage: "chart.bar")
-                    }
+                Section("学习") {
+                    entry("错题本", systemImage: "exclamationmark.bubble", item: .mistakes)
+                    entry("复习", systemImage: "arrow.counterclockwise.circle", item: .review)
+                        .badge(dueCount)
+                    entry("收藏", systemImage: "bookmark", item: .bookmarks)
+                    entry("学习记录", systemImage: "chart.bar", item: .stats)
+                }
+                Section("资料库") {
+                    entry("资料", systemImage: "doc.text.magnifyingglass", item: .notes)
+                    entry("汇编", systemImage: "books.vertical", item: .compilations)
                 }
             }
             Section(searchText.isEmpty ? "会话" : "") {
             ForEach(filtered) { conversation in
                 NavigationLink(value: SidebarItem.conversation(conversation)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(conversation.title)
-                            .lineLimit(1)
-                        Text(conversation.model?.name ?? "未选择模型")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    HStack(spacing: Theme.Spacing.s) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(conversation.title)
+                                .lineLimit(1)
+                            Text((conversation.model?.name ?? "未选择模型") + " · " + conversation.updatedAt.formatted(.relative(presentation: .named)))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        // 这个会话正在生成（可能在后台）。
+                        if generation.isGenerating(conversation) {
+                            Spacer(minLength: 0)
+                            ActivityOrb(activity: .working, size: 16)
+                        }
                     }
                 }
                 .contextMenu {
@@ -71,12 +72,12 @@ struct ConversationListView: View {
         .overlay {
             if conversations.isEmpty {
                 if models.isEmpty {
-                    ContentUnavailableView {
-                        Label("还没有模型", systemImage: "cpu")
-                    } description: {
-                        Text("先在设置里添加一个服务商和模型。")
-                    } actions: {
-                        Button("打开设置") { showSettings = true }
+                    OrbEmptyState(title: "还没有模型", message: "先添加一个服务商和模型。") {
+                        VStack(spacing: Theme.Spacing.s) {
+                            Button("开始设置") { navigation.showsOnboarding = true }
+                                .buttonStyle(.borderedProminent)
+                            Button("打开设置") { showSettings = true }
+                        }
                     }
                 }
                 // 有模型但还没有会话时不盖住列表，顶部的错题本等入口仍然可以点。
@@ -93,7 +94,13 @@ struct ConversationListView: View {
                 Button("新会话", systemImage: "square.and.pencil", action: newConversation)
             }
         }
-        .sheet(isPresented: $showSettings) {
+        .sheet(isPresented: $showSettings, onDismiss: {
+            // 在设置里点了"重新查看引导"：设置完全关掉后再显示引导。
+            if navigation.onboardingAfterSettings {
+                navigation.onboardingAfterSettings = false
+                navigation.showsOnboarding = true
+            }
+        }) {
             SettingsView()
         }
         .alert(
@@ -106,6 +113,18 @@ struct ConversationListView: View {
             TextField("标题", text: $renameText)
             Button("取消", role: .cancel) {}
             Button("保存", action: finishRenaming)
+        }
+    }
+
+    /// 侧栏顶部的入口，图标用主题色。
+    private func entry(_ title: String, systemImage: String, item: SidebarItem) -> some View {
+        NavigationLink(value: item) {
+            Label {
+                Text(title)
+            } icon: {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.tint)
+            }
         }
     }
 

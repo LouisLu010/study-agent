@@ -24,12 +24,15 @@ struct ReviewSessionView: View {
             if !didStart {
                 ProgressView()
             } else if queue.isEmpty {
-                ContentUnavailableView("今天没有要复习的题", systemImage: "checkmark.circle", description: Text("答错的题会在第二天出现在这里。"))
+                OrbEmptyState(title: "今天没有要复习的题", message: "答错的题会在第二天出现在这里。")
             } else if position >= queue.count {
                 finished
             } else {
                 card(queue[position])
             }
+        }
+        .sensoryFeedback(trigger: answered) { _, result in
+            result.map { $0 ? SensoryFeedback.success : SensoryFeedback.error }
         }
         .navigationTitle(queue.isEmpty || position >= queue.count ? "复习" : "复习 \(position + 1) / \(queue.count)")
         .navigationBarTitleDisplayMode(.inline)
@@ -113,7 +116,7 @@ struct ReviewSessionView: View {
                     : "回到第一档，明天再复习",
                 systemImage: correct ? "checkmark.circle.fill" : "arrow.counterclockwise.circle.fill"
             )
-            .foregroundStyle(correct ? .green : .orange)
+            .foregroundStyle(correct ? Theme.success : .orange)
             HStack {
                 Button("再来几道类似的", systemImage: "sparkles") { practiceSimilar(mistake) }
                     .buttonStyle(.bordered)
@@ -122,16 +125,12 @@ struct ReviewSessionView: View {
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(Theme.Spacing.l)
+        .cardBackground()
     }
 
     private var finished: some View {
-        ContentUnavailableView {
-            Label("复习完成", systemImage: "party.popper")
-        } description: {
-            Text("这一轮复习了 \(queue.count) 道题，答对 \(correctCount) 道。")
-        }
+        OrbEmptyState(title: "复习完成", message: "这一轮复习了 \(queue.count) 道题，答对 \(correctCount) 道。")
     }
 
     // MARK: - 操作

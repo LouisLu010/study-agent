@@ -8,7 +8,6 @@ struct FetchModelsSheet: View {
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
-    @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
 
     private enum LoadState {
         case loading
@@ -68,7 +67,7 @@ struct FetchModelsSheet: View {
                         row(for: model)
                     }
                 } footer: {
-                    Text("共 \(models.count) 个模型。是否支持图片由服务商的信息推断，添加后可以在模型设置里修改。")
+                    Text("共 \(models.count) 个模型。是否支持图片由服务商的信息推断；DeepSeek、Anthropic、Gemini 的模型默认打开联网搜索。添加后都可以在模型设置里修改。")
                 }
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索模型 ID 或名称")
@@ -142,7 +141,9 @@ struct FetchModelsSheet: View {
                 baseURL: provider.baseURL,
                 apiKey: KeychainStore.apiKey(for: provider.id) ?? ""
             )
-            state = .loaded(models)
+            // 预设里的推荐模型排第一。
+            let preset = ProviderPreset.matching(kind: provider.kind, baseURL: provider.baseURL)
+            state = .loaded(preset?.ordered(models) ?? models)
         } catch {
             state = .failed(ChatErrorDescription.describe(error))
         }
@@ -153,17 +154,7 @@ struct FetchModelsSheet: View {
         let existing = existingIDs
         // 按服务商列表里的顺序添加。
         for remote in models where selection.contains(remote.id) && !existing.contains(remote.id) {
-            let displayName = remote.displayName == remote.id ? "" : remote.displayName
-            let model = ChatModel(
-                modelID: remote.id,
-                displayName: displayName,
-                supportsImages: remote.supportsImages ?? false
-            )
-            context.insert(model)
-            model.provider = provider
-            if defaultModelID.isEmpty {
-                defaultModelID = model.id.uuidString
-            }
+            ProviderSetup.addModel(remote, to: provider, in: context)
         }
         try? context.save()
         dismiss()

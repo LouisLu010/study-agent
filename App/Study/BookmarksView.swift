@@ -90,11 +90,7 @@ struct BookmarksView: View {
         }
         .overlay {
             if bookmarks.isEmpty {
-                ContentUnavailableView(
-                    "还没有收藏",
-                    systemImage: "bookmark",
-                    description: Text("点回答下方的书签按钮，就能把整条回答收藏到这里。")
-                )
+                OrbEmptyState(title: "还没有收藏", message: "点回答下方的书签按钮，就能把整条回答收藏到这里。")
             } else if filtered.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
