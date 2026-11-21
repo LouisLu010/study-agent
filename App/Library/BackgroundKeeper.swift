@@ -3,11 +3,6 @@ import CoreLocation
 import Foundation
 import UIKit
 
-/// 跨并发域传递系统对象（BGTask 等）。只在主线程上使用里面的值。
-struct UncheckedBox<Value>: @unchecked Sendable {
-    let value: Value
-}
-
 /// 汇编在后台继续运行（见 docs/adr/0012）：
 /// iOS 26 及以上用 `BGContinuedProcessingTask`，系统显示进度；
 /// 打开"强力保活"时，生成期间开后台定位，iOS 18 到 25 也能在后台持续运行；
@@ -150,9 +145,11 @@ final class BackgroundKeeper: NSObject {
     private func submitContinuedTask(title: String, subtitle: String) {
         // 每次用新的标识符：同一个标识符注册两次会让 App 被系统结束。
         let identifier = "\(Self.identifierPrefix).\(UUID().uuidString)"
-        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
-            let box = UncheckedBox(value: task)
-            Task { @MainActor in BackgroundKeeper.shared.attach(box.value) }
+        // 必须用 .main：这个闭包写在 @MainActor 的类里，Swift 6 会把它当成只能在主线程运行，
+        // 进入时检查当前线程。传 nil 时系统在后台队列上调用它，检查不通过，App 直接闪退
+        // （_dispatch_assert_queue_fail）。编译器对这种情况不报警告。
+        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
+            BackgroundKeeper.shared.attach(task)
         }
         guard registered else { return }
         let request = BGContinuedProcessingTaskRequest(identifier: identifier, title: title, subtitle: subtitle)
@@ -168,10 +165,13 @@ final class BackgroundKeeper: NSObject {
             return
         }
         continuedTask = task
-        task.expirationHandler = {
-            Task { @MainActor in BackgroundKeeper.shared.expired() }
-        }
+        task.expirationHandler = Self.expirationHandler()
         refresh()
+    }
+
+    /// 到期回调可能在任意线程上调用，所以在 nonisolated 的地方创建，不带主线程检查，再切回主线程。
+    nonisolated private static func expirationHandler() -> @Sendable () -> Void {
+        { Task { @MainActor in BackgroundKeeper.shared.expired() } }
     }
 
     /// 系统要结束后台运行：通知所有工作停下保存进度。

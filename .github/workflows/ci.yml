@@ -23,6 +23,15 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      # Swift 6 里写在 @MainActor 代码中的闭包，如果被系统放到后台队列上调用会直接闪退，编译器不报警告。
+      # BGTaskScheduler 的 using: nil 就是这样（v0.6.0 Beta 3 汇编一开就闪退），这里挡住它。
+      - name: Check background-queue callbacks
+        run: |
+          if grep -rnE "register\(forTaskWithIdentifier:[^)]*using: nil" App; then
+            echo "BGTaskScheduler.register 要用 using: .main" >&2
+            exit 1
+          fi
+
       - name: Test StudyKit
         run: swift test --package-path StudyKit
 
