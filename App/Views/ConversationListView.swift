@@ -46,13 +46,20 @@ struct ConversationListView: View {
             Section(searchText.isEmpty ? "会话" : "") {
             ForEach(filtered) { conversation in
                 NavigationLink(value: SidebarItem.conversation(conversation)) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(conversation.title)
-                            .lineLimit(1)
-                        Text(conversation.model?.name ?? "未选择模型")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    HStack(spacing: Theme.Spacing.s) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(conversation.title)
+                                .lineLimit(1)
+                            Text(conversation.model?.name ?? "未选择模型")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        // 这个会话正在生成（可能在后台）。
+                        if generation.isGenerating(conversation) {
+                            Spacer(minLength: 0)
+                            ActivityOrb(activity: .working, size: 16)
+                        }
                     }
                 }
                 .contextMenu {

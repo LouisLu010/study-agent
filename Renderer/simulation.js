@@ -21,7 +21,7 @@
       grid: dark ? '#3a3a3c' : '#e5e5ea',
       line: dark ? '#8e8e93' : '#3a3a3c',
       fill: dark ? '#1c1c1e' : '#f2f2f7',
-      accent: dark ? '#0a84ff' : '#007aff',
+      accent: dark ? '#4d8eff' : '#2563eb',
       orange: '#ff9500',
       green: '#34c759',
       red: '#ff3b30',

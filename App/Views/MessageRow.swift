@@ -70,7 +70,7 @@ private struct UserMessageView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 18))
+                        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
                 }
             }
         }
@@ -144,7 +144,7 @@ private struct AssistantMessageView: View {
 
             if message.content.isEmpty {
                 if isStreaming && message.reasoning.isEmpty && search == nil {
-                    ProgressView()
+                    ActivityOrb(activity: .working)
                         .frame(height: 24)
                 }
             } else {
@@ -377,8 +377,7 @@ private struct ReasoningView: View {
             } label: {
                 HStack(spacing: 6) {
                     if isThinking {
-                        ProgressView()
-                            .controlSize(.small)
+                        ActivityOrb(activity: .reasoning, size: 18)
                     } else {
                         Image(systemName: "brain")
                     }
@@ -426,8 +425,7 @@ private struct WebSearchSummaryView: View {
             } label: {
                 HStack(spacing: 6) {
                     if isSearching {
-                        ProgressView()
-                            .controlSize(.small)
+                        ActivityOrb(activity: .searching, size: 18)
                     } else {
                         Image(systemName: "globe")
                     }
@@ -524,7 +522,7 @@ struct SourceListView: View {
                 }
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(Theme.Spacing.m)
+        .cardBackground()
     }
 }

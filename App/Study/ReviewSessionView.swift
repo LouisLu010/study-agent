@@ -122,8 +122,8 @@ struct ReviewSessionView: View {
                     .buttonStyle(.borderedProminent)
             }
         }
-        .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(Theme.Spacing.l)
+        .cardBackground()
     }
 
     private var finished: some View {

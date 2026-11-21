@@ -77,8 +77,8 @@ struct NoteDraftSheet: View {
                             .foregroundStyle(.red)
                     }
                     if raw.isEmpty && isGenerating {
-                        HStack(spacing: 8) {
-                            ProgressView()
+                        HStack(spacing: Theme.Spacing.s) {
+                            ActivityOrb(activity: .working)
                             Text("正在整理…").foregroundStyle(.secondary)
                         }
                     }
@@ -319,8 +319,8 @@ struct ResearchNoteDetailView: View {
                             .font(.system(.callout, design: .monospaced))
                             .frame(minHeight: 420)
                             .scrollContentBackground(.hidden)
-                            .padding(6)
-                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                            .padding(Theme.Spacing.s)
+                            .cardBackground()
                     }
                     if !draftSources.isEmpty {
                         SourceListView(sources: draftSources, numbered: true) { index in

@@ -25,13 +25,15 @@ struct ComposerView: View {
     @State private var pdfSource: PDFSource?
     @State private var pdfError = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// 按钮的点按区域，跟随字号变大。
+    @ScaledMetric(relativeTo: .title2) private var buttonSize: CGFloat = 36
 
     private var remainingSlots: Int {
         max(0, ImageCompressor.maxImagesPerMessage - images.count)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
             if !images.isEmpty {
                 pendingImages
                 if images.count > ImageCompressor.costWarningThreshold {
@@ -42,28 +44,32 @@ struct ComposerView: View {
                 }
             }
 
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .bottom, spacing: Theme.Spacing.xs) {
                 attachmentMenu
                 webSearchButton
 
                 TextField("发消息", text: $text, axis: .vertical)
                     .lineLimit(1...6)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 20))
+                    .padding(.horizontal, Theme.Spacing.xs)
+                    .padding(.vertical, Theme.Spacing.s)
+                    .frame(minHeight: buttonSize)
 
                 Button {
                     isGenerating ? onStop() : onSend()
                 } label: {
                     Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.system(size: 34))
+                        .font(.largeTitle)
+                        .frame(width: buttonSize, height: buttonSize)
                 }
                 .disabled(!isGenerating && !canSend)
                 .accessibilityLabel(isGenerating ? "停止生成" : "发送")
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(Theme.Spacing.s)
+        // 输入框底栏浮在消息上面，消息可以从它下面滚过去。
+        .glassSurface(in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
+        .padding(.horizontal, Theme.Spacing.m)
+        .padding(.bottom, Theme.Spacing.s)
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $photoItems,
@@ -147,11 +153,10 @@ struct ComposerView: View {
             }
         } label: {
             Image(systemName: "globe")
-                .font(.system(size: 21))
+                .font(.title3)
                 .foregroundStyle(isOn ? AnyShapeStyle(.white) : (webSearchAllowed ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary)))
-                .frame(width: 34, height: 34)
+                .frame(width: buttonSize, height: buttonSize)
                 .background(isOn ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), in: Circle())
-                .frame(height: 40)
         }
         .accessibilityLabel("联网搜索")
         .accessibilityValue(isOn ? "已打开" : "已关闭")
@@ -159,20 +164,20 @@ struct ComposerView: View {
 
     private var attachmentIcon: some View {
         Image(systemName: "photo.badge.plus")
-            .font(.system(size: 22))
-            .frame(width: 34, height: 40)
+            .font(.title3)
+            .frame(width: buttonSize, height: buttonSize)
             .accessibilityLabel("添加附件")
     }
 
     private var pendingImages: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Spacing.s) {
                 ForEach(images) { image in
                     Image(uiImage: image.thumbnail)
                         .resizable()
                         .scaledToFill()
                         .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
                         .overlay(alignment: .topTrailing) {
                             Button {
                                 images.removeAll { $0.id == image.id }
@@ -186,8 +191,8 @@ struct ComposerView: View {
                         }
                 }
             }
-            .padding(.top, 6)
-            .padding(.trailing, 6)
+            .padding(.top, Theme.Spacing.s)
+            .padding(.trailing, Theme.Spacing.s)
         }
     }
 

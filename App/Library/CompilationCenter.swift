@@ -27,6 +27,8 @@ final class CompilationCenter {
     private(set) var progress: [UUID: String] = [:]
     /// 正在重新获取或写解析的题。
     private(set) var busyQuestions: Set<UUID> = []
+    /// 正在重新获取的题（busyQuestions 的一部分），界面上用"重试"的小球。
+    private(set) var refetchingQuestions: Set<UUID> = []
 
     func isRunning(_ compilation: Compilation) -> Bool {
         tasks[compilation.id] != nil
@@ -214,8 +216,12 @@ final class CompilationCenter {
     func refetch(_ question: ExamQuestion, context: ModelContext) {
         guard !busyQuestions.contains(question.id), let compilation = question.compilation else { return }
         busyQuestions.insert(question.id)
+        refetchingQuestions.insert(question.id)
         Task {
-            defer { busyQuestions.remove(question.id) }
+            defer {
+                busyQuestions.remove(question.id)
+                refetchingQuestions.remove(question.id)
+            }
             await Self.fetch(question, context: context)
             if question.status != .complete, let resolved = try? Self.resolve(compilation, context: context) {
                 let (model, service) = resolved
@@ -240,6 +246,10 @@ final class CompilationCenter {
 
     func isBusy(_ question: ExamQuestion) -> Bool {
         busyQuestions.contains(question.id)
+    }
+
+    func isRefetching(_ question: ExamQuestion) -> Bool {
+        refetchingQuestions.contains(question.id)
     }
 
     /// 没有答案时请模型写"AI 解析"。模型能看图时把题里的图一起发过去。

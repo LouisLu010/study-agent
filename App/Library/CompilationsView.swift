@@ -72,12 +72,18 @@ private struct CompilationRow: View {
     @Environment(CompilationCenter.self) private var center
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(compilation.title).lineLimit(1)
-            Text(statusText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        HStack(spacing: Theme.Spacing.m) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text(compilation.title).lineLimit(1)
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if center.isRunning(compilation) {
+                Spacer()
+                ActivityOrb(activity: compilation.status == .listing ? .searching : .background)
+            }
         }
         .padding(.vertical, 2)
     }
@@ -185,8 +191,8 @@ struct CompilationDetailView: View {
             switch compilation.status {
             case .listing:
                 Section {
-                    HStack(spacing: 10) {
-                        ProgressView()
+                    HStack(spacing: Theme.Spacing.s) {
+                        ActivityOrb(activity: .searching)
                         Text(center.progress[compilation.id] ?? "正在联网查找试卷…")
                     }
                 }
@@ -300,11 +306,14 @@ struct CompilationDetailView: View {
         let done = papers.filter { $0.state == .done }.count
         Section {
             if isRunning {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                     ProgressView(value: Double(done), total: Double(max(papers.count, 1)))
-                    Text(center.progress[compilation.id] ?? "正在收集…")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: Theme.Spacing.s) {
+                        ActivityOrb(activity: .background)
+                        Text(center.progress[compilation.id] ?? "正在收集…")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Button("停止", systemImage: "stop.fill", role: .destructive) { center.stop(compilation) }
             } else if compilation.status != .done {
@@ -460,10 +469,10 @@ struct Tag: View {
     var body: some View {
         Text(text)
             .font(.caption2)
-            .padding(.horizontal, 5)
+            .padding(.horizontal, 6)
             .padding(.vertical, 1)
             .foregroundStyle(color)
-            .overlay(RoundedRectangle(cornerRadius: 4).stroke(color.opacity(0.6), lineWidth: 0.5))
+            .overlay(Capsule().stroke(color.opacity(0.6), lineWidth: 0.5))
     }
 }
 
@@ -555,9 +564,9 @@ struct ExamQuestionDetailView: View {
     @ViewBuilder
     private var content: some View {
         if isBusy {
-            HStack(spacing: 8) {
-                ProgressView()
-                Text("正在处理…").foregroundStyle(.secondary)
+            HStack(spacing: Theme.Spacing.s) {
+                ActivityOrb(activity: center.isRefetching(question) ? .retrying : .working)
+                Text(center.isRefetching(question) ? "正在重新获取…" : "正在写 AI 解析…").foregroundStyle(.secondary)
             }
         }
         if question.content.isEmpty {
@@ -605,15 +614,15 @@ struct ExamQuestionDetailView: View {
                 .font(.system(.callout, design: .monospaced))
                 .frame(minHeight: 280)
                 .scrollContentBackground(.hidden)
-                .padding(6)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .padding(Theme.Spacing.s)
+                .cardBackground()
             Text("答案与解析").font(.caption).foregroundStyle(.secondary)
             TextEditor(text: $draftAnswer)
                 .font(.system(.callout, design: .monospaced))
                 .frame(minHeight: 200)
                 .scrollContentBackground(.hidden)
-                .padding(6)
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .padding(Theme.Spacing.s)
+                .cardBackground()
             Text("图片写成 ![](sa-asset:…)，可以删除或移动，不要改里面的编号。")
                 .font(.caption)
                 .foregroundStyle(.tertiary)

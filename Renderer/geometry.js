@@ -27,7 +27,7 @@
   function draw(container, spec, ctx) {
     const dark = components.isDark();
     const colors = graph.palette(dark);
-    const accent = dark ? '#0a84ff' : '#007aff';
+    const accent = dark ? '#4d8eff' : '#2563eb';
     container.innerHTML = '';
     graph.addTitle(container, spec.title);
 

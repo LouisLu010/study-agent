@@ -23,62 +23,45 @@ struct ChatView: View {
         let isGenerating = generation.isGenerating(conversation)
         let lastAssistantID = messages.last(where: { $0.role == .assistant })?.id
 
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 20) {
-                        ForEach(messages) { message in
-                            MessageRow(
-                                message: message,
-                                canRegenerate: !isGenerating && message.id == lastAssistantID,
-                                canEdit: !isGenerating,
-                                onRegenerate: { regenerate(message) },
-                                onEdit: { editingMessage = message },
-                                onAsk: ask,
-                                onSelectVersion: { index in
-                                    generation.selectVersion(index, of: message, in: conversation, context: context)
-                                },
-                                onQuizResult: { payload in
-                                    StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
-                                },
-                                onAddToMistakes: solution(for: message).map { reply in
-                                    { addingMistake = MistakeDraft(question: message, solution: reply) }
-                                }
-                            )
-                        }
-                        Color.clear
-                            .frame(height: 1)
-                            .id(bottomID)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.Spacing.xl) {
+                    ForEach(messages) { message in
+                        MessageRow(
+                            message: message,
+                            canRegenerate: !isGenerating && message.id == lastAssistantID,
+                            canEdit: !isGenerating,
+                            onRegenerate: { regenerate(message) },
+                            onEdit: { editingMessage = message },
+                            onAsk: ask,
+                            onSelectVersion: { index in
+                                generation.selectVersion(index, of: message, in: conversation, context: context)
+                            },
+                            onQuizResult: { payload in
+                                StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
+                            },
+                            onAddToMistakes: solution(for: message).map { reply in
+                                { addingMistake = MistakeDraft(question: message, solution: reply) }
+                            }
+                        )
                     }
-                    .padding()
-                    .frame(maxWidth: 820)
-                    .frame(maxWidth: .infinity)
+                    Color.clear
+                        .frame(height: 1)
+                        .id(bottomID)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom, for: .initialOffset)
-                .defaultScrollAnchor(.bottom, for: .sizeChanges)
-                .onChange(of: messages.count) {
-                    withAnimation { proxy.scrollTo(bottomID, anchor: .bottom) }
-                }
+                .padding()
+                .frame(maxWidth: 820)
+                .frame(maxWidth: .infinity)
             }
-
-            ComposerView(
-                text: $draft,
-                images: $draftImages,
-                imagesAllowed: conversation.model?.supportsImages ?? false,
-                isGenerating: isGenerating,
-                canSend: canSend,
-                onSend: send,
-                onStop: { generation.stop(conversation) },
-                onImagesNotAllowed: { errorMessage = GenerationError.modelDoesNotSupportImages.localizedDescription },
-                webSearchEnabled: $conversation.webSearchEnabled,
-                webSearchAllowed: conversation.model?.supportsWebSearch ?? false,
-                onWebSearchNotAllowed: {
-                    errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
-                }
-            )
-            .frame(maxWidth: 820)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            .onChange(of: messages.count) {
+                withAnimation { proxy.scrollTo(bottomID, anchor: .bottom) }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                composer(isGenerating: isGenerating)
+            }
         }
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -153,6 +136,26 @@ struct ChatView: View {
                 perform { try generation.resend(message, newText: newText, in: conversation, context: context) }
             }
         }
+    }
+
+    private func composer(isGenerating: Bool) -> some View {
+        ComposerView(
+            text: $draft,
+            images: $draftImages,
+            imagesAllowed: conversation.model?.supportsImages ?? false,
+            isGenerating: isGenerating,
+            canSend: canSend,
+            onSend: send,
+            onStop: { generation.stop(conversation) },
+            onImagesNotAllowed: { errorMessage = GenerationError.modelDoesNotSupportImages.localizedDescription },
+            webSearchEnabled: $conversation.webSearchEnabled,
+            webSearchAllowed: conversation.model?.supportsWebSearch ?? false,
+            onWebSearchNotAllowed: {
+                errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
+            }
+        )
+        .frame(maxWidth: 820)
+        .frame(maxWidth: .infinity)
     }
 
     private var trimmedDraft: String {

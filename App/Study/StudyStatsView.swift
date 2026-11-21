@@ -67,8 +67,8 @@ private struct StatTile: View {
             Text(title).font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .padding(.vertical, Theme.Spacing.m)
+        .cardBackground()
     }
 }
 
