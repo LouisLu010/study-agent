@@ -100,7 +100,13 @@ final class BackgroundKeeper: NSObject {
             Task { @MainActor in self?.legacyExpired() }
         }
         if UserDefaults.standard.bool(forKey: AppSettingsKey.strongKeepAlive) {
-            startLocation()
+            LocationPermission.shared.refresh()
+            if LocationPermission.shared.status == .granted {
+                startLocation()
+            } else {
+                // 开关开着但没有权限（例如旧版本打开的开关）：现在补请求，下次生成就能用。
+                Task { _ = await LocationPermission.shared.request() }
+            }
         }
         if #available(iOS 26.0, *) {
             submitContinuedTask(title: title, subtitle: subtitle)
@@ -198,9 +204,6 @@ final class BackgroundKeeper: NSObject {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.pausesLocationUpdatesAutomatically = false
         manager.showsBackgroundLocationIndicator = true
-        if manager.authorizationStatus == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        }
         manager.allowsBackgroundLocationUpdates = true
         manager.startUpdatingLocation()
         locationManager = manager

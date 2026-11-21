@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var permissionDenied = false
     @AppStorage(AppSettingsKey.usdToCNY) private var usdToCNY = AppSettingsKey.defaultUSDToCNY
     @State private var path = NavigationPath()
+    @State private var location = LocationPermission.shared
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showAddProvider = false
     /// 在"添加服务商"里选好的预设，等选择页关掉后再建服务商并打开它。
     @State private var pickedPreset: ProviderPreset?
@@ -94,6 +96,26 @@ struct SettingsView: View {
                             .multilineTextAlignment(.trailing)
                     }
                     Toggle("强力保活", isOn: $strongKeepAlive)
+                        .onChange(of: strongKeepAlive) {
+                            // 打开时立即请求定位权限；没给权限就关回去，免得以为开着其实没用。
+                            guard strongKeepAlive else { return }
+                            Task {
+                                if await location.request() != .granted { strongKeepAlive = false }
+                            }
+                        }
+                    if location.status == .denied {
+                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                            Label("定位权限被关闭了，强力保活用不了", systemImage: "location.slash")
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                            Button("去系统设置打开定位") { location.openSystemSettings() }
+                                .font(.callout)
+                        }
+                    } else if strongKeepAlive && location.status == .granted {
+                        Label("已获得定位权限", systemImage: "location")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
                     Button("重新查看引导") {
                         navigation.onboardingAfterSettings = true
                         dismiss()
@@ -105,7 +127,7 @@ struct SettingsView: View {
                     Text("""
                     费用统一按人民币显示，美元价格按这个汇率折算。内置价格是各服务商官网的标价，更新于 \(PriceTable.builtIn.updated)，不计缓存和批量折扣，所以显示的金额是估算值。
 
-                    生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活后，生成期间会使用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。
+                    生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活时会请求定位权限（选"使用 App 期间"即可），生成期间用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。
                     """)
                 }
             }
@@ -128,6 +150,12 @@ struct SettingsView: View {
         }
         .onDisappear {
             try? context.save()
+        }
+        .onChange(of: scenePhase) {
+            // 从系统设置改完权限回来：重新读一次，权限没了就把开关关掉。
+            guard scenePhase == .active else { return }
+            location.refresh()
+            if location.status == .denied { strongKeepAlive = false }
         }
     }
 
