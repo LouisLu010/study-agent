@@ -163,6 +163,8 @@ final class GenerationCenter {
         let modelID = model.modelID
         // 生成开始时的单价；生成过程中换了模型也按这个算。
         let price = model.price()
+        // DeepSeek 空闲时段半价，按开始的时间算。
+        let started = Date.now
         tasks[conversationID] = Task { [weak self] in
             var search = WebSearchRecorder()
             do {
@@ -173,11 +175,16 @@ final class GenerationCenter {
                     case let .usage(input, output):
                         if let input { reply.inputTokens = input }
                         if let output { reply.outputTokens = output }
+                    case let .cachedInput(cached):
+                        reply.cachedInputTokens = cached
                     case .searching, .searchResults, .citations, .searchCount:
                         if let marker = search.handle(event, content: reply.content) {
                             reply.content += marker
                         }
                         reply.webSearchJSON = search.record.encode()
+                    case .toolCall, .thinkingBlock:
+                        // 普通对话不声明工具，不会出现。
+                        break
                     }
                 }
                 reply.status = Task.isCancelled ? .stopped : .complete
@@ -197,9 +204,11 @@ final class GenerationCenter {
             if let price, reply.inputTokens != nil || reply.outputTokens != nil {
                 reply.costCNY = price.costCNY(
                     inputTokens: reply.inputTokens ?? 0,
+                    cachedInputTokens: reply.cachedInputTokens ?? 0,
                     outputTokens: reply.outputTokens ?? 0,
                     webSearches: search.record.effectiveCount,
-                    usdToCNY: AppSettingsKey.usdToCNYRate
+                    usdToCNY: AppSettingsKey.usdToCNYRate,
+                    at: started
                 )
             }
             reply.finishVersion()

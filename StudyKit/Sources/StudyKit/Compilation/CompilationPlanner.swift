@@ -1,106 +1,14 @@
 import Foundation
 
-/// 汇编的两步请求（列试卷、在一份试卷里找题）和相关的解析、排序、估价（见 docs/adr/0013）。
+/// 汇编用到的网站排序、原题拼装和估价（见 docs/adr/0013）。请求和工具在 `CompilationTools` 里（ADR-0014）。
 public enum CompilationPlanner {
     // MARK: - 列试卷
 
+    /// submit_papers 交上来的试卷列表（见 `CompilationTools.parsePapers`）。
     public struct PaperList: Sendable, Equatable {
         public var title: String
         public var subject: Subject?
         public var papers: [PaperPlan]
-    }
-
-    /// webSearchDialect 要传模型自己的联网格式（`ChatModel.webSearchDialect`）。第六版之前漏传了，
-    /// DeepSeek 模型在汇编里收到的是 OpenAI 的 web_search_options，等于没开联网搜索。
-    public static func listPapersRequest(
-        model: String, request: String, reasoningEffort: ReasoningEffort?,
-        webSearchDialect: WebSearchDialect = .openAI, today: Date = .now
-    ) -> ChatRequest {
-        ChatRequest(
-            model: model,
-            systemPrompt: """
-            你是一名教研员，负责整理考试题目汇编。今天是 \(dateText(today))。
-            用户会说要哪类题。请联网搜索，列出符合要求、已经公开的真实试卷（考试类型不限：高考、中考、模拟考、期中期末考都可以，按用户的要求来）。
-            要求：
-            1. 只列确实存在、已经考过的试卷，不要编造。每一份都要先搜索核实它当年确实存在（各地每年用的试卷会变，例如有的年份起不再有某种全国卷），核实不了的不要列。每份试卷单独一项，不要重复。
-            2. "近 N 年"按今天往前算；用户没说范围时，列最近 3 年最主要的几份。
-            3. 只输出一个 JSON 对象，不要其他文字：
-            {"title":"汇编标题，不超过 20 个字","subject":"数学、物理、化学、生物、语文、英语、其他 之一","papers":[{"title":"试卷全称","short":"简称，例如 新课标Ⅰ卷、北京卷、海淀一模","year":"2025"}]}
-            """,
-            messages: [ChatMessage(role: .user, text: request)],
-            reasoningEffort: reasoningEffort,
-            webSearch: true,
-            webSearchDialect: webSearchDialect
-        )
-    }
-
-    public static func parsePaperList(_ raw: String, fallbackTitle: String) -> PaperList? {
-        guard let object = jsonObject(in: raw), let items = object["papers"] as? [[String: Any]] else { return nil }
-        var seen = Set<String>()
-        let papers = items.compactMap { item -> PaperPlan? in
-            let title = string(item["title"])
-            guard !title.isEmpty, seen.insert(title).inserted else { return nil }
-            return PaperPlan(title: title, shortTitle: string(item["short"]), year: string(item["year"]))
-        }
-        let title = string(object["title"])
-        return PaperList(
-            title: title.isEmpty ? fallbackTitle : String(title.prefix(30)),
-            subject: Subject.normalize(string(object["subject"])),
-            papers: papers
-        )
-    }
-
-    // MARK: - 在一份试卷里找题
-
-    /// 模型找到的一道题：题号、定位用的几个字、候选网页。
-    public struct FoundQuestion: Sendable, Equatable {
-        public var number: String
-        public var anchor: String
-        public var lastAnchor: String
-        public var urls: [String]
-    }
-
-    public static func findQuestionsRequest(
-        model: String,
-        request: String,
-        paper: PaperPlan,
-        onlyNumber: String? = nil,
-        reasoningEffort: ReasoningEffort?,
-        webSearchDialect: WebSearchDialect = .openAI
-    ) -> ChatRequest {
-        let target = onlyNumber.map { "只找这份试卷的第 \($0) 题。" } ?? "找出这份试卷里所有符合要求的题。"
-        return ChatRequest(
-            model: model,
-            systemPrompt: """
-            你是一名严谨的教研员，负责在网上找到考试原题所在的网页。必须联网搜索并打开网页核对。
-            要求：
-            1. 优先找"每道题单独一个页面"的题目详情页，例如 gaotu.cn/topic/…、zujuan.21cnjy.com/question/detail/…、菁优网的试题页；其次才是整卷的资料页。不要选需要下载文档、登录或付费才能看到题目的页面，也不要选公众号文章和小红书。
-            2. 每道题尽量给出 3 个以上不同网站的候选网址，按可靠程度排序。只列你实际打开过、确认是这道题的网址。
-            3. anchor 是题干开头约 15 个字，last_anchor 是最后一问开头约 10 个字，都逐字照抄网页上的文字，用来在网页里定位这道题。
-            4. 题型和内容都要符合要求，例如要"大题"就不要选择题。这份试卷里没有符合要求的题，就返回空数组，不要编造。
-            5. 只输出一个 JSON 对象，不要其他文字：
-            {"questions":[{"number":"题号","anchor":"…","last_anchor":"…","urls":["…"]}]}
-            """,
-            messages: [ChatMessage(role: .user, text: "要求：\(request)\n试卷：\(paper.title)\n\(target)")],
-            reasoningEffort: reasoningEffort,
-            webSearch: true,
-            webSearchDialect: webSearchDialect
-        )
-    }
-
-    public static func parseFoundQuestions(_ raw: String) -> [FoundQuestion]? {
-        guard let object = jsonObject(in: raw), let items = object["questions"] as? [[String: Any]] else { return nil }
-        return items.compactMap { item in
-            let anchor = string(item["anchor"])
-            let urls = (item["urls"] as? [Any] ?? []).map { string($0) }.filter { $0.hasPrefix("http") }
-            guard !anchor.isEmpty else { return nil }
-            return FoundQuestion(
-                number: string(item["number"]).trimmingCharacters(in: CharacterSet(charactersIn: "第题 ")),
-                anchor: anchor,
-                lastAnchor: string(item["last_anchor"]),
-                urls: urls
-            )
-        }
     }
 
     // MARK: - 网站
@@ -175,16 +83,19 @@ public enum CompilationPlanner {
 
     // MARK: - 估价
 
-    /// 一次联网查题的大致用量，来自 A0 试验（deepseek-flash 深度搜索）：约 7 万输入、5 千输出、8 次搜索。
-    static let tokensPerSearchInput = 70_000
+    /// 一次联网查题的大致用量，来自第七版 C0 试验（deepseek-flash 深度搜索，5 份试卷）：
+    /// 输入 13 万到 68 万，约四分之三命中缓存；输出约 5 千；搜索 20 到 30 次。取中间的值。
+    static let tokensPerSearchInput = 300_000
+    static let cachedShare = 0.75
     static let tokensPerSearchOutput = 5_000
-    static let searchesPerSearch = 8
+    static let searchesPerSearch = 25
 
     /// 列试卷一次加上每份试卷查一次的估算费用（人民币）。没有价格时返回 nil。
     public static func estimateCostCNY(papers: Int, price: ModelPrice?, usdToCNY: Double) -> Double? {
         guard let price else { return nil }
         let one = price.costCNY(
             inputTokens: tokensPerSearchInput,
+            cachedInputTokens: Int(Double(tokensPerSearchInput) * cachedShare),
             outputTokens: tokensPerSearchOutput,
             webSearches: searchesPerSearch,
             usdToCNY: usdToCNY
@@ -193,18 +104,6 @@ public enum CompilationPlanner {
     }
 
     // MARK: - 工具
-
-    /// 取出文字里的第一个 JSON 对象，允许外面包着代码块或说明。
-    static func jsonObject(in raw: String) -> [String: Any]? {
-        guard let start = raw.firstIndex(of: "{"), let end = raw.lastIndex(of: "}"), start < end else { return nil }
-        return try? JSONSerialization.jsonObject(with: Data(raw[start...end].utf8)) as? [String: Any]
-    }
-
-    static func string(_ value: Any?) -> String {
-        if let text = value as? String { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if let number = value as? NSNumber { return number.stringValue }
-        return ""
-    }
 
     static func dateText(_ date: Date) -> String {
         let components = Calendar(identifier: .gregorian).dateComponents([.year, .month, .day], from: date)

@@ -107,6 +107,33 @@ import Testing
         #expect(QuestionExtractor.extract(html: "<p>别的题</p>", baseURL: base, anchor: "脱落酸是一种植物激素", lastAnchor: "") == .failure(.notFound))
     }
 
+    /// 语言文字运用：模型给的定位字是某道小题的题干，要把整段材料一起取下来。
+    @Test func includesSharedPassageForQuestionGroups() throws {
+        let html = """
+        <div class="nav">语言文字应用 语言积累 词语</div>
+        <div class="topic"><p>阅读下面的文字，完成各题。</p>
+        <p>谐音双关是一种常见的修辞手法，即有意使用语音相同、相近而语义不同的词构成双重语义。</p>
+        <p>在当代社会，谐音双关也很常见。民俗节庆文化中，常用到表示具体形象的谐音字；________。</p>
+        <div class="q"><p>18．文中第二段标序号的部分有两处表述不当，请指出其序号并做修改。</p></div>
+        <div class="q"><p>19．下列填入文中横线处的句子，衔接最恰当的一项是（　）</p><p>A．甲 B．乙</p></div>
+        </div>
+        """
+        let one = try QuestionExtractor.extract(html: html, baseURL: base, anchor: "下列填入文中横线处的句子", lastAnchor: "衔接最恰当的一项是").get()
+        #expect(one.content.contains("谐音双关是一种常见的修辞手法"))
+        #expect(one.content.contains("下列填入文中横线处的句子"))
+        #expect(!one.content.contains("语言积累"))
+        let group = try QuestionExtractor.extract(
+            html: html, baseURL: base, anchor: "谐音双关是一种常见的修辞手法", lastAnchor: "下列填入文中横线", group: true
+        ).get()
+        #expect(group.content.hasPrefix("阅读下面的文字"))
+        // 普通的题不受影响：没有说到"文中"就不往外扩。
+        let plain = try QuestionExtractor.extract(html: "<div><p>前言</p><p>求函数的最大值。</p></div>", baseURL: base, anchor: "求函数的最大值", lastAnchor: "").get()
+        #expect(plain.content == "求函数的最大值。")
+        #expect(QuestionExtractor.isGroupNumber("18～20"))
+        #expect(QuestionExtractor.isGroupNumber("18-20"))
+        #expect(!QuestionExtractor.isGroupNumber("18"))
+    }
+
     @Test func flagsTextThatMentionsMissingFigures() throws {
         let result = try QuestionExtractor.extract(html: "<p>某物质的合成路线如下。回答问题。</p>", baseURL: base, anchor: "某物质的合成路线", lastAnchor: "").get()
         #expect(result.probablyMissingImages)
@@ -119,35 +146,6 @@ import Testing
 }
 
 @Suite struct CompilationPlannerTests {
-    @Test func parsesPaperListAndSkipsDuplicates() throws {
-        let raw = """
-        ```json
-        {"title":"近三年高考有机大题","subject":"化学","papers":[
-          {"title":"2025年高考化学北京卷","short":"北京卷","year":"2025"},
-          {"title":"2025年高考化学北京卷","short":"北京卷","year":"2025"},
-          {"title":"2024年高考化学新课标卷","short":"新课标卷","year":2024},
-          {"title":""}
-        ]}
-        ```
-        """
-        let list = try #require(CompilationPlanner.parsePaperList(raw, fallbackTitle: "x"))
-        #expect(list.title == "近三年高考有机大题")
-        #expect(list.subject == .chemistry)
-        #expect(list.papers.map(\.title) == ["2025年高考化学北京卷", "2024年高考化学新课标卷"])
-        #expect(list.papers[1].year == "2024")
-        #expect(list.papers[0].shortTitle == "北京卷")
-        #expect(list.papers.allSatisfy { $0.selected && $0.state == .pending })
-        #expect(CompilationPlanner.parsePaperList("没找到", fallbackTitle: "x") == nil)
-    }
-
-    @Test func parsesFoundQuestions() throws {
-        let found = try #require(CompilationPlanner.parseFoundQuestions("""
-        {"questions":[{"number":"第17题","anchor":"一种受体拮抗剂","last_anchor":"P的合成","urls":["https://gaotu.cn/topic/1","not a url"]},{"number":"18"}]}
-        """))
-        #expect(found == [.init(number: "17", anchor: "一种受体拮抗剂", lastAnchor: "P的合成", urls: ["https://gaotu.cn/topic/1"])])
-        #expect(CompilationPlanner.parseFoundQuestions(#"{"questions":[]}"#) == [])
-    }
-
     @Test func ordersCandidatesAndDropsUnusableSites() {
         let ordered = CompilationPlanner.orderedCandidates([
             "https://zujuan.xkw.com/14q1.html",
@@ -177,29 +175,10 @@ import Testing
     }
 
     @Test func estimatesCost() throws {
-        let price = ModelPrice(input: 2, output: 8, currency: .cny, webSearchPer1000: 0)
-        // 每份：7 万 × 2 / 100 万 + 5 千 × 8 / 100 万 = 0.18
+        let price = ModelPrice(input: 2, output: 8, currency: .cny, webSearchPer1000: 0, cachedInput: 0.04)
+        // 每份：未命中 7.5 万 × 2 + 命中 22.5 万 × 0.04 + 输出 5 千 × 8，每百万 → 0.15 + 0.009 + 0.04 = 0.199
         let cost = try #require(CompilationPlanner.estimateCostCNY(papers: 3, price: price, usdToCNY: 7.2))
-        #expect(abs(cost - 0.54) < 1e-9)
+        #expect(abs(cost - 0.597) < 1e-9)
         #expect(CompilationPlanner.estimateCostCNY(papers: 3, price: nil, usdToCNY: 7.2) == nil)
-    }
-
-    @Test func requestsUseWebSearch() {
-        let paper = PaperPlan(title: "2025年高考化学北京卷", year: "2025")
-        #expect(CompilationPlanner.listPapersRequest(model: "m", request: "近3年有机大题", reasoningEffort: nil).webSearch)
-        let find = CompilationPlanner.findQuestionsRequest(model: "m", request: "有机大题", paper: paper, onlyNumber: "17", reasoningEffort: .high)
-        #expect(find.webSearch)
-        #expect(find.messages.first?.text.contains("只找这份试卷的第 17 题") == true)
-    }
-
-    /// DeepSeek 模型的汇编请求要用 deepseek_web_search，不能用默认的 web_search_options。
-    @Test func requestsCarryWebSearchDialect() {
-        let paper = PaperPlan(title: "2025年高考化学北京卷", year: "2025")
-        let list = CompilationPlanner.listPapersRequest(model: "deepseek-flash", request: "有机大题", reasoningEffort: .high, webSearchDialect: .deepSeek)
-        #expect(list.webSearchDialect == .deepSeek)
-        let find = CompilationPlanner.findQuestionsRequest(
-            model: "deepseek-flash", request: "有机大题", paper: paper, reasoningEffort: .high, webSearchDialect: .deepSeek
-        )
-        #expect(find.webSearchDialect == .deepSeek)
     }
 }

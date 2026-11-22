@@ -7,18 +7,20 @@ import UIKit
 enum CompilationError: LocalizedError {
     case noModel
     case modelCannotSearch
-    case unreadableReply
+    /// 列试卷时模型没有调用 submit_papers。
+    case noPapers(String)
 
     var errorDescription: String? {
         switch self {
         case .noModel: "这个汇编用的模型已经删除了，请新建汇编。"
         case .modelCannotSearch: "这个模型没有打开\"支持联网搜索\"，汇编需要联网搜索。"
-        case .unreadableReply: "模型的回答看不懂，请重试。"
+        case let .noPapers(reason): reason
         }
     }
 }
 
-/// 生成汇编：请模型列试卷、逐份试卷找题、从网页取原题（见 docs/adr/0013）。放在 App 层级，切换页面时不中断。
+/// 生成汇编：模型调用 App 的工具列试卷、逐份试卷取原题、整理并生成 PDF（见 docs/adr/0013、0014）。
+/// 放在 App 层级，切换页面时不中断。
 @MainActor
 @Observable
 final class CompilationCenter {
@@ -32,7 +34,7 @@ final class CompilationCenter {
     /// 因为切到别的 App 被系统打断的汇编。回到 App 时自动继续。
     private(set) var interrupted: Set<UUID> = []
 
-    /// 收集过程里的一行，显示在汇编页面上（只在内存里，App 重启后清空）。
+    /// 调用记录里的一行，显示在汇编页面上（只在内存里，App 重启后清空）。
     struct ActivityLine: Identifiable {
         enum Kind { case step, search, page, success, warning }
         let id = UUID()
@@ -42,7 +44,7 @@ final class CompilationCenter {
     }
     typealias Logger = (ActivityLine.Kind, String) -> Void
 
-    /// 每个汇编最近的收集过程，最多 80 行。
+    /// 每个汇编最近的调用记录，最多 80 行。
     private(set) var activity: [UUID: [ActivityLine]] = [:]
     /// 这一轮开始的时间和已经搜索的次数，用来显示"已搜索 N 次 · 用时"。
     private(set) var runStats: [UUID: (started: Date, searches: Int)] = [:]
@@ -107,33 +109,40 @@ final class CompilationCenter {
             self?.interrupt(id)
         }
         let started = Date.now
+        let log = logger(for: id)
+        beginRun(id)
+        log(.step, "开始查找符合要求的试卷")
         tasks[id] = Task { [weak self] in
             defer {
                 self?.tasks[id] = nil
                 self?.progress[id] = nil
             }
-            let log = self?.logger(for: id)
-            self?.beginRun(id)
-            log?(.step, "开始联网查找符合要求的试卷")
             do {
                 let (model, service) = try Self.resolve(compilation, context: context)
-                let raw = try await Self.run(
-                    CompilationPlanner.listPapersRequest(
-                        model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model),
-                        webSearchDialect: model.webSearchDialect
-                    ),
-                    service: service, model: model, compilation: compilation, log: log
+                let toolbox = CompilationToolbox(
+                    compilation: compilation, context: context, model: model, service: service, phase: .listing, log: log
                 )
-                guard let list = CompilationPlanner.parsePaperList(raw, fallbackTitle: compilation.request) else {
-                    throw CompilationError.unreadableReply
+                let result = try await Self.loop(
+                    toolbox,
+                    CompilationTools.listingRequest(model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model)),
+                    maxCalls: CompilationTools.maxCallsForListing,
+                    nudge: "核实完了就调用 submit_papers 交上试卷列表；还没核实完就继续用工具。"
+                )
+                guard let list = toolbox.submitted else {
+                    switch result.ending {
+                    case let .answered(text):
+                        let reason = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        throw CompilationError.noPapers(reason.isEmpty ? "模型没有列出试卷，请把要求说具体一些再试。" : "模型没有列出试卷：\(reason.prefix(200))")
+                    default:
+                        throw CompilationError.noPapers("用满 \(CompilationTools.maxCallsForListing) 次调用也没有列出试卷，请把要求说具体一些再试。")
+                    }
                 }
                 compilation.title = list.title
                 compilation.subject = list.subject ?? .other
                 compilation.papers = list.papers
                 compilation.status = .choosing
-                log?(.success, "列出了 \(list.papers.count) 份试卷")
             } catch {
-                log?(.warning, "查找试卷没有完成：\(ChatErrorDescription.describe(error))")
+                log(.warning, "查找试卷没有完成：\(ChatErrorDescription.describe(error))")
                 compilation.status = .failed
                 if self?.interrupted.contains(id) == true || (!Task.isCancelled && Self.isBackgroundInterruption(error, since: started)) {
                     self?.interrupted.insert(id)
@@ -185,6 +194,7 @@ final class CompilationCenter {
     /// 系统要结束后台运行：停下保存进度，记下来，回到 App 时自动继续。
     private func interrupt(_ id: UUID) {
         guard tasks[id] != nil else { return }
+        log(id, .warning, "系统结束了后台运行，已保存进度")
         interrupted.insert(id)
         tasks[id]?.cancel()
     }
@@ -197,7 +207,7 @@ final class CompilationCenter {
             guard let compilation = try? context.fetch(descriptor).first else { continue }
             switch compilation.status {
             case .failed: listPapers(compilation, context: context)
-            case .paused: startCollecting(compilation, context: context)
+            case .paused, .arranging: startCollecting(compilation, context: context)
             default: break
             }
         }
@@ -207,6 +217,9 @@ final class CompilationCenter {
     static func isBackgroundInterruption(_ error: any Error, since start: Date) -> Bool {
         let codes: [URLError.Code] = [.networkConnectionLost, .notConnectedToInternet, .timedOut, .cannotConnectToHost]
         guard let code = (error as? URLError)?.code, codes.contains(code) else { return false }
+        // 强力保活开着时 App 在后台一直运行、没有被挂起，这是真的网络错误：
+        // 按普通失败处理，这份试卷记为失败、接着查下一份，而不是整个汇编停下等回到 App。
+        if BackgroundKeeper.shared.locationActive { return false }
         if UIApplication.shared.applicationState != .active { return true }
         return (BackgroundKeeper.shared.lastEnteredBackground ?? .distantPast) >= start
     }
@@ -216,7 +229,7 @@ final class CompilationCenter {
         let compilations = (try? context.fetch(FetchDescriptor<Compilation>())) ?? []
         for compilation in compilations where tasks[compilation.id] == nil {
             switch compilation.status {
-            case .collecting: compilation.status = .paused
+            case .collecting, .arranging: compilation.status = .paused
             case .listing:
                 compilation.status = .failed
                 compilation.errorText = "上次查找试卷时 App 被关闭了，请重试。"
@@ -239,6 +252,8 @@ final class CompilationCenter {
         let (model, service) = resolved
         let selected = compilation.papers.filter(\.selected)
         var stopped = false
+        /// 换哪份试卷都会失败的错误（例如模型不支持工具调用）。
+        var fatal: String?
         let log = logger(for: compilation.id)
         beginRun(compilation.id)
 
@@ -256,41 +271,52 @@ final class CompilationCenter {
             var updated = paper
             let started = Date.now
             log(.step, "第 \(done + 1)/\(selected.count) 份：\(name)")
+            let toolbox = CompilationToolbox(
+                compilation: compilation, context: context, model: model, service: service, phase: .paper(paper), log: log
+            )
             do {
-                let raw = try await Self.run(
-                    CompilationPlanner.findQuestionsRequest(
-                        model: model.modelID, request: compilation.request, paper: paper, reasoningEffort: Self.effort(for: model),
-                        webSearchDialect: model.webSearchDialect
-                    ),
-                    service: service, model: model, compilation: compilation, log: log
-                )
-                guard let questions = CompilationPlanner.parseFoundQuestions(raw) else { throw CompilationError.unreadableReply }
-                log(.success, questions.isEmpty ? "这份试卷里没有符合要求的题" : "找到 \(questions.count) 道符合要求的题，开始取原文")
-                for item in questions {
-                    if Task.isCancelled { throw CancellationError() }
-                    progress[compilation.id] = "正在取第 \(item.number) 题：\(name)"
-                    let question = ExamQuestion(
-                        paperTitle: paper.title, year: paper.year, number: item.number,
-                        index: (compilation.questions?.map(\.index).max() ?? -1) + 1
-                    )
-                    question.paperShortTitle = paper.shortTitle
-                    question.anchor = item.anchor
-                    question.lastAnchor = item.lastAnchor
-                    question.candidateURLs = item.urls
-                    context.insert(question)
-                    question.compilation = compilation
-                    await Self.fetch(question, context: context, log: log)
-                    try? context.save()
+                // 中断后这份试卷从头再来：已经取到的题列在开头，模型不会重复取。
+                let existing = Self.questions(of: paper, in: compilation).map {
+                    CompilationTools.ExistingQuestion(number: $0.number, status: $0.status)
                 }
+                let result = try await Self.loop(
+                    toolbox,
+                    CompilationTools.paperRequest(
+                        model: model.modelID, request: compilation.request, paper: paper, existing: existing,
+                        reasoningEffort: Self.effort(for: model)
+                    ),
+                    maxCalls: CompilationTools.maxCallsPerPaper,
+                    nudge: "这份试卷查完了就调用 finish_paper；还没取完就继续用工具。"
+                )
+                let count = Self.questions(of: paper, in: compilation).count
                 updated.state = .done
-                updated.found = questions.count
-                updated.note = questions.isEmpty ? "这份试卷里没有符合要求的题" : ""
+                updated.found = count
+                if toolbox.stagnated {
+                    updated.note = count == 0
+                        ? "未能获取原文：连续 \(CompilationTools.maxCallsWithoutProgress) 次调用没有新进展"
+                        : "连续 \(CompilationTools.maxCallsWithoutProgress) 次调用没有新进展，按已取到的 \(count) 题结束"
+                } else if result.ending == .limitReached {
+                    updated.note = "用满 \(CompilationTools.maxCallsPerPaper) 次调用，按已取到的 \(count) 题结束"
+                    log(.warning, updated.note)
+                } else if count == 0 {
+                    updated.note = toolbox.finishNote.flatMap { $0.isEmpty ? nil : $0 } ?? "这份试卷里没有符合要求的题"
+                } else {
+                    updated.note = ""
+                }
             } catch {
                 if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     stopped = true
                 } else if Self.isBackgroundInterruption(error, since: started) {
                     // 切到后台被断开：这份试卷不算失败，回到 App 后从它继续。
+                    log(.warning, "切到后台后连接断开：\(ChatErrorDescription.describe(error))")
                     interrupted.insert(compilation.id)
+                    stopped = true
+                } else if (error as? ToolLoopError) == .toolsUnsupported {
+                    // 换哪份试卷都一样，直接停下。
+                    updated.state = .failed
+                    updated.note = ChatErrorDescription.describe(error)
+                    log(.warning, updated.note)
+                    fatal = updated.note
                     stopped = true
                 } else {
                     updated.state = .failed
@@ -308,9 +334,14 @@ final class CompilationCenter {
         }
 
         let remaining = compilation.papers.contains { $0.selected && $0.state != .done }
+        if !stopped, !remaining, !(compilation.questions ?? []).isEmpty, !Task.isCancelled {
+            await arrange(compilation, model: model, service: service, context: context, log: log)
+        }
         compilation.status = stopped || remaining ? .paused : .done
         if interrupted.contains(compilation.id) {
             compilation.errorText = Self.interruptedText
+        } else if let fatal {
+            compilation.errorText = fatal
         } else if !stopped, remaining {
             compilation.errorText = "有试卷没查成功，可以点\"继续\"再试一次。"
         }
@@ -318,9 +349,76 @@ final class CompilationCenter {
         try? context.save()
     }
 
+    // MARK: - 第三步：整理和生成 PDF
+
+    /// 全部试卷查完后，请模型定标题、顺序和分组，再生成 PDF。失败时保留原来的顺序，不影响已经取到的题。
+    private func arrange(
+        _ compilation: Compilation, model: ChatModel, service: any ChatService, context: ModelContext, log: @escaping Logger
+    ) async {
+        compilation.status = .arranging
+        try? context.save()
+        progress[compilation.id] = "正在整理顺序和分组…"
+        log(.step, "整理标题、顺序和分组")
+        let toolbox = CompilationToolbox(
+            compilation: compilation, context: context, model: model, service: service, phase: .arranging, log: log
+        )
+        let items = toolbox.arrangeItems()
+        do {
+            _ = try await Self.loop(
+                toolbox,
+                CompilationTools.arrangingRequest(
+                    model: model.modelID, request: compilation.request, title: compilation.title, items: items,
+                    reasoningEffort: Self.effort(for: model)
+                ),
+                maxCalls: CompilationTools.maxCallsForArranging,
+                nudge: "请先调用 arrange，再调用 make_pdf。"
+            )
+        } catch {
+            if Task.isCancelled { return }
+            log(.warning, "整理没有完成，保留原来的顺序：\(ChatErrorDescription.describe(error))")
+        }
+        guard toolbox.pdfRequested || compilation.pdfData == nil else { return }
+        await makePDFNowOrLater(compilation, context: context, log: log)
+    }
+
+    /// App 在前台时马上生成 PDF；在后台时渲染器可能不工作，记为"待生成"，回到前台再生成。
+    private func makePDFNowOrLater(_ compilation: Compilation, context: ModelContext, log: Logger?) async {
+        guard UIApplication.shared.applicationState == .active else {
+            compilation.pdfPending = true
+            try? context.save()
+            log?(.step, "生成 PDF：App 在后台，回到格物后再生成")
+            return
+        }
+        progress[compilation.id] = "正在生成 PDF…"
+        do {
+            let data = try await CompilationPDF.make(compilation)
+            compilation.pdfData = data
+            compilation.pdfGeneratedAt = .now
+            compilation.pdfPending = false
+            log?(.success, "生成了 PDF")
+        } catch {
+            compilation.pdfPending = false
+            log?(.warning, "生成 PDF 失败：\(error.localizedDescription)")
+        }
+        try? context.save()
+    }
+
+    /// 回到前台时，生成在后台时没能生成的 PDF。
+    func makePendingPDFs(in context: ModelContext) {
+        let compilations = (try? context.fetch(FetchDescriptor<Compilation>(predicate: #Predicate { $0.pdfPending }))) ?? []
+        for compilation in compilations where tasks[compilation.id] == nil {
+            let id = compilation.id
+            tasks[id] = Task { [weak self] in
+                await self?.makePDFNowOrLater(compilation, context: context, log: self?.logger(for: id))
+                self?.tasks[id] = nil
+                self?.progress[id] = nil
+            }
+        }
+    }
+
     // MARK: - 单道题
 
-    /// 重新获取一道题：先按原来的网页再取一次；还不行就请模型重新找这道题。
+    /// 重新获取一道题：先按原来的网页再取一次；还不行就请模型用工具重新找这道题。
     func refetch(_ question: ExamQuestion, context: ModelContext) {
         guard !busyQuestions.contains(question.id), let compilation = question.compilation else { return }
         busyQuestions.insert(question.id)
@@ -335,22 +433,27 @@ final class CompilationCenter {
             let log = logger(for: compilation.id)
             log(.step, "重新获取\(question.label)")
             await Self.fetch(question, context: context, log: log)
-            if question.status != .complete, let resolved = try? Self.resolve(compilation, context: context) {
+            if question.status != .complete, !question.number.isEmpty, let resolved = try? Self.resolve(compilation, context: context) {
                 let (model, service) = resolved
                 let paper = PaperPlan(title: question.paperTitle, shortTitle: question.paperShortTitle, year: question.year)
-                if let raw = try? await Self.run(
-                    CompilationPlanner.findQuestionsRequest(
-                        model: model.modelID, request: compilation.request, paper: paper,
-                        onlyNumber: question.number.isEmpty ? nil : question.number, reasoningEffort: Self.effort(for: model),
-                        webSearchDialect: model.webSearchDialect
-                    ),
-                    service: service, model: model, compilation: compilation, log: log
-                ), let found = CompilationPlanner.parseFoundQuestions(raw)?.first {
-                    let previous = question.candidateURLs
-                    question.anchor = found.anchor
-                    question.lastAnchor = found.lastAnchor
-                    question.candidateURLs = found.urls + previous.filter { !found.urls.contains($0) }
-                    await Self.fetch(question, context: context, log: log)
+                let toolbox = CompilationToolbox(
+                    compilation: compilation, context: context, model: model, service: service, phase: .paper(paper), log: log
+                )
+                let existing = Self.questions(of: paper, in: compilation).map {
+                    CompilationTools.ExistingQuestion(number: $0.number, status: $0.status)
+                }
+                do {
+                    _ = try await Self.loop(
+                        toolbox,
+                        CompilationTools.paperRequest(
+                            model: model.modelID, request: compilation.request, paper: paper, existing: existing,
+                            onlyNumber: question.number, reasoningEffort: Self.effort(for: model)
+                        ),
+                        maxCalls: CompilationTools.maxCallsPerPaper / 2,
+                        nudge: "取完了就调用 finish_paper。"
+                    )
+                } catch {
+                    if !Task.isCancelled { log(.warning, "重新获取没有完成：\(ChatErrorDescription.describe(error))") }
                 }
             }
             try? context.save()
@@ -425,103 +528,61 @@ final class CompilationCenter {
         return model.webSearchDialect == .deepSeek && model.provider?.kind == .openAICompatible ? .high : nil
     }
 
-    /// 发一次请求，返回正文；用量和搜索次数记到汇编上。
-    private static func run(
-        _ request: ChatRequest, service: any ChatService, model: ChatModel, compilation: Compilation, log: Logger? = nil
-    ) async throws -> String {
-        var text = ""
-        var input: Int?
-        var output: Int?
-        var recorder = WebSearchRecorder()
-        defer {
-            let searches = recorder.record.effectiveCount
-            compilation.searches += searches
-            if let price = model.price(), input != nil || output != nil {
-                compilation.costCNY += price.costCNY(
-                    inputTokens: input ?? 0, outputTokens: output ?? 0, webSearches: searches, usdToCNY: AppSettingsKey.usdToCNYRate
-                )
-            }
-        }
-        for try await event in service.streamChat(request) {
-            BackgroundKeeper.shared.tick()
-            switch event {
-            case let .text(delta): text += delta
-            case let .usage(newInput, newOutput):
-                if let newInput { input = newInput }
-                if let newOutput { output = newOutput }
-            case .reasoning: break
-            case .searching, .searchResults, .citations, .searchCount:
-                if case let .searching(query) = event, let query, !query.isEmpty {
-                    log?(.search, "搜索：\(query)")
-                }
-                if case let .searchResults(sources) = event, !sources.isEmpty {
-                    var hosts: [String] = []
-                    for host in sources.compactMap(\.host) where !hosts.contains(host) && hosts.count < 3 { hosts.append(host) }
-                    log?(.page, "看了 \(sources.count) 个网页" + (hosts.isEmpty ? "" : "：" + hosts.joined(separator: "、")))
-                }
-                _ = recorder.handle(event, content: text)
-            }
-        }
-        return text
+    /// 跑一轮工具循环：工具由 toolbox 执行，用量记到汇编上，每个流式事件让后台进度往前走一点。
+    private static func loop(
+        _ toolbox: CompilationToolbox, _ request: ChatRequest, maxCalls: Int, nudge: String
+    ) async throws -> ToolLoop.Result {
+        try await ToolLoop(maxCalls: maxCalls, nudge: nudge).run(
+            service: toolbox.service,
+            request: request,
+            onEvent: { _ in await toolbox.tick() },
+            onUsage: { usage in await toolbox.record(usage) },
+            execute: { call in try await toolbox.execute(call) }
+        )
     }
 
-    /// 按候选网页的顺序下载、定位、取原题和图片。原文和图都取到就停；只取到部分时继续找更好的。
+    /// 这份试卷已经取到的题。
+    private static func questions(of paper: PaperPlan, in compilation: Compilation) -> [ExamQuestion] {
+        (compilation.questions ?? []).filter { $0.paperTitle == paper.title }
+    }
+
+    /// 按保存的候选网页再取一次：原文和图都取到就停；只取到部分时继续找更好的。
     static func fetch(_ question: ExamQuestion, context: ModelContext, log: Logger? = nil) async {
-        let anchor = question.anchor
-        let lastAnchor = question.lastAnchor
-        var best: (url: URL, result: QuestionExtractor.Result, images: [Int: (Data, String)])?
+        var best: QuestionFetch.Attempt?
         for url in CompilationPlanner.orderedCandidates(question.candidateURLs) {
             if Task.isCancelled { return }
             let host = url.host() ?? url.absoluteString
             log?(.page, "\(question.label)：打开 \(host)")
-            guard let html = try? await PageFetcher.html(url) else {
-                log?(.warning, "\(host) 打不开，换下一个网页")
+            let outcome = try? await QuestionFetch.attempt(
+                url: url, anchor: question.anchor, lastAnchor: question.lastAnchor, number: question.number
+            ) { url in
+                do { return .html(try await PageFetcher.html(url)) } catch { return .failed(.failed, nil) }
+            }
+            guard case let .success(attempt) = outcome else {
+                log?(.warning, "\(host) 上没取到这道题，换下一个网页")
                 continue
             }
-            let extracted = await Task.detached {
-                QuestionExtractor.extract(html: html, baseURL: url, anchor: anchor, lastAnchor: lastAnchor)
-            }.value
-            guard case let .success(result) = extracted else {
-                log?(.warning, "\(host) 上没找到这道题，换下一个网页")
-                continue
+            if attempt.status == .complete || best == nil || attempt.images.count > (best?.images.count ?? 0) {
+                best = attempt
             }
-            var images: [Int: (Data, String)] = [:]
-            for (index, address) in result.imageURLs.enumerated() {
-                guard let imageURL = URL(string: address), let image = try? await PageFetcher.image(imageURL, referer: url) else { continue }
-                images[index] = image
-            }
-            let complete = images.count == result.imageURLs.count && !result.probablyMissingImages
-            if complete || best == nil || images.count > (best?.images.count ?? 0) {
-                best = (url, result, images)
-            }
-            if complete { break }
+            if attempt.status == .complete { break }
         }
-        guard let best else {
+        guard let best, CompilationTools.isBetter(best.status, than: question.content.isEmpty ? nil : question.status) else {
             if question.content.isEmpty { question.status = .notFetched }
-            log?(.warning, "\(question.label)：没能取到原文")
+            log?(.warning, "\(question.label)：按原来的网页没能取到更完整的原文")
             return
         }
-        for image in question.images ?? [] { context.delete(image) }
-        question.images = []
-        var assets: [Int: UUID] = [:]
-        for (index, image) in best.images {
-            let stored = StoredImage(data: image.0, contentType: image.1)
-            context.insert(stored)
-            stored.question = question
-            assets[index] = stored.id
-        }
-        question.content = CompilationPlanner.assemble(best.result.content, assets: assets)
-        question.sourceURL = best.url.absoluteString
-        if !best.result.answer.isEmpty, question.answerKind != .ai || question.answer.isEmpty {
-            question.answer = CompilationPlanner.assemble(best.result.answer, assets: assets)
-            question.answerKind = .site
-            question.answerSite = CompilationPlanner.siteName(for: best.url)
-        }
-        let allImages = best.images.count == best.result.imageURLs.count
-        question.status = allImages && !best.result.probablyMissingImages ? .complete : .imagesMissing
+        QuestionFetch.apply(best, to: question, context: context)
         let figures = best.result.imageURLs.isEmpty ? "" : "，图 \(best.images.count)/\(best.result.imageURLs.count)"
         log?(question.status == .complete ? .success : .warning,
              "\(question.label)：取到原文\(figures)" + (question.answerKind == .site ? "，带网站解析" : ""))
+    }
+
+    /// 合并题号，例如 18 和 20 → 18～20。
+    nonisolated static func mergedNumber(_ a: String, _ b: String) -> String {
+        let numbers = (a + " " + b).split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        guard let low = numbers.min(), let high = numbers.max(), low != high else { return a }
+        return "\(low)～\(high)"
     }
 
     /// 发给模型的题目文字：图片换成"[图]"。

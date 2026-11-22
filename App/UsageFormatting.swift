@@ -14,10 +14,12 @@ enum UsageFormatting {
         return "约 ¥" + String(format: "%.\(min(digits, 6))f", value)
     }
 
-    /// "输入 1,200 · 输出 350 tokens · 搜索 2 次 · 约 ¥0.012"，没有用量时返回 nil。
-    static func summary(input: Int?, output: Int?, cost: Double?, searches: Int = 0) -> String? {
+    /// "输入 1,200（缓存 900）· 输出 350 tokens · 搜索 2 次 · 约 ¥0.012"，没有用量时返回 nil。
+    static func summary(input: Int?, output: Int?, cost: Double?, searches: Int = 0, cached: Int? = nil) -> String? {
         guard input != nil || output != nil else { return nil }
-        var text = "输入 \(tokens(input ?? 0)) · 输出 \(tokens(output ?? 0)) tokens"
+        var text = "输入 \(tokens(input ?? 0))"
+        if let cached, cached > 0 { text += "（缓存 \(tokens(cached))）" }
+        text += " · 输出 \(tokens(output ?? 0)) tokens"
         if searches > 0 { text += " · 搜索 \(searches) 次" }
         if let cost { text += " · " + self.cost(cost) }
         return text
@@ -30,6 +32,13 @@ enum UsageFormatting {
         var text = "输入 ¥\(fmt(cny.input)) / 输出 ¥\(fmt(cny.output)) 每百万 tokens"
         if price.currency == .usd {
             text += "（官方 $\(fmt(price.input)) / $\(fmt(price.output))）"
+        }
+        if let cached = cny.cachedInput {
+            text += "；命中缓存的输入 ¥\(fmt(cached))"
+        }
+        if let offPeak = price.offPeak {
+            let hours = offPeak.peakHours.map { "\($0.first ?? 0)–\($0.last ?? 0)" }.joined(separator: "、")
+            text += "；工作日 \(hours) 点以外 \(fmt(offPeak.factor * 10)) 折"
         }
         return text
     }

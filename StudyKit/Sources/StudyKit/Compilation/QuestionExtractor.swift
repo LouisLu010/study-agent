@@ -29,10 +29,43 @@ public enum QuestionExtractor {
 
     /// 一道大题的题目部分最多这么多汉字，超过就当作取到了整张试卷。
     static let maxQuestionLength = 1800
+    /// 带阅读材料的题组（语言文字运用、现代文阅读、文言文阅读、完形填空等）最多这么多汉字。
+    static let maxGroupLength = 6000
 
-    public static func extract(html: String, baseURL: URL, anchor: String, lastAnchor: String) -> Swift.Result<Result, Failure> {
+    /// 题目里说到"文中""材料"一类的词，说明这道题要配着一段阅读材料。
+    static let passageReferences = ["文中", "材料", "上文", "下文", "选文", "短文", "这段文字", "下面的文字", "画横线", "画波浪线", "加点", "文段", "原文"]
+    /// 阅读材料开头的说明，例如"阅读下面的文字，完成 18～20 题"。
+    static let passageMarkers = ["阅读下面", "阅读下列", "阅读以下", "阅读材料", "阅读短文", "阅读文章", "完成各题", "完成下面小题", "完成小题"]
+
+    /// 题号是不是一个范围，例如"18～20""18-20""18、19"。
+    public static func isGroupNumber(_ number: String) -> Bool {
+        number.range(of: #"\d\s*[～~\-—–至、,，]\s*\d"#, options: .regularExpression) != nil
+    }
+
+    static func needsPassage(_ text: String) -> Bool {
+        passageReferences.contains { text.contains($0) } && !passageMarkers.contains { text.contains($0) }
+    }
+
+    /// 语言文字运用这类题，几道小题共用一段材料，模型给的定位字往往是某道小题的题干，取出来的只有小题、没有材料。
+    /// 这时往上找最近一个包含材料说明（"阅读下面的文字……"）的元素，把材料和这一组小题一起取下来。找不到就用原来的。
+    static func expandToPassage(_ block: HTMLNode, group: Bool) -> HTMLNode {
+        guard needsPassage(block.text) || (group && !passageMarkers.contains { block.text.contains($0) }) else { return block }
+        var node = block.parent
+        while let current = node, current.tag != nil {
+            let text = current.text
+            if han(text).count > maxGroupLength { break }
+            if passageMarkers.contains(where: { text.contains($0) }) { return current }
+            node = current.parent
+        }
+        return block
+    }
+
+    /// group：题号是"18～20"这样的范围，说明是共用一段材料的一组题。
+    public static func extract(html: String, baseURL: URL, anchor: String, lastAnchor: String, group: Bool = false) -> Swift.Result<Result, Failure> {
         let root = HTMLDocument.parse(html)
-        guard let block = findBlock(in: root, anchor: anchor, lastAnchor: lastAnchor) else { return .failure(.notFound) }
+        guard let found = findBlock(in: root, anchor: anchor, lastAnchor: lastAnchor) else { return .failure(.notFound) }
+        let block = expandToPassage(found, group: group)
+        let isGroup = group || block !== found || passageMarkers.contains { found.text.contains($0) }
         var renderer = MarkdownRenderer(baseURL: baseURL)
         renderer.render(block)
         var (content, answer) = renderer.finish()
@@ -50,7 +83,7 @@ public enum QuestionExtractor {
         content = tidy(stripLeadingNumber(content))
         answer = tidy(answer)
         let length = han(content).count
-        guard length <= maxQuestionLength else { return .failure(.tooLong) }
+        guard length <= (isGroup ? maxGroupLength : maxQuestionLength) else { return .failure(.tooLong) }
         return .success(Result(content: content, answer: answer, imageURLs: renderer.imageURLs, questionLength: length))
     }
 

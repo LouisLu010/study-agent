@@ -62,6 +62,8 @@ public final class Compilation {
     public var includeAnswers: Bool = true
     @Attribute(.externalStorage) public var pdfData: Data?
     public var pdfGeneratedAt: Date?
+    /// 模型要求生成 PDF 时 App 在后台，渲染器可能不工作：记为"待生成"，回到前台再生成。
+    public var pdfPending: Bool = false
     /// 累计的估算费用（人民币）和搜索次数。
     public var costCNY: Double = 0
     public var searches: Int = 0
@@ -126,6 +128,8 @@ public final class ExamQuestion {
     /// 题干开头和最后一问开头的几个字，用来在网页里定位。
     public var anchor: String = ""
     public var lastAnchor: String = ""
+    /// 整理时模型给的组名（按知识点或年份），印在 PDF 里。不分组时为空。
+    public var groupName: String = ""
 
     public var compilation: Compilation?
 

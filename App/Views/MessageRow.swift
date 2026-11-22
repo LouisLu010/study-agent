@@ -211,7 +211,7 @@ private struct AssistantMessageView: View {
 
             if !isStreaming, let usage = UsageFormatting.summary(
                 input: message.inputTokens, output: message.outputTokens, cost: message.costCNY,
-                searches: search?.effectiveCount ?? 0
+                searches: search?.effectiveCount ?? 0, cached: message.cachedInputTokens
             ) {
                 Text(usage)
                     .font(.caption2)
