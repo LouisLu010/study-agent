@@ -1,19 +1,23 @@
 import StudyKit
 import SwiftUI
 
-/// 服务商预设的列表，点一行就选中。引导的第 2 步和设置里的"添加服务商"共用。
+/// 服务商预设的列表，点一张卡片就选中。引导的第 2 步和设置里的"添加服务商"共用。
+/// 第八版：每家是一张带官方图标的大卡片，选中的那张加主题色描边。
 struct PresetList: View {
+    /// 已经选中的预设（引导里返回上一步时）。
+    var selectedID: String?
     let onPick: (ProviderPreset) -> Void
 
     var body: some View {
-        VStack(spacing: Theme.Spacing.s) {
+        VStack(spacing: Theme.Spacing.m) {
             ForEach(ProviderPreset.all) { preset in
                 Button {
                     onPick(preset)
                 } label: {
-                    PresetRow(preset: preset)
+                    PresetRow(preset: preset, isSelected: preset.id == selectedID)
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(preset.id == selectedID ? .isSelected : [])
             }
         }
     }
@@ -21,28 +25,32 @@ struct PresetList: View {
 
 private struct PresetRow: View {
     let preset: ProviderPreset
+    let isSelected: Bool
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
         HStack(spacing: Theme.Spacing.m) {
-            Image(systemName: preset.isCustom ? "ellipsis.circle" : "server.rack")
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 2) {
+            ProviderLogo(presetID: preset.id, size: 44)
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text(preset.name)
+                    .font(.headline)
                     .foregroundStyle(.primary)
                 Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundStyle(.tertiary)
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "chevron.right")
+                .font(isSelected ? .title3 : .caption.bold())
+                .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.tertiary))
         }
-        .padding(Theme.Spacing.m)
+        .padding(Theme.Spacing.l)
         .cardBackground()
-        .contentShape(Rectangle())
+        .overlay {
+            shape.strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+        }
+        .contentShape(shape)
     }
 
     private var detail: String {

@@ -32,6 +32,16 @@ extension View {
         background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
     }
 
+    /// 分组页面（第八版）：浅灰底，深色模式是黑底。和系统 insetGrouped 列表的底色一样。
+    func groupedPageBackground() -> some View {
+        background(Color(.systemGroupedBackground))
+    }
+
+    /// 分组页面上的白色圆角卡片，深色模式是深灰。和系统 insetGrouped 列表的行一样。
+    func groupedCardBackground() -> some View {
+        background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+    }
+
     /// 玻璃效果，只用在输入框底栏、引导页底部按钮和"回到底部"按钮上。
     /// iOS 26 用系统的 Liquid Glass；iOS 18 用较厚的材质背景加一圈很淡的描边（下面滚过的内容不会透得太清楚）。
     @ViewBuilder

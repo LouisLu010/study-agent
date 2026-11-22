@@ -40,6 +40,7 @@ struct CompilationsView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .overlay {
             if compilations.isEmpty {
                 OrbEmptyState(

@@ -7,6 +7,8 @@ struct RenderedContentView: View {
     let id: UUID
     let content: String
     var componentStateJSON: String = ""
+    /// 放在浅灰底的分组页面上（学习记录）。
+    var grouped = false
     var onComponentState: (String, Any?) -> Void = { _, _ in }
     var onQuizResult: ([String: Any]) -> Void = { _ in }
     var onAsk: (String) -> Void = { _ in }
@@ -17,6 +19,7 @@ struct RenderedContentView: View {
         id: UUID,
         content: String,
         componentStateJSON: String = "",
+        grouped: Bool = false,
         onComponentState: @escaping (String, Any?) -> Void = { _, _ in },
         onQuizResult: @escaping ([String: Any]) -> Void = { _ in },
         onAsk: @escaping (String) -> Void = { _ in }
@@ -24,6 +27,7 @@ struct RenderedContentView: View {
         self.id = id
         self.content = content
         self.componentStateJSON = componentStateJSON
+        self.grouped = grouped
         self.onComponentState = onComponentState
         self.onQuizResult = onQuizResult
         self.onAsk = onAsk
@@ -39,7 +43,8 @@ struct RenderedContentView: View {
             height: $height,
             onComponentState: onComponentState,
             onAsk: onAsk,
-            onQuizResult: onQuizResult
+            onQuizResult: onQuizResult,
+            groupedSurface: grouped
         )
         .frame(height: height)
     }
@@ -105,6 +110,9 @@ struct MistakeBookView: View {
                 }
             }
             .listRowSeparator(.hidden)
+            // 筛选放在灰底上，不放进白色卡片。
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: Theme.Spacing.xs, leading: Theme.Spacing.l, bottom: Theme.Spacing.xs, trailing: Theme.Spacing.l))
 
             if dueCount > 0 {
                 Section {
@@ -132,6 +140,7 @@ struct MistakeBookView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .overlay {
             if mistakes.isEmpty {
                 OrbEmptyState(

@@ -5,6 +5,8 @@ import SwiftData
 
 /// 侧边栏里选中的项目。
 enum SidebarItem: Hashable {
+    /// 今天（见 GLOSSARY「今天」），打开 App 默认进这里。
+    case today
     case conversation(Conversation)
     case mistakes
     case review
@@ -18,7 +20,7 @@ enum SidebarItem: Hashable {
 @MainActor
 @Observable
 final class AppNavigation {
-    var selection: SidebarItem?
+    var selection: SidebarItem? = .today
     /// 是否显示引导。
     var showsOnboarding = false
     /// 在设置里点了"重新查看引导"：等设置关掉后再显示引导。

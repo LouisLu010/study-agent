@@ -36,7 +36,7 @@ targets:
       base:
         PRODUCT_NAME: StudyAgent
         PRODUCT_BUNDLE_IDENTIFIER: com.louislu.studyagent
-        MARKETING_VERSION: "0.7.0"
+        MARKETING_VERSION: "0.8.0"
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1,2"
@@ -47,7 +47,7 @@ targets:
         # 主题色取自图标的蓝色：浅色 #2563EB，深色 #4D8EFF。渲染器的 --accent 用同样的值。
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         INFOPLIST_KEY_NSCameraUsageDescription: 拍下题目发给模型
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 只在打开"强力保活"并生成汇编时使用，让 App 在后台继续运行。不记录、不发送位置。
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: 只在打开"强力保活"并生成汇编或回答时使用，让 App 在后台继续运行。不记录、不发送位置。
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"

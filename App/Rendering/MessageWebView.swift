@@ -28,8 +28,14 @@ struct MessageWebView: UIViewRepresentable {
     var onQuizResult: ([String: Any]) -> Void = { _ in }
     /// 答错的题会自动加入错题本时为 true，测验组件会在结果里提示一句。
     var recordsMistakes = false
+    /// 放在浅灰底的分组页面上时为 true，组件卡片改成白色。
+    var groupedSurface = false
     /// 外面用来截长图的引用。
     var handle: WebViewHandle?
+    /// 这是全屏页（第八版）：画面更大，横屏时参数面板在侧边。
+    var fullscreenSurface = false
+    /// 模拟、坐标图、几何图卡片上的全屏按钮：(组件键, 只有这个组件的 Markdown, 它的状态 JSON)。为 nil 时不显示按钮。
+    var onFullscreen: ((String, String, String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -81,7 +87,7 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal", "fullscreen"]
 
         /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
         private weak var lockedScrollView: UIScrollView?
@@ -96,6 +102,22 @@ struct MessageWebView: UIViewRepresentable {
             } else {
                 lockedScrollView?.panGestureRecognizer.isEnabled = true
                 lockedScrollView = nil
+            }
+        }
+
+        /// 分步讲解新展开的一步不在屏幕里时，把外面的列表滚过去（第八版）。WebView 自己不滚动，高度就是内容高度。
+        private func reveal(top: Double, bottom: Double) {
+            guard bottom > top else { return }
+            // 等高度更新、列表重新排好后再滚。
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard let self, let webView = self.webView, let scrollView = self.enclosingScrollView() else { return }
+                let rect = CGRect(x: 0, y: top, width: webView.bounds.width, height: bottom - top)
+                let target = scrollView.convert(rect, from: webView).insetBy(dx: 0, dy: -24)
+                let visible = CGRect(origin: scrollView.contentOffset, size: scrollView.bounds.size)
+                    .inset(by: scrollView.adjustedContentInset)
+                guard !visible.contains(target) else { return }
+                scrollView.scrollRectToVisible(target, animated: true)
             }
         }
 
@@ -191,7 +213,7 @@ struct MessageWebView: UIViewRepresentable {
                     """
                     let state = {};
                     try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
-                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes });
+                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes, grouped, fullscreen, canFullscreen });
                     """,
                     arguments: [
                         "text": next.content,
@@ -199,6 +221,9 @@ struct MessageWebView: UIViewRepresentable {
                         "stateJSON": parent?.componentStateJSON ?? "",
                         "canRegenerate": canRegenerate,
                         "recordsMistakes": parent?.recordsMistakes ?? false,
+                        "grouped": parent?.groupedSurface ?? false,
+                        "fullscreen": parent?.fullscreenSurface ?? false,
+                        "canFullscreen": parent?.onFullscreen != nil,
                     ],
                     in: nil,
                     in: .page,
@@ -243,6 +268,18 @@ struct MessageWebView: UIViewRepresentable {
                 }
             case "scrollLock":
                 setOuterScrollLocked((body as? NSNumber)?.boolValue ?? false)
+            case "fullscreen":
+                guard let payload = body as? [String: Any],
+                      let key = payload["key"] as? String,
+                      let markdown = payload["markdown"] as? String
+                else { return }
+                parent?.onFullscreen?(key, markdown, payload["state"] as? String ?? "")
+            case "reveal":
+                guard let payload = body as? [String: Any],
+                      let top = (payload["top"] as? NSNumber)?.doubleValue,
+                      let bottom = (payload["bottom"] as? NSNumber)?.doubleValue
+                else { return }
+                reveal(top: top, bottom: bottom)
             case "regenerate":
                 if parent?.canRegenerate == true {
                     parent?.onRegenerate()
@@ -277,6 +314,24 @@ struct MessageWebView: UIViewRepresentable {
             rendered = nil
             loadRenderer()
         }
+    }
+}
+
+extension WebViewHandle {
+    /// 全屏页关掉后，把这条消息保存的组件状态里这一个组件的状态交回给正文里的组件，它会按新状态重画。
+    func applyState(key: String, stateJSON: String) {
+        guard let webView = webView as? WKWebView else { return }
+        webView.callAsyncJavaScript(
+            """
+            let all = {};
+            try { all = json ? JSON.parse(json) : {}; } catch (e) {}
+            window.StudyComponents.applyState(key, Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null);
+            """,
+            arguments: ["key": key, "json": stateJSON],
+            in: nil,
+            in: .page,
+            completionHandler: nil
+        )
     }
 }
 

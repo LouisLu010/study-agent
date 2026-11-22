@@ -16,6 +16,7 @@ struct AboutView: View {
         Credit(name: "highlight.js", license: "BSD-3-Clause", url: "https://github.com/highlightjs/highlight.js"),
         Credit(name: "JSXGraph", license: "MIT", url: "https://github.com/jsxgraph/jsxgraph"),
         Credit(name: "Chart.js", license: "MIT", url: "https://github.com/chartjs/Chart.js"),
+        Credit(name: "Lobe Icons（服务商图标）", license: "MIT", url: "https://github.com/lobehub/lobe-icons"),
     ]
 
     private var version: String {
@@ -56,7 +57,7 @@ struct AboutView: View {
             } header: {
                 Text("开源组件")
             } footer: {
-                Text("感谢这些项目。许可证全文随源码放在仓库的 App/Vendor 和 Renderer/vendor 目录里。")
+                Text("感谢这些项目。许可证全文随源码放在仓库的 App/Vendor 和 Renderer/vendor 目录里。\n\nDeepSeek、OpenAI、Anthropic、Gemini、OpenRouter 的名称和图标是各自公司的商标，App 只用它们标明服务商，和这些公司没有关联。")
             }
         }
         .navigationTitle("关于")

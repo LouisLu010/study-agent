@@ -64,6 +64,8 @@ struct BookmarksView: View {
                     }
                 }
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: Theme.Spacing.xs, leading: Theme.Spacing.l, bottom: Theme.Spacing.xs, trailing: Theme.Spacing.l))
             }
             ForEach(filtered) { bookmark in
                 NavigationLink {
@@ -83,6 +85,7 @@ struct BookmarksView: View {
                 try? context.save()
             }
         }
+        .listStyle(.insetGrouped)
         .overlay {
             if bookmarks.isEmpty {
                 OrbEmptyState(title: "还没有收藏", message: "点回答下方的书签按钮，就能把整条回答收藏到这里。")

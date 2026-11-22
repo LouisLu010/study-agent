@@ -56,7 +56,7 @@ struct OnboardingView: View {
 
     private var topBar: some View {
         ZStack {
-            progressDots
+            progressBar
             HStack {
                 if step != .welcome {
                     Button(action: back) {
@@ -75,16 +75,21 @@ struct OnboardingView: View {
         .frame(height: 52)
     }
 
-    private var progressDots: some View {
-        HStack(spacing: Theme.Spacing.s) {
-            ForEach(Step.allCases, id: \.self) { item in
+    /// 顶部的进度条（第八版，代替小圆点）。
+    private var progressBar: some View {
+        let width: CGFloat = 120
+        let fraction = CGFloat(step.rawValue + 1) / CGFloat(Step.allCases.count)
+        return Capsule()
+            .fill(Color.secondary.opacity(0.2))
+            .frame(width: width, height: 6)
+            .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(item == step ? Color.accentColor : Color.secondary.opacity(0.3))
-                    .frame(width: item == step ? 18 : 6, height: 6)
+                    .fill(Color.accentColor)
+                    .frame(width: width * fraction, height: 6)
             }
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("第 \(step.rawValue + 1) 步，共 \(Step.allCases.count) 步")
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: step)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("第 \(step.rawValue + 1) 步，共 \(Step.allCases.count) 步")
     }
 
     @ViewBuilder
@@ -166,33 +171,67 @@ struct OnboardingView: View {
                         .foregroundStyle(.secondary)
                 }
                 .multilineTextAlignment(.center)
-                VStack(alignment: .leading, spacing: Theme.Spacing.l) {
-                    feature("function", "公式、坐标图、测验和模拟直接显示在回答里，可以动手试")
-                    feature("camera", "拍题、传 PDF、手写，都能发给模型")
-                    feature("arrow.counterclockwise.circle", "答错的题进错题本，按间隔自动安排复习")
-                    feature("lock.shield", "用你自己的 API Key，App 直接连服务商，不经过任何服务器")
-                }
+                .padding(.horizontal, Theme.Spacing.xl)
+                featureCards
+                Label("用你自己的 API Key，App 直接连服务商，不经过任何服务器", systemImage: "lock.shield")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, Theme.Spacing.xl)
             }
-            .padding(.horizontal, Theme.Spacing.xl)
         }
         .scrollBounceBehavior(.basedOnSize)
     }
 
-    private func feature(_ systemImage: String, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.m) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.tint)
-                .frame(width: 28)
-            Text(text)
-                .font(.callout)
+    private struct Feature: Identifiable {
+        let icon: String
+        let title: String
+        let text: String
+        var id: String { title }
+    }
+
+    private static let features = [
+        Feature(icon: "function", title: "会画图和出题的回答", text: "坐标图、几何图、测验和模拟直接显示在回答里，可以拖、可以答、可以播放。"),
+        Feature(icon: "arrow.counterclockwise.circle", title: "错题和复习", text: "测验里答错的题自动进错题本，按 1、3、7、14、30 天的间隔安排复习。"),
+        Feature(icon: "books.vertical", title: "汇编原题", text: "一句话说要什么题，从真实试卷里取下原文和原图，排成一份 PDF。"),
+    ]
+
+    /// 欢迎页上三张横滑的功能介绍卡片（第八版）。
+    private var featureCards: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.m) {
+                ForEach(Self.features) { feature in
+                    VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+                        Image(systemName: feature.icon)
+                            .font(.title2)
+                            .foregroundStyle(.tint)
+                            .frame(width: 44, height: 44)
+                            .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
+                        Text(feature.title)
+                            .font(.headline)
+                        Text(feature.text)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(Theme.Spacing.l)
+                    .frame(height: 196, alignment: .topLeading)
+                    .containerRelativeFrame(.horizontal) { width, _ in width * 0.78 }
+                    .cardBackground()
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .scrollTargetLayout()
         }
+        .scrollTargetBehavior(.viewAligned)
+        .contentMargins(.horizontal, Theme.Spacing.xl, for: .scrollContent)
     }
 
     private var presetPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.l) {
                 header("选择服务商", "选一家你有 API Key 的服务商。以后可以在设置里再加别的。")
-                PresetList(onPick: pick)
+                PresetList(selectedID: preset?.id, onPick: pick)
             }
             .padding(.horizontal, Theme.Spacing.xl)
             .padding(.bottom, Theme.Spacing.xl)

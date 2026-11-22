@@ -9,14 +9,18 @@ struct RootView: View {
     @Environment(CompilationCenter.self) private var compilations
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppSettingsKey.onboardingSeen) private var onboardingSeen = false
+    /// iPhone 上分栏合并成一栏：启动时直接显示"今天"，按返回回到侧栏。
+    @State private var compactColumn = NavigationSplitViewColumn.detail
 
     var body: some View {
         @Bindable var navigation = navigation
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: $compactColumn) {
             ConversationListView(selection: $navigation.selection)
         } detail: {
             NavigationStack {
                 switch navigation.selection {
+                case .today:
+                    TodayView()
                 case let .conversation(conversation):
                     ChatView(conversation: conversation)
                         .id(conversation.id)
@@ -33,7 +37,7 @@ struct RootView: View {
                 case .compilations:
                     CompilationsView()
                 case nil:
-                    OrbEmptyState(title: "没有选中的会话", message: "点右上角的按钮新建一个会话。")
+                    TodayView()
                 }
             }
         }

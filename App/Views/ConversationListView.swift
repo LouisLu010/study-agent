@@ -25,6 +25,9 @@ struct ConversationListView: View {
     var body: some View {
         List(selection: $selection) {
             if searchText.isEmpty {
+                Section {
+                    entry("今天", systemImage: "sun.max", item: .today)
+                }
                 Section("学习") {
                     entry("错题本", systemImage: "exclamationmark.bubble", item: .mistakes)
                     entry("复习", systemImage: "arrow.counterclockwise.circle", item: .review)
@@ -69,6 +72,8 @@ struct ConversationListView: View {
             }
             }
         }
+        // 第八版：浅灰底加白色圆角卡片，深色模式是黑底加深灰卡片。
+        .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "搜索会话标题")
         .overlay {
             if conversations.isEmpty {
@@ -160,7 +165,7 @@ struct ConversationListView: View {
 
     private func delete(_ conversation: Conversation) {
         if selection == .conversation(conversation) {
-            selection = nil
+            selection = .today
         }
         generation.stop(conversation)
         context.delete(conversation)

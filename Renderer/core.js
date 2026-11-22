@@ -686,6 +686,131 @@
     }
   }
 
+  // ---------- 坐标图的关键点（第八版） ----------
+
+  /**
+   * 在 [xmin, xmax] 里找函数曲线的零点、极大值、极小值，以及两条曲线的交点。
+   * fns 是 x → y 的函数，取不到值时返回 NaN（定义域外）。返回 [{ kind, x, y, curves }]，
+   * kind 是 zero、max、min、intersection；curves 是相关曲线的序号。
+   * 先等距取样找变号的地方，再二分（零点、交点）或黄金分割（极值）细化。
+   * 细化后值很大的"零点"其实是间断点（例如 tan x），不算。
+   */
+  function graphKeyPoints(fns, xmin, xmax, samples) {
+    const n = samples || 400;
+    const span = xmax - xmin;
+    if (!(span > 0)) return [];
+    const xs = [];
+    for (let i = 0; i <= n; i++) xs.push(xmin + (span * i) / n);
+    const values = fns.map((f) => xs.map((x) => safe(f, x)));
+    const result = [];
+
+    function safe(f, x) {
+      try {
+        const y = f(x);
+        return Number.isFinite(y) ? y : NaN;
+      } catch (error) {
+        return NaN;
+      }
+    }
+
+    /** 函数值的典型大小，用来判断细化后的值算不算 0。 */
+    function scaleOf(ys) {
+      const finite = ys.filter(Number.isFinite).map(Math.abs).sort((a, b) => a - b);
+      return finite.length ? finite[Math.floor(finite.length / 2)] + 1e-9 : 1;
+    }
+
+    function bisect(g, a, b) {
+      let ga = g(a);
+      for (let k = 0; k < 60; k++) {
+        const m = (a + b) / 2;
+        const gm = g(m);
+        if (!Number.isFinite(gm)) return NaN;
+        if (gm === 0) return m;
+        if ((ga < 0) === (gm < 0)) {
+          a = m;
+          ga = gm;
+        } else {
+          b = m;
+        }
+      }
+      return (a + b) / 2;
+    }
+
+    /** 黄金分割找 [a, b] 里的极值点；sign = 1 找最大，-1 找最小。 */
+    function golden(f, a, b, sign) {
+      const r = (Math.sqrt(5) - 1) / 2;
+      let c = b - r * (b - a);
+      let d = a + r * (b - a);
+      for (let k = 0; k < 60; k++) {
+        if (sign * safe(f, c) > sign * safe(f, d)) b = d;
+        else a = c;
+        c = b - r * (b - a);
+        d = a + r * (b - a);
+      }
+      return (a + b) / 2;
+    }
+
+    function roots(g, gs, scale, onRoot) {
+      for (let i = 0; i < n; i++) {
+        const a = gs[i];
+        const b = gs[i + 1];
+        if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+        if (a === 0) {
+          if (i === 0 || gs[i - 1] !== 0) onRoot(xs[i]);
+          continue;
+        }
+        if (a * b >= 0) continue;
+        const x = bisect(g, xs[i], xs[i + 1]);
+        if (!Number.isFinite(x)) continue;
+        // 间断点两边也会变号，细化后的值不接近 0 就不是零点。
+        if (Math.abs(g(x)) > 1e-6 * (1 + scale)) continue;
+        onRoot(x);
+      }
+    }
+
+    fns.forEach((f, index) => {
+      const ys = values[index];
+      const scale = scaleOf(ys);
+      roots((x) => safe(f, x), ys, scale, (x) => result.push({ kind: 'zero', x, y: 0, curves: [index] }));
+      for (let i = 1; i < n; i++) {
+        const a = ys[i - 1];
+        const b = ys[i];
+        const c = ys[i + 1];
+        if (![a, b, c].every(Number.isFinite)) continue;
+        const sign = b > a && b >= c ? 1 : b < a && b <= c ? -1 : 0;
+        if (!sign) continue;
+        const x = golden(f, xs[i - 1], xs[i + 1], sign);
+        const y = safe(f, x);
+        if (!Number.isFinite(y)) continue;
+        // 尖点、间断点附近的假极值：取样点之间跳得太大就跳过。
+        if (Math.abs(b - a) > 50 * scale && Math.abs(c - b) > 50 * scale) continue;
+        result.push({ kind: sign > 0 ? 'max' : 'min', x, y, curves: [index] });
+      }
+    });
+
+    for (let i = 0; i < fns.length; i++) {
+      for (let j = i + 1; j < fns.length; j++) {
+        const g = (x) => safe(fns[i], x) - safe(fns[j], x);
+        const gs = values[i].map((y, k) => y - values[j][k]);
+        const scale = Math.max(scaleOf(values[i]), scaleOf(values[j]));
+        roots(g, gs, scale, (x) => {
+          const y = safe(fns[i], x);
+          if (Number.isFinite(y)) result.push({ kind: 'intersection', x, y, curves: [i, j] });
+        });
+      }
+    }
+
+    // 同一个点只留一个（例如零点同时是极值点时留极值）。
+    const order = { max: 0, min: 0, intersection: 1, zero: 2 };
+    result.sort((a, b) => order[a.kind] - order[b.kind]);
+    const kept = [];
+    const eps = span * 2e-3;
+    result.forEach((p) => {
+      if (!kept.some((q) => Math.abs(q.x - p.x) < eps && Math.abs(q.y - p.y) < eps * 4)) kept.push(p);
+    });
+    return kept;
+  }
+
   // ---------- 测验 ----------
 
   // ---------- 宽松的 JSON ----------
@@ -1337,6 +1462,9 @@
   //   at(t)      t 时刻的状态，供画图和实时读数使用
   //   live(t)    t 时刻的实时读数
   //   bounds     画面范围（米），{ xmin, xmax, ymin, ymax }
+  //   energy(t)  可选（第八版）：t 时刻的能量柱，{ unit, note, max, bars: [{ key, label, value }] }，
+  //              key 是 ke（动能）、pe（势能）、total（总能量）
+  //   cycle      可选：周期运动一个周期的时长，时间轴拖动的范围
 
   const DEG = Math.PI / 180;
 
@@ -1346,6 +1474,18 @@
 
   function reading(label, value, unit, decimals) {
     return { label, value, unit: unit || '', decimals: decimals === undefined ? 2 : decimals };
+  }
+
+  /** 动能、势能、总能量三根柱子。max 用总能量，柱子长度按它算。 */
+  function energyBars(ke, pe, total, unit, note) {
+    return {
+      unit, note, max: Math.max(total, 1e-12),
+      bars: [
+        { key: 'ke', label: '动能', value: ke },
+        { key: 'pe', label: '势能', value: pe },
+        { key: 'total', label: '机械能', value: total },
+      ],
+    };
   }
 
   /** 单摆：用 RK4 积分一个完整周期，之后按周期取样（大角度时比小角度公式准确）。 */
@@ -1415,6 +1555,13 @@
             for (let i = 0; i <= n; i++) points.push(at((T * i) / n));
             return points;
           },
+          // 没有质量参数，按 1 kg 算；势能以地面为零点。
+          energy(t) {
+            const s = at(t);
+            const total = 0.5 * p.v0 * p.v0 + p.g * p.h;
+            const pe = p.g * s.y;
+            return energyBars(Math.max(0, total - pe), pe, total, 'J', '按 1 kg 计，地面为势能零点');
+          },
         };
       },
     },
@@ -1448,6 +1595,14 @@
             return [reading('当前角度', s.theta / DEG, '°', 1), reading('速度大小', Math.abs(s.omega) * p.L, 'm/s')];
           },
           bounds: { xmin: -p.L * 1.1, xmax: p.L * 1.1, ymin: -p.L * 1.15, ymax: p.L * 0.15 },
+          cycle: T,
+          // 没有质量参数，按 1 kg 算；势能以最低点为零点。
+          energy(t) {
+            const s = at(t);
+            const total = p.g * p.L * (1 - Math.cos(p.theta0 * DEG));
+            const pe = p.g * p.L * (1 - Math.cos(s.theta));
+            return energyBars(Math.max(0, total - pe), Math.min(pe, total), total, 'J', '按 1 kg 计，最低点为势能零点');
+          },
         };
       },
     },
@@ -1477,6 +1632,12 @@
           },
           bounds: { xmin: -0.6, xmax: 0.6, ymin: -0.15, ymax: 0.15 },
           period: (2 * Math.PI) / w,
+          cycle: (2 * Math.PI) / w,
+          // 弹性势能以平衡位置为零点。
+          energy(t) {
+            const s = at(t);
+            return energyBars(0.5 * p.m * s.v * s.v, 0.5 * p.k * s.x * s.x, 0.5 * p.k * p.A * p.A, 'J', '平衡位置为势能零点');
+          },
         };
       },
     },
@@ -1574,6 +1735,20 @@
           bounds: { xmin: left, xmax: right, ymin: 0, ymax: 1 },
           width,
           collisionTime: tc,
+          // 一维碰撞只有动能：两个物块各自的动能和总动能。
+          energy(t) {
+            const s = at(t);
+            const k1 = ke(p.m1, s.v1);
+            const k2 = ke(p.m2, s.v2);
+            return {
+              unit: 'J', note: s.after ? '碰后' : '碰前', max: Math.max(keBefore, keAfter, 1e-12),
+              bars: [
+                { key: 'ke', label: '物块 1', value: k1 },
+                { key: 'ke2', label: '物块 2', value: k2 },
+                { key: 'total', label: '总动能', value: k1 + k2 },
+              ],
+            };
+          },
         };
       },
     },
@@ -1697,6 +1872,7 @@
             return [reading('真实时间', s.time * 1e9, 'ns', 1)];
           },
           clock: (t) => 't = ' + formatNumber(at(t).time * 1e9, 1) + ' ns（已放慢）',
+          cycle: p.boundary ? undefined : ANIM,
           bounds: p.boundary
             ? { xmin: -0.6 * r, xmax: 2.2 * r, ymin: Math.min(...ys, 0) - 0.3 * r, ymax: Math.max(...ys, 0) + 0.3 * r }
             : { xmin: -2.4 * r, xmax: 2.4 * r, ymin: -2.3 * r, ymax: 2.3 * r },
@@ -2151,6 +2327,7 @@
     imagePlugin,
     compileExpression,
     parseGraphSpec,
+    graphKeyPoints,
     fillFormula,
     formatNumber,
     decimalsForStep,
@@ -2166,6 +2343,7 @@
     simulationCamera,
     scaleBar,
     simulationKinds,
+    reading,
     evaluateNumberInput,
     isNumberCorrect,
     componentTypes,

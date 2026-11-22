@@ -9,7 +9,34 @@
   const core = window.StudyCore;
   const graph = window.StudyGraph;
 
-  const COLORS = ['#3b82f6', '#ff9500', '#34c759', '#ff3b30', '#af52de', '#5ac8fa', '#ffcc00', '#a2845e'];
+  // 第八版：和坐标图用同一组颜色。
+  const COLORS = graph.COLORS;
+
+  /**
+   * 柱顶直接写数值（第八版）：只有一组数据、柱子不超过 12 根时。其他情况仍然点按查看。
+   */
+  function valueLabels(unit, colors) {
+    return {
+      id: 'saValueLabels',
+      afterDatasetsDraw(chart) {
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || meta.hidden) return;
+        const c = chart.ctx;
+        c.save();
+        c.font = '600 11px -apple-system, system-ui, sans-serif';
+        c.fillStyle = colors.text;
+        c.textAlign = 'center';
+        meta.data.forEach((bar, i) => {
+          const value = chart.data.datasets[0].data[i];
+          if (value === null || value === undefined || !Number.isFinite(Number(value))) return;
+          const negative = Number(value) < 0;
+          c.textBaseline = negative ? 'top' : 'bottom';
+          c.fillText(core.formatNumber(Number(value), 2), bar.x, bar.y + (negative ? 4 : -4));
+        });
+        c.restore();
+      },
+    };
+  }
 
   function withAlpha(hex, alpha) {
     const n = parseInt(hex.slice(1), 16);
@@ -67,13 +94,17 @@
     const total = pie ? spec.datasets[0].data.reduce((s, v) => s + (v || 0), 0) : 0;
     const axisTitle = (text) => ({ display: !!text, text, color: colors.axis });
 
+    const labelled = spec.type === 'bar' && spec.datasets.length === 1 && spec.labels.length <= 12;
     container.chart = new Chart(canvas, {
       type: spec.type,
       data: { labels: spec.labels, datasets },
+      plugins: labelled ? [valueLabels(unit, colors)] : [],
       options: {
         responsive: true,
         maintainAspectRatio: false,
-        animation: { duration: 300 },
+        // 打开"减弱动态效果"后柱子直接出现。
+        animation: { duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 300 },
+        layout: { padding: { top: labelled ? 16 : 0 } },
         plugins: {
           legend: {
             display: pie || spec.datasets.length > 1,
