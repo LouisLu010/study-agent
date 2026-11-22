@@ -307,8 +307,59 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
   font-size: 0.85em;
   color: var(--secondary);
 }
-.graph-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.graph-legend-item {
+  -webkit-appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.graph-legend-item:disabled { cursor: default; opacity: 1; }
+.graph-legend-item.is-hidden { opacity: 0.4; text-decoration: line-through; }
 .graph-legend-item i { display: inline-block; width: 18px; }
+/* 点关键点显示的坐标、按住查看数值的竖线和说明 */
+.graph-tip, .graph-trace-info {
+  position: absolute;
+  z-index: 5;
+  padding: 5px 9px;
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.16);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.graph-trace-info { top: 8px; line-height: 1.5; }
+.graph-tip[hidden], .graph-trace-info[hidden], .graph-trace-line[hidden], .graph-trace-dot[hidden] { display: none; }
+.graph-trace-line {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  bottom: 0;
+  width: 1.5px;
+  margin-left: -0.75px;
+  background: var(--accent);
+  opacity: 0.7;
+  pointer-events: none;
+}
+.graph-trace-dot {
+  position: absolute;
+  z-index: 4;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  border: 2px solid var(--card);
+  pointer-events: none;
+}
 
 /* 坐标图、几何图、模拟的参数、实时公式和读数：卡片里浮起的一块面板 */
 .graph-controls {

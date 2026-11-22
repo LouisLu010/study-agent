@@ -279,5 +279,11 @@
     if (event.target.closest('.sa-regenerate')) renderer.post('regenerate', true);
   });
 
-  window.StudyComponents = { register, loadAssets, isDark };
+  window.StudyComponents = {
+    register,
+    loadAssets,
+    isDark,
+    /** 组件自己处理一个手势时（坐标图按住查看数值）暂停外层聊天列表的滚动，结束后恢复。 */
+    lockScroll: setScrollLock,
+  };
 })();

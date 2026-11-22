@@ -6,7 +6,11 @@
 
   const components = window.StudyComponents;
 
-  const COLORS = ['#3b82f6', '#ff3b30', '#34c759', '#ff9500', '#af52de', '#5ac8fa'];
+  // 第八版：配色调柔和一些。图表用同一组颜色。
+  const COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7', '#14b8a6', '#ec4899', '#a16207'];
+  /** 当前视野里最多自动标出几个关键点。 */
+  const MAX_KEY_POINTS = 6;
+  const KIND_NAMES = { max: '极大值', min: '极小值', zero: '零点', intersection: '交点' };
   let boardCounter = 0;
 
   function palette(dark) {
@@ -191,27 +195,53 @@
 
     const legend = document.createElement('div');
     legend.className = 'graph-legend';
+    // 每条曲线：取值函数（定义域外是 NaN）、颜色、JSXGraph 对象、是否显示。
+    const curves = [];
     spec.functions.forEach((f) => {
       const color = nextColor();
       const args = [(x) => f.at(x, values)];
       if (f.domainAt) args.push(() => f.domainAt[0](values), () => f.domainAt[1](values));
-      board.create('functiongraph', args, {
+      const jsx = board.create('functiongraph', args, {
         strokeColor: color,
-        strokeWidth: 2.5,
+        strokeWidth: 3,
         dash: f.dashed ? 2 : 0,
         highlight: false,
         withLabel: false,
       });
-      // 函数名放在图下方的图例里，避免标签被坐标系边缘截断。
-      const item = document.createElement('span');
+      const curve = {
+        color,
+        jsx,
+        visible: true,
+        name: f.label || 'y = ' + f.expr,
+        fn(x) {
+          if (f.domainAt && (x < f.domainAt[0](values) || x > f.domainAt[1](values))) return NaN;
+          return f.at(x, values);
+        },
+      };
+      curves.push(curve);
+      // 函数名放在图下方的图例里，避免标签被坐标系边缘截断。点一下隐藏或显示这条曲线。
+      const item = document.createElement('button');
       item.className = 'graph-legend-item';
+      item.setAttribute('aria-pressed', 'true');
       const swatch = document.createElement('i');
       swatch.style.borderTop = '3px ' + (f.dashed ? 'dashed ' : 'solid ') + color;
       item.appendChild(swatch);
-      item.appendChild(document.createTextNode(f.label || 'y = ' + f.expr));
+      item.appendChild(document.createTextNode(curve.name));
+      item.addEventListener('click', () => {
+        curve.visible = !curve.visible;
+        jsx.setAttribute({ visible: curve.visible });
+        item.classList.toggle('is-hidden', !curve.visible);
+        item.setAttribute('aria-pressed', String(curve.visible));
+        scheduleKeyPoints();
+      });
       legend.appendChild(item);
     });
-    if (legend.childNodes.length) container.appendChild(legend);
+    if (spec.functions.length > 1) container.appendChild(legend);
+    else if (legend.childNodes.length) {
+      // 只有一条曲线时图例只是说明，不用来隐藏。
+      legend.querySelector('button').disabled = true;
+      container.appendChild(legend);
+    }
 
     // 端点可能含参数，用不可见的点承载，参数变化时线段跟着动。
     const hiddenPoint = (coord) => board.create('point', [() => coord[0].at(values), () => coord[1].at(values)], {
@@ -249,6 +279,233 @@
     if (spec.params.length || spec.readouts.length) {
       buildControls(container, spec, values, board, ctx);
     }
+
+    // ---------- 自动标出的关键点（第八版） ----------
+    //
+    // 极值点、零点和两条曲线的交点。离模型自己画的点很近的跳过，当前视野里最多 6 个，
+    // 平时只画小点，点一下显示坐标。拖参数、缩放和平移后重新计算。
+
+    const box = board.containerObj;
+    if (getComputedStyle(box).position === 'static') box.style.position = 'relative';
+    const pool = [];
+    for (let i = 0; i < MAX_KEY_POINTS; i++) {
+      pool.push(board.create('point', [0, 0], {
+        name: '',
+        withLabel: false,
+        visible: false,
+        fixed: true,
+        size: 3,
+        strokeColor: components.isDark() ? '#1c1c1e' : '#ffffff',
+        strokeWidth: 1.5,
+        highlight: false,
+        showInfobox: false,
+      }));
+    }
+    let shown = [];
+    let keySignature = '';
+    let keyFrame = 0;
+    const tip = document.createElement('div');
+    tip.className = 'graph-tip';
+    tip.hidden = true;
+    box.appendChild(tip);
+
+    function toScreen(x, y) {
+      return [board.origin.scrCoords[1] + x * board.unitX, board.origin.scrCoords[2] - y * board.unitY];
+    }
+
+    function scheduleKeyPoints() {
+      if (keyFrame) return;
+      keyFrame = requestAnimationFrame(() => {
+        keyFrame = 0;
+        updateKeyPoints();
+      });
+    }
+
+    function updateKeyPoints() {
+      if (!container.board) return;
+      const [x1, y1, x2, y2] = board.getBoundingBox();
+      const signature = [x1, y1, x2, y2].map((v) => v.toPrecision(6)).join(',') + '|' +
+        JSON.stringify(values) + '|' + curves.map((c) => c.visible).join(',');
+      if (signature === keySignature) return;
+      keySignature = signature;
+      tip.hidden = true;
+      const visible = curves.filter((c) => c.visible);
+      const found = core.graphKeyPoints(visible.map((c) => c.fn), x1, x2)
+        .filter((p) => p.y <= y1 && p.y >= y2)
+        .map((p) => Object.assign(p, { curve: visible[p.curves[0]] }));
+      const modelPoints = spec.points.map((p) => toScreen(p.xAt(values), p.yAt(values)));
+      const cx = (x1 + x2) / 2;
+      const order = { max: 0, min: 0, intersection: 1, zero: 2 };
+      shown = found
+        .filter((p) => {
+          const [sx, sy] = toScreen(p.x, p.y);
+          return !modelPoints.some(([mx, my]) => Math.hypot(mx - sx, my - sy) < 12);
+        })
+        .sort((a, b) => order[a.kind] - order[b.kind] || Math.abs(a.x - cx) - Math.abs(b.x - cx))
+        .slice(0, MAX_KEY_POINTS);
+      pool.forEach((point, i) => {
+        const p = shown[i];
+        if (p) {
+          point.setPosition(window.JXG.COORDS_BY_USER, [p.x, p.y]);
+          point.setAttribute({ visible: true, fillColor: p.kind === 'intersection' ? colors.text : p.curve.color });
+        } else if (point.visProp.visible) {
+          point.setAttribute({ visible: false });
+        }
+      });
+      board.update();
+    }
+
+    function showTip(p) {
+      const [sx, sy] = toScreen(p.x, p.y);
+      tip.textContent = KIND_NAMES[p.kind] + '  (' + core.formatNumber(p.x, 2) + ', ' + core.formatNumber(p.y, 2) + ')';
+      tip.hidden = false;
+      const w = box.clientWidth;
+      tip.style.left = Math.min(Math.max(4, sx - tip.offsetWidth / 2), w - tip.offsetWidth - 4) + 'px';
+      tip.style.top = Math.max(4, sy - tip.offsetHeight - 10) + 'px';
+    }
+
+    /** 点一下关键点显示坐标，点别处收起。 */
+    box.addEventListener('click', (event) => {
+      if (tracing) return;
+      const rect = box.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+      let best = null;
+      shown.forEach((p) => {
+        const [sx, sy] = toScreen(p.x, p.y);
+        const d = Math.hypot(sx - x, sy - y);
+        if (d < 18 && (!best || d < best.d)) best = { d, p };
+      });
+      if (best) showTip(best.p);
+      else tip.hidden = true;
+    });
+
+    // ---------- 按住拖动：沿曲线查看数值（第八版） ----------
+    //
+    // 按住不动约 0.35 秒后出现一条跟手的竖线，显示每条曲线在这个 x 的值。
+    // 快速滑动仍然交给外层列表（单指）和坐标图的平移缩放（双指），不受影响。
+
+    const traceLine = document.createElement('div');
+    traceLine.className = 'graph-trace-line';
+    const traceInfo = document.createElement('div');
+    traceInfo.className = 'graph-trace-info';
+    const traceDots = curves.map((c) => {
+      const dot = document.createElement('i');
+      dot.className = 'graph-trace-dot';
+      dot.style.background = c.color;
+      return dot;
+    });
+    traceLine.hidden = true;
+    traceInfo.hidden = true;
+    traceDots.forEach((d) => { d.hidden = true; box.appendChild(d); });
+    box.append(traceLine, traceInfo);
+
+    let tracing = false;
+    let holdTimer = 0;
+    let holdStart = null;
+
+    function traceAt(clientX) {
+      const rect = box.getBoundingClientRect();
+      const sx = Math.min(Math.max(clientX - rect.left, 0), rect.width);
+      const x = (sx - board.origin.scrCoords[1]) / board.unitX;
+      traceLine.style.left = sx + 'px';
+      const rows = ['x = ' + core.formatNumber(x, 2)];
+      curves.forEach((c, i) => {
+        const y = c.visible ? c.fn(x) : NaN;
+        const dot = traceDots[i];
+        if (!Number.isFinite(y)) {
+          dot.hidden = true;
+          return;
+        }
+        const [, sy] = toScreen(x, y);
+        dot.hidden = sy < 0 || sy > rect.height;
+        dot.style.left = sx + 'px';
+        dot.style.top = sy + 'px';
+        rows.push('<span style="color:' + c.color + '">●</span> ' + window.StudyRenderer.escapeHTML(c.name) + '：' + core.formatNumber(y, 3));
+      });
+      traceInfo.innerHTML = rows.map((r, i) => (i ? r : '<b>' + r + '</b>')).join('<br>');
+      const w = traceInfo.offsetWidth;
+      traceInfo.style.left = (sx + 12 + w > rect.width ? sx - 12 - w : sx + 12) + 'px';
+    }
+
+    function beginTrace(clientX) {
+      tracing = true;
+      tip.hidden = true;
+      components.lockScroll(true);
+      traceLine.hidden = false;
+      traceInfo.hidden = false;
+      traceAt(clientX);
+    }
+
+    function endTrace() {
+      clearTimeout(holdTimer);
+      holdTimer = 0;
+      holdStart = null;
+      if (!tracing) return;
+      tracing = false;
+      traceLine.hidden = true;
+      traceInfo.hidden = true;
+      traceDots.forEach((d) => { d.hidden = true; });
+      components.lockScroll(false);
+    }
+
+    function holdBegin(x, y) {
+      clearTimeout(holdTimer);
+      holdStart = { x, y };
+      holdTimer = setTimeout(() => {
+        holdTimer = 0;
+        if (holdStart) beginTrace(holdStart.x);
+      }, 350);
+    }
+
+    function holdMove(x, y, event) {
+      if (tracing) {
+        if (event.cancelable) event.preventDefault();
+        traceAt(x);
+      } else if (holdStart && Math.hypot(x - holdStart.x, y - holdStart.y) > 8) {
+        // 手指动了：是滑动，不是按住。
+        clearTimeout(holdTimer);
+        holdTimer = 0;
+        holdStart = null;
+      }
+    }
+
+    box.addEventListener('touchstart', (event) => {
+      if (event.touches.length !== 1) {
+        endTrace();
+        return;
+      }
+      holdBegin(event.touches[0].clientX, event.touches[0].clientY);
+    }, { passive: true });
+    box.addEventListener('touchmove', (event) => {
+      if (event.touches.length !== 1) {
+        endTrace();
+        return;
+      }
+      holdMove(event.touches[0].clientX, event.touches[0].clientY, event);
+    }, { passive: false });
+    box.addEventListener('touchend', endTrace);
+    box.addEventListener('touchcancel', endTrace);
+    // 鼠标（iPad 触控板、浏览器里检查时）：按住左键同样可以查看。
+    box.addEventListener('mousedown', (event) => {
+      if (event.button === 0 && !('ontouchstart' in window)) holdBegin(event.clientX, event.clientY);
+    });
+    box.addEventListener('mousemove', (event) => {
+      if (holdStart || tracing) holdMove(event.clientX, event.clientY, event);
+    });
+    window.addEventListener('mouseup', endTrace);
+
+    board.on('update', scheduleKeyPoints);
+    board.on('boundingbox', scheduleKeyPoints);
+    container.graph = {
+      stop() {
+        if (keyFrame) cancelAnimationFrame(keyFrame);
+        keyFrame = 0;
+        endTrace();
+        window.removeEventListener('mouseup', endTrace);
+      },
+    };
+    updateKeyPoints();
   }
 
   function loadJSXGraph() {
@@ -260,6 +517,8 @@
     load: loadJSXGraph,
     draw,
     destroy(container) {
+      if (container.graph) container.graph.stop();
+      container.graph = null;
       if (container.board) window.JXG.JSXGraph.freeBoard(container.board);
       container.board = null;
     },

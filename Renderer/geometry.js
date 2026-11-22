@@ -66,18 +66,25 @@
     const initial = core.computeGeometry(spec, restoreMoved(spec, ctx.state));
     // 初始位置（限制在圆或直线上的点已经放到线上），复位和判断"是否拖动过"都以它为准。
     const defaults = core.computeGeometry(spec, null).points;
+    // 第八版：可以拖的点画大一圈，外面一圈淡淡的光圈（半透明的粗描边）。
     const pointStyle = (e, draggable) => ({
       name: e.label !== null ? e.label : e.id,
       withLabel: !e.hidden,
       visible: !e.hidden,
-      size: draggable ? 5 : 3,
+      size: draggable ? 6 : 3,
       fixed: !draggable,
       strokeColor: draggable ? accent : colors.text,
+      strokeOpacity: draggable ? 0.28 : 1,
+      strokeWidth: draggable ? 9 : 2,
       fillColor: draggable ? accent : colors.text,
       highlight: draggable,
+      highlightStrokeColor: accent,
+      highlightStrokeOpacity: 0.4,
+      highlightFillColor: accent,
       showInfobox: false,
-      label: { offset: [7, 9], strokeColor: colors.text },
+      label: { offset: [9, 11], strokeColor: colors.text },
     });
+    const angleRadius = Math.min(xmax - xmin, ymax - ymin) * 0.08;
     const lineStyle = (e) => ({
       strokeColor: colors.text,
       strokeWidth: 2,
@@ -88,6 +95,42 @@
       name: e.label || '',
       withLabel: !!e.label,
     });
+
+    /**
+     * 垂足处的直角符号：从垂足沿那条直线取一个辅助点，和"从哪个点作垂线"组成一个角。
+     * 辅助点不画；那个点正好在直线上时角不存在，JSXGraph 不画。
+     */
+    function rightAngleAtFoot(e) {
+      const line = spec.elements.find((x) => x.id === e.to);
+      if (!line) return;
+      const along = board.create('point', [
+        () => {
+          const g = current();
+          const [a, b] = line.through.map((id) => g.points[id]);
+          const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          return g.points[e.id].x + ((b.x - a.x) / len) * angleRadius;
+        },
+        () => {
+          const g = current();
+          const [a, b] = line.through.map((id) => g.points[id]);
+          const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          return g.points[e.id].y + ((b.y - a.y) / len) * angleRadius;
+        },
+      ], { visible: false, fixed: true, withLabel: false });
+      board.create('nonreflexangle', [jsx[e.from], jsx[e.id], along], {
+        radius: angleRadius * 0.45,
+        orthoType: 'square',
+        orthoSensitivity: 5,
+        fillColor: colors.text,
+        fillOpacity: 0.06,
+        strokeColor: colors.text,
+        strokeWidth: 1,
+        highlight: false,
+        fixed: true,
+        withLabel: false,
+        name: '',
+      });
+    }
 
     spec.elements.forEach((e) => {
       switch (e.kind) {
@@ -108,6 +151,7 @@
         case 'intersection':
         case 'foot':
           jsx[e.id] = board.create('point', [() => current().points[e.id].x, () => current().points[e.id].y], pointStyle(e, false));
+          if (e.kind === 'foot' && !e.hidden) rightAngleAtFoot(e);
           break;
         case 'segment':
           jsx[e.id] = board.create('segment', e.through.map((id) => jsx[id]), lineStyle(e));
@@ -137,11 +181,15 @@
           });
           break;
         case 'angle':
+          // 浅色扇形；正好 90° 时自动画成直角符号。
           jsx[e.id] = board.create('nonreflexangle', e.points.map((id) => jsx[id]), {
-            radius: Math.min(xmax - xmin, ymax - ymin) * 0.08,
+            radius: angleRadius,
             fillColor: '#ff9500',
-            fillOpacity: 0.25,
+            fillOpacity: 0.18,
             strokeColor: '#ff9500',
+            strokeWidth: 1,
+            orthoType: 'square',
+            orthoSensitivity: 0.5,
             highlight: false,
             fixed: true,
             visible: !e.hidden,
