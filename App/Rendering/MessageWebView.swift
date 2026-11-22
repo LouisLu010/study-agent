@@ -32,6 +32,10 @@ struct MessageWebView: UIViewRepresentable {
     var groupedSurface = false
     /// 外面用来截长图的引用。
     var handle: WebViewHandle?
+    /// 这是全屏页（第八版）：画面更大，横屏时参数面板在侧边。
+    var fullscreenSurface = false
+    /// 模拟、坐标图、几何图卡片上的全屏按钮：(组件键, 只有这个组件的 Markdown, 它的状态 JSON)。为 nil 时不显示按钮。
+    var onFullscreen: ((String, String, String) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -83,7 +87,7 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal", "fullscreen"]
 
         /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
         private weak var lockedScrollView: UIScrollView?
@@ -209,7 +213,7 @@ struct MessageWebView: UIViewRepresentable {
                     """
                     let state = {};
                     try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
-                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes, grouped });
+                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes, grouped, fullscreen, canFullscreen });
                     """,
                     arguments: [
                         "text": next.content,
@@ -218,6 +222,8 @@ struct MessageWebView: UIViewRepresentable {
                         "canRegenerate": canRegenerate,
                         "recordsMistakes": parent?.recordsMistakes ?? false,
                         "grouped": parent?.groupedSurface ?? false,
+                        "fullscreen": parent?.fullscreenSurface ?? false,
+                        "canFullscreen": parent?.onFullscreen != nil,
                     ],
                     in: nil,
                     in: .page,
@@ -262,6 +268,12 @@ struct MessageWebView: UIViewRepresentable {
                 }
             case "scrollLock":
                 setOuterScrollLocked((body as? NSNumber)?.boolValue ?? false)
+            case "fullscreen":
+                guard let payload = body as? [String: Any],
+                      let key = payload["key"] as? String,
+                      let markdown = payload["markdown"] as? String
+                else { return }
+                parent?.onFullscreen?(key, markdown, payload["state"] as? String ?? "")
             case "reveal":
                 guard let payload = body as? [String: Any],
                       let top = (payload["top"] as? NSNumber)?.doubleValue,
@@ -302,6 +314,24 @@ struct MessageWebView: UIViewRepresentable {
             rendered = nil
             loadRenderer()
         }
+    }
+}
+
+extension WebViewHandle {
+    /// 全屏页关掉后，把这条消息保存的组件状态里这一个组件的状态交回给正文里的组件，它会按新状态重画。
+    func applyState(key: String, stateJSON: String) {
+        guard let webView = webView as? WKWebView else { return }
+        webView.callAsyncJavaScript(
+            """
+            let all = {};
+            try { all = json ? JSON.parse(json) : {}; } catch (e) {}
+            window.StudyComponents.applyState(key, Object.prototype.hasOwnProperty.call(all, key) ? all[key] : null);
+            """,
+            arguments: ["key": key, "json": stateJSON],
+            in: nil,
+            in: .page,
+            completionHandler: nil
+        )
     }
 }
 

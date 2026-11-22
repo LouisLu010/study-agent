@@ -186,6 +186,44 @@ th { background: var(--fill); font-weight: 600; white-space: nowrap; }
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* 全屏按钮：卡片右上角 */
+.sa-fullscreen {
+  -webkit-appearance: none;
+  margin-left: auto;
+  border: 0;
+  background: var(--accent-fill);
+  color: var(--accent);
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+.sa-fullscreen svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sa-fullscreen:active { opacity: 0.65; }
+/* 全屏页：画面更大；横屏时画面在左，参数面板在右 */
+body.is-fullscreen .simulation-stage { height: 55vh; min-height: 260px; }
+@media (orientation: landscape) and (min-width: 560px) {
+  body.is-fullscreen .sa-component:not(.sa-component-loading) {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr);
+    grid-auto-flow: row dense;
+    column-gap: 16px;
+    align-items: start;
+  }
+  body.is-fullscreen .sa-component > * { grid-column: 2; min-width: 0; }
+  body.is-fullscreen .sa-component > .sa-kind,
+  body.is-fullscreen .sa-component > .graph-title { grid-column: 1 / -1; }
+  body.is-fullscreen .sa-component > .simulation-stage,
+  body.is-fullscreen .sa-component > .jxgbox { grid-column: 1; grid-row: span 20; }
+  body.is-fullscreen .simulation-stage { height: calc(100vh - 120px); }
+  body.is-fullscreen .sa-component > .graph-controls,
+  body.is-fullscreen .sa-component > .simulation-bar { margin-top: 0; }
+}
+
 /* 占位框：生成中（代码块还没写完）和加载中。高度按组件种类接近最终大小，带一道淡淡的闪光。 */
 .sa-component-loading, .sa-component-pending {
   position: relative;
@@ -253,6 +291,7 @@ th { background: var(--fill); font-weight: 600; white-space: nowrap; }
   border-radius: 999px;
   padding: 6px 14px;
   cursor: pointer;
+  white-space: nowrap;
   transition: opacity 0.15s;
 }
 .sa-button.is-primary { background: var(--accent); color: #fff; }
@@ -626,7 +665,7 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
   overflow: hidden;
 }
 .simulation-stage canvas { display: block; width: 100%; height: 100%; }
-.simulation-bar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.simulation-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
 .simulation-clock { margin-left: auto; color: var(--secondary); font-size: 0.85em; font-variant-numeric: tabular-nums; }
 /* 时间轴 */
 .simulation-timeline { display: block; width: 100%; margin: 8px 0 0; height: 28px; accent-color: var(--accent); }

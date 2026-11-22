@@ -21,6 +21,10 @@
 
   const definitions = {};
   const specs = new Map();
+  // 组件代码块的原文，全屏时把这一个组件交给 Swift 单独显示。
+  const sources = new Map();
+  /** 可以全屏的组件（第八版）。图表不加全屏。 */
+  const FULLSCREEN_TYPES = ['simulation', 'graph', 'geometry'];
   // 加载第三方库的 Promise，按组件种类缓存。
   const loading = {};
 
@@ -77,6 +81,27 @@
     return template.content.firstChild;
   }
 
+  const EXPAND_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/></svg>';
+
+  /** 卡片右上角的全屏按钮：把这个组件的原文和当前状态交给 Swift，在原生的全屏页里单独显示。 */
+  function fullscreenButton(element) {
+    const button = document.createElement('button');
+    button.className = 'sa-fullscreen';
+    button.setAttribute('aria-label', '全屏');
+    button.innerHTML = EXPAND_ICON;
+    button.addEventListener('click', () => {
+      const key = element.dataset.key;
+      const type = element.dataset.type;
+      const all = renderer.getOptions().state || {};
+      renderer.post('fullscreen', {
+        key,
+        markdown: '```' + type + '\n' + (sources.get(element.dataset.hash) || '').trim() + '\n```\n',
+        state: Object.prototype.hasOwnProperty.call(all, key) ? JSON.stringify(all[key]) : '',
+      });
+    });
+    return button;
+  }
+
   // ---------- 代码块 → HTML ----------
 
   // 占位框按组件种类给出接近最终大小的高度（见 renderer.css），带淡淡的闪光，组件出现时正文不跳。
@@ -112,6 +137,7 @@
       if (result.ok) {
         const hash = type + '-' + hashKey(content.trim());
         specs.set(hash, result.value);
+        sources.set(hash, content);
         return placeholderHTML(type, key, hash);
       }
       return env.streaming ? pendingHTML(type) : errorHTML(type, content, result.error);
@@ -160,7 +186,12 @@
     element.classList.remove('sa-component-loading');
     try {
       definition.draw(element, spec, makeContext(element));
-      element.prepend(kindHeader(element.dataset.type));
+      const header = kindHeader(element.dataset.type);
+      const options = renderer.getOptions();
+      if (FULLSCREEN_TYPES.includes(element.dataset.type) && options.canFullscreen && !options.fullscreen) {
+        header.appendChild(fullscreenButton(element));
+      }
+      element.prepend(header);
       element.drawn = true;
     } catch (error) {
       element.innerHTML = errorHTML(element.dataset.type, '', error.message);
@@ -224,14 +255,33 @@
     },
   });
 
-  // 深色和浅色模式切换时重画所有组件。
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  function redrawAll(filter) {
     document.querySelectorAll('.sa-component[data-hash]').forEach((element) => {
-      if (!element.drawn) return;
+      if (!element.drawn || (filter && !filter(element))) return;
       destroy(element);
       draw(element);
     });
+  }
+
+  // 深色和浅色模式切换时重画所有组件。
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => redrawAll());
+
+  // 全屏页转屏时，坐标图和几何图按新的大小重画（模拟的画布自己会跟着变）。
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    if (!renderer.getOptions().fullscreen) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => redrawAll((element) => element.dataset.type !== 'simulation'), 250);
   });
+
+  /** 全屏页关掉后，Swift 把那边改过的组件状态交回来：换上新状态重画这个组件。 */
+  function applyState(key, state) {
+    const all = Object.assign({}, renderer.getOptions().state || {});
+    if (state === null || state === undefined) delete all[key];
+    else all[key] = state;
+    renderer.setOptions({ state: all });
+    redrawAll((element) => element.dataset.key === key);
+  }
 
   // ---------- 手势和外层聊天列表 ----------
   //
@@ -285,5 +335,6 @@
     isDark,
     /** 组件自己处理一个手势时（坐标图按住查看数值）暂停外层聊天列表的滚动，结束后恢复。 */
     lockScroll: setScrollLock,
+    applyState,
   };
 })();

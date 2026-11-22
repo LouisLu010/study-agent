@@ -114,6 +114,8 @@
    *   state         这条消息保存的组件状态，{ 组件键: 状态 }
    *   canRegenerate 是否显示"重新生成"按钮（只有最后一条消息可以）
    *   grouped       放在浅灰底的分组页面上（学习记录）：组件卡片改成白色
+   *   canFullscreen 模拟、坐标图、几何图的卡片右上角显示全屏按钮（聊天里的回答）
+   *   fullscreen    这是全屏页：画面更大，横屏时参数面板在侧边
    */
   let options = { state: {}, canRegenerate: false };
 
@@ -121,6 +123,7 @@
     options = Object.assign({}, options, next || {});
     document.body.classList.toggle('can-regenerate', !!options.canRegenerate);
     document.body.classList.toggle('on-grouped', !!options.grouped);
+    document.body.classList.toggle('is-fullscreen', !!options.fullscreen);
   }
 
   function render(text, streaming, nextOptions) {

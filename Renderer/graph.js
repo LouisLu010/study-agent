@@ -28,7 +28,14 @@
     box.id = 'jxg-board-' + ++boardCounter;
     box.className = 'jxgbox graph-board';
     // JSXGraph 需要容器有明确的像素尺寸（CSS aspect-ratio 不行）。
-    box.style.height = Math.round(Math.min(420, Math.max(200, container.clientWidth * (options.aspect || 0.75)))) + 'px';
+    // 全屏页里画面更大：竖屏占屏幕高度一半多，横屏几乎占满高度（参数面板在侧边）。
+    if (document.body.classList.contains('is-fullscreen')) {
+      const landscape = window.innerWidth > window.innerHeight && window.innerWidth >= 560;
+      const height = landscape ? window.innerHeight - 120 : window.innerHeight * 0.55;
+      box.style.height = Math.round(Math.max(240, Math.min(900, height))) + 'px';
+    } else {
+      box.style.height = Math.round(Math.min(420, Math.max(200, container.clientWidth * (options.aspect || 0.75)))) + 'px';
+    }
     container.appendChild(box);
 
     const JXG = window.JXG;

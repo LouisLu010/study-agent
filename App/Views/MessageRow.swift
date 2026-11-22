@@ -116,6 +116,9 @@ private struct AssistantMessageView: View {
     /// 每点一次收藏加一，只在点按时播放图标动画（打开页面时读到已收藏不播放）。
     @State private var bookmarkTaps = 0
     @State private var noteDraft: NoteDraftRequest?
+    /// 正在全屏显示的组件，和它在这条消息里的组件键。
+    @State private var fullscreen: FullscreenComponent?
+    @State private var fullscreenKey: String?
 
     init(
         message: Message,
@@ -186,7 +189,11 @@ private struct AssistantMessageView: View {
                     onRegenerate: onRegenerate,
                     onQuizResult: onQuizResult,
                     recordsMistakes: true,
-                    handle: webHandle
+                    handle: webHandle,
+                    onFullscreen: { key, markdown, state in
+                        fullscreenKey = key
+                        fullscreen = FullscreenComponent(key: key, markdown: markdown, stateJSON: state)
+                    }
                 )
                 .frame(height: webHeight)
                 // 切换版本时换一个新的 WebView，按新版本保存的组件状态重新渲染。
@@ -251,6 +258,18 @@ private struct AssistantMessageView: View {
         }
         .sheet(item: $noteDraft) { request in
             NoteDraftSheet(request: request)
+        }
+        .fullScreenCover(item: $fullscreen, onDismiss: {
+            // 全屏页里改过的参数、拖过的点交回给正文里的组件。
+            if let key = fullscreenKey {
+                webHandle.applyState(key: key, stateJSON: message.componentStateJSON)
+            }
+            fullscreenKey = nil
+        }) { request in
+            ComponentFullscreenView(request: request) { state in
+                message.componentStateJSON = ComponentStateStore.updating(message.componentStateJSON, key: request.key, state: state)
+                try? context.save()
+            }
         }
         .confirmationDialog(
             "公式",
