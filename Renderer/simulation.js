@@ -103,6 +103,125 @@
     });
   }
 
+  // ---------- 第八版的画法：渐变、柔和阴影、斜线阴影、箭头标注 ----------
+
+  /** #rrggbb 调亮（amount > 0）或调暗（amount < 0）。 */
+  function shade(hex, amount) {
+    const n = parseInt(String(hex).slice(1), 16);
+    if (!Number.isFinite(n)) return hex;
+    const f = (v) => Math.round(amount >= 0 ? v + (255 - v) * amount : v * (1 + amount));
+    return 'rgb(' + f(n >> 16) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')';
+  }
+
+  function softShadow(c) {
+    c.shadowColor = 'rgba(0, 0, 0, 0.22)';
+    c.shadowBlur = 8;
+    c.shadowOffsetY = 2;
+  }
+
+  function roundRect(c, x, y, w, h, r) {
+    const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+    c.beginPath();
+    c.moveTo(x + radius, y);
+    c.arcTo(x + w, y, x + w, y + h, radius);
+    c.arcTo(x + w, y + h, x, y + h, radius);
+    c.arcTo(x, y + h, x, y, radius);
+    c.arcTo(x, y, x + w, y, radius);
+    c.closePath();
+  }
+
+  /** 带高光渐变和柔和阴影的小球（摆球、抛出的小球）。 */
+  function ball(c, x, y, r, color) {
+    c.save();
+    softShadow(c);
+    const g = c.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.1, x, y, r);
+    g.addColorStop(0, shade(color, 0.5));
+    g.addColorStop(1, shade(color, -0.12));
+    c.fillStyle = g;
+    c.beginPath();
+    c.arc(x, y, r, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  }
+
+  /** 带上下渐变、圆角和柔和阴影的物块。 */
+  function block(c, x, y, w, h, color) {
+    c.save();
+    softShadow(c);
+    const g = c.createLinearGradient(x, y, x, y + h);
+    g.addColorStop(0, shade(color, 0.3));
+    g.addColorStop(1, shade(color, -0.1));
+    c.fillStyle = g;
+    roundRect(c, x, y, w, h, 4);
+    c.fill();
+    c.restore();
+  }
+
+  /** 地面（side = 1，斜线画在下面）或天花板（side = -1，画在上面）的斜线阴影。 */
+  function hatch(c, x1, x2, y, side, color) {
+    c.save();
+    c.strokeStyle = color;
+    c.lineWidth = 1;
+    c.globalAlpha = 0.55;
+    c.beginPath();
+    for (let x = x1 + 6; x <= x2; x += 7) {
+      c.moveTo(x, y);
+      c.lineTo(x - 6, y + side * 6);
+    }
+    c.stroke();
+    c.restore();
+  }
+
+  /** 竖直的墙：斜线画在左边。 */
+  function wallHatch(c, x, y1, y2, color) {
+    c.save();
+    c.strokeStyle = color;
+    c.lineWidth = 1;
+    c.globalAlpha = 0.55;
+    c.beginPath();
+    for (let y = y1; y <= y2 - 6; y += 7) {
+      c.moveTo(x, y);
+      c.lineTo(x - 6, y + 6);
+    }
+    c.stroke();
+    c.restore();
+  }
+
+  /** 箭头，箭头尖外面写上名字（v、mg、F）。 */
+  function labeledArrow(c, x1, y1, x2, y2, color, width, label) {
+    arrow(c, x1, y1, x2, y2, color, width);
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    if (!label || len < 6) return;
+    const ux = (x2 - x1) / len;
+    const uy = (y2 - y1) / len;
+    c.save();
+    c.fillStyle = color;
+    c.font = 'italic 600 12px -apple-system, system-ui, sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(label, x2 + ux * 10, y2 + uy * 10);
+    c.restore();
+  }
+
+  /** 淡淡的背景网格（画布像素，每 24 px 一格）。 */
+  function backgroundGrid(c, rect, colors) {
+    c.save();
+    c.strokeStyle = colors.grid;
+    c.globalAlpha = 0.5;
+    c.lineWidth = 1;
+    c.beginPath();
+    for (let x = rect.x + 24; x < rect.x + rect.w; x += 24) {
+      c.moveTo(Math.round(x) + 0.5, rect.y);
+      c.lineTo(Math.round(x) + 0.5, rect.y + rect.h);
+    }
+    for (let y = rect.y + 24; y < rect.y + rect.h; y += 24) {
+      c.moveTo(rect.x, Math.round(y) + 0.5);
+      c.lineTo(rect.x + rect.w, Math.round(y) + 0.5);
+    }
+    c.stroke();
+    c.restore();
+  }
+
   function dashed(c, points, color) {
     c.save();
     c.setLineDash([4, 4]);
@@ -166,28 +285,38 @@
 
   // ---------- 各种模拟的画法 ----------
 
+  // view：{ colors, rect, values, trail, hit }。trail 为 true 时画淡出的残影（打开"减弱动态效果"后为 false）；
+  // hit(x, y, r, title, rows) 登记一个可以点的物体，点一下显示 rows() 返回的读数。
+
+  /** 残影：往前取几个时刻，越早越淡。 */
+  function trail(view, steps, dt, draw) {
+    if (!view.trail) return;
+    for (let k = steps; k >= 1; k--) draw(k * dt, 0.28 * (1 - k / (steps + 1)));
+  }
+
   kinds.projectile = (c, model, t, view) => {
     const { colors, rect, values } = view;
     const b = model.bounds;
     const bounds = { xmin: -b.xmax * 0.05, xmax: b.xmax * 1.08, ymin: -b.ymax * 0.08, ymax: b.ymax * 1.15 };
     const v = fit(bounds, rect, 24);
-    // 地面和刻度
+    // 地面、斜线阴影和刻度
     c.strokeStyle = colors.line;
     c.lineWidth = 1.5;
     c.beginPath();
     c.moveTo(rect.x, v.y(0));
     c.lineTo(rect.x + rect.w, v.y(0));
     c.stroke();
+    hatch(c, rect.x, rect.x + rect.w, v.y(0), 1, colors.line);
+    c.strokeStyle = colors.line;
     niceTicks(0, b.xmax, 5).forEach((x) => {
       c.beginPath();
       c.moveTo(v.x(x), v.y(0));
-      c.lineTo(v.x(x), v.y(0) + 4);
+      c.lineTo(v.x(x), v.y(0) - 4);
       c.stroke();
-      text(c, core.formatNumber(x, 1), v.x(x), v.y(0) + 13, colors.secondary, 'center', 10);
+      text(c, core.formatNumber(x, 1), v.x(x), v.y(0) + 15, colors.secondary, 'center', 10);
     });
     if (values.h > 0) {
-      c.fillStyle = colors.grid;
-      c.fillRect(v.x(0) - 14, v.y(values.h), 14, v.y(0) - v.y(values.h));
+      block(c, v.x(0) - 14, v.y(values.h), 14, v.y(0) - v.y(values.h), colors.grid);
       text(c, core.formatNumber(values.h, 1) + ' m', v.x(0) - 18, v.y(values.h / 2), colors.secondary, 'right', 10);
     }
     // 完整轨迹（虚线）和走过的轨迹（实线）
@@ -203,18 +332,32 @@
       i ? c.lineTo(v.x(p.x), v.y(p.y)) : c.moveTo(v.x(p.x), v.y(p.y));
     }
     c.stroke();
-    // 速度分量箭头
+    // 残影
+    trail(view, 6, model.duration / 50, (back, alpha) => {
+      if (s.t - back < 0) return;
+      const p = model.at(s.t - back);
+      c.save();
+      c.globalAlpha = alpha;
+      c.fillStyle = colors.accent;
+      c.beginPath();
+      c.arc(v.x(p.x), v.y(p.y), 7, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    });
+    // 速度和它的两个分量
     const k = 0.25 * Math.min(rect.w, rect.h) / Math.max(values.v0, 1);
     const px = v.x(s.x);
     const py = v.y(s.y);
-    arrow(c, px, py, px + s.vx * k, py, colors.green, 1.5);
-    arrow(c, px, py, px, py - s.vy * k, colors.orange, 1.5);
-    arrow(c, px, py, px + s.vx * k, py - s.vy * k, colors.red, 2);
-    c.fillStyle = colors.accent;
-    c.beginPath();
-    c.arc(px, py, 7, 0, Math.PI * 2);
-    c.fill();
+    labeledArrow(c, px, py, px + s.vx * k, py, colors.green, 1.5, 'vₓ');
+    labeledArrow(c, px, py, px, py - s.vy * k, colors.orange, 1.5, 'vᵧ');
+    labeledArrow(c, px, py, px + s.vx * k, py - s.vy * k, colors.red, 2, 'v');
+    ball(c, px, py, 8, colors.accent);
     legend(c, rect.x + 8, rect.y + 12, [[colors.red, '速度'], [colors.green, '水平分量'], [colors.orange, '竖直分量']], colors);
+    view.hit(px, py, 14, '小球', () => [
+      core.reading('水平位移 x', s.x, 'm'), core.reading('高度 y', s.y, 'm'),
+      core.reading('速度 v', Math.hypot(s.vx, s.vy), 'm/s'),
+      core.reading('水平分量 vₓ', s.vx, 'm/s'), core.reading('竖直分量 vᵧ', s.vy, 'm/s'),
+    ]);
   };
 
   kinds.pendulum = (c, model, t, view) => {
@@ -222,13 +365,14 @@
     const v = fit(model.bounds, rect, 18);
     const s = model.at(t);
     const pivot = [v.x(0), v.y(0)];
-    // 天花板
+    // 天花板和斜线阴影
     c.strokeStyle = colors.line;
     c.lineWidth = 2;
     c.beginPath();
     c.moveTo(pivot[0] - 40, pivot[1]);
     c.lineTo(pivot[0] + 40, pivot[1]);
     c.stroke();
+    hatch(c, pivot[0] - 40, pivot[0] + 40, pivot[1], -1, colors.line);
     // 竖直参考线和摆动范围
     dashed(c, [pivot, [v.x(0), v.y(-values.L)]], colors.secondary);
     const a0 = values.theta0 * Math.PI / 180;
@@ -239,6 +383,18 @@
     c.arc(pivot[0], pivot[1], values.L * v.sx, Math.PI / 2 - a0, Math.PI / 2 + a0);
     c.stroke();
     c.restore();
+    // 残影
+    const r = 11;
+    trail(view, 6, model.cycle / 40, (back, alpha) => {
+      const p = model.at(t - back);
+      c.save();
+      c.globalAlpha = alpha;
+      c.fillStyle = colors.accent;
+      c.beginPath();
+      c.arc(v.x(p.x), v.y(p.y), r, 0, Math.PI * 2);
+      c.fill();
+      c.restore();
+    });
     // 摆线和摆球
     const bob = [v.x(s.x), v.y(s.y)];
     c.strokeStyle = colors.text;
@@ -247,15 +403,18 @@
     c.moveTo(pivot[0], pivot[1]);
     c.lineTo(bob[0], bob[1]);
     c.stroke();
-    c.fillStyle = colors.accent;
-    c.beginPath();
-    c.arc(bob[0], bob[1], 11, 0, Math.PI * 2);
-    c.fill();
-    // 速度方向
+    // 重力和速度
+    labeledArrow(c, bob[0], bob[1], bob[0], bob[1] + 30, colors.green, 1.5, 'mg');
     const speed = s.omega * values.L;
-    const k = 18 / Math.max(Math.sqrt(2 * values.g * values.L * (1 - Math.cos(a0))), 0.01);
-    arrow(c, bob[0], bob[1], bob[0] + speed * Math.cos(s.theta) * k, bob[1] - speed * Math.sin(s.theta) * k, colors.red, 2);
+    const k = 22 / Math.max(Math.sqrt(2 * values.g * values.L * (1 - Math.cos(a0))), 0.01);
+    labeledArrow(c, bob[0], bob[1], bob[0] + speed * Math.cos(s.theta) * k, bob[1] - speed * Math.sin(s.theta) * k, colors.red, 2, 'v');
+    ball(c, bob[0], bob[1], r, colors.accent);
     text(c, 'θ = ' + core.formatNumber(s.theta * 180 / Math.PI, 1) + '°', pivot[0] + 8, pivot[1] + 16, colors.secondary, 'left', 11);
+    view.hit(bob[0], bob[1], r + 6, '摆球', () => [
+      core.reading('角度 θ', s.theta * 180 / Math.PI, '°', 1),
+      core.reading('速度 v', Math.abs(speed), 'm/s'),
+      core.reading('离最低点的高度', values.L * (1 - Math.cos(s.theta)), 'm', 3),
+    ]);
   };
 
   kinds.spring = (c, model, t, view) => {
@@ -265,7 +424,7 @@
     const s = model.at(t);
     const groundY = v.y(-0.08);
     const wallX = v.x(-0.55);
-    // 地面和墙
+    // 地面、墙和斜线阴影
     c.strokeStyle = colors.line;
     c.lineWidth = 2;
     c.beginPath();
@@ -273,11 +432,23 @@
     c.lineTo(wallX, groundY);
     c.lineTo(top.x + top.w - 10, groundY);
     c.stroke();
+    hatch(c, wallX, top.x + top.w - 10, groundY, 1, colors.line);
+    wallHatch(c, wallX, v.y(0.12), groundY, colors.line);
     // 平衡位置
     dashed(c, [[v.x(0), v.y(0.13)], [v.x(0), groundY]], colors.secondary);
-    text(c, 'O', v.x(0), groundY + 10, colors.secondary, 'center', 10);
-    // 弹簧（锯齿线）和物块
+    text(c, 'O', v.x(0), groundY + 14, colors.secondary, 'center', 10);
+    // 残影
     const blockW = 0.14 * v.sx;
+    trail(view, 5, model.cycle / 40, (back, alpha) => {
+      const p = model.at(t - back);
+      c.save();
+      c.globalAlpha = alpha;
+      c.fillStyle = colors.accent;
+      roundRect(c, v.x(p.x) - blockW / 2, groundY - blockW, blockW, blockW, 4);
+      c.fill();
+      c.restore();
+    });
+    // 弹簧（锯齿线）和物块
     const blockX = v.x(s.x) - blockW / 2;
     const midY = v.y(0);
     const coils = 12;
@@ -292,11 +463,14 @@
     }
     c.lineTo(end, midY);
     c.stroke();
-    c.fillStyle = colors.accent;
-    c.fillRect(blockX, groundY - blockW, blockW, blockW);
+    block(c, blockX, groundY - blockW, blockW, blockW, colors.accent);
     text(c, core.formatNumber(values.m, 1) + ' kg', blockX + blockW / 2, groundY - blockW / 2, '#fff', 'center', 10);
-    // 回复力方向
-    arrow(c, blockX + blockW / 2, groundY - blockW - 8, blockX + blockW / 2 - s.x * 120, groundY - blockW - 8, colors.red, 2);
+    // 回复力
+    labeledArrow(c, blockX + blockW / 2, groundY - blockW - 8, blockX + blockW / 2 - s.x * 120, groundY - blockW - 8, colors.red, 2, 'F');
+    view.hit(blockX + blockW / 2, groundY - blockW / 2, blockW / 2 + 6, '物块', () => [
+      core.reading('位移 x', s.x, 'm', 3), core.reading('速度 v', s.v, 'm/s'),
+      core.reading('加速度 a', s.a, 'm/s²'), core.reading('回复力 F = −kx', -values.k * s.x, 'N'),
+    ]);
     // x-t 图，显示最近两个周期
     const T = model.period;
     const windowStart = Math.max(0, t - 2 * T);
@@ -326,20 +500,25 @@
     c.moveTo(top.x + 8, trackY);
     c.lineTo(top.x + top.w - 8, trackY);
     c.stroke();
+    hatch(c, top.x + 8, top.x + top.w - 8, trackY, 1, colors.line);
+    c.strokeStyle = colors.line;
     niceTicks(xmin, xmax, 5).forEach((x) => {
       c.beginPath();
       c.moveTo(v.x(x), trackY);
-      c.lineTo(v.x(x), trackY + 4);
+      c.lineTo(v.x(x), trackY - 4);
       c.stroke();
-      text(c, core.formatNumber(x, 1), v.x(x), trackY + 11, colors.secondary, 'center', 9);
+      text(c, core.formatNumber(x, 1), v.x(x), trackY + 12, colors.secondary, 'center', 9);
     });
     const carX = v.x(s.x);
-    c.fillStyle = colors.accent;
-    c.fillRect(carX - 16, trackY - 22, 32, 16);
+    block(c, carX - 16, trackY - 22, 32, 15, colors.accent);
     c.fillStyle = colors.text;
     [carX - 9, carX + 9].forEach((wx) => { c.beginPath(); c.arc(wx, trackY - 4, 4, 0, Math.PI * 2); c.fill(); });
     const k = 45 / Math.max(Math.abs(model.vRange[0]), Math.abs(model.vRange[1]), 0.1);
-    arrow(c, carX, trackY - 30, carX + s.v * k, trackY - 30, colors.red, 2);
+    labeledArrow(c, carX, trackY - 30, carX + s.v * k, trackY - 30, colors.red, 2, 'v');
+    view.hit(carX, trackY - 14, 22, '小车', () => [
+      core.reading('时间 t', s.t, 's'), core.reading('位移 x', s.x, 'm'), core.reading('速度 v', s.v, 'm/s'),
+      core.reading('加速度 a', values.a, 'm/s²'),
+    ]);
     // 下方：v-t 图和 x-t 图
     const gap = 8;
     const plotH = rect.h * 0.6;
@@ -366,17 +545,21 @@
     c.moveTo(rect.x + 4, trackY);
     c.lineTo(rect.x + rect.w - 4, trackY);
     c.stroke();
+    hatch(c, rect.x + 4, rect.x + rect.w - 4, trackY, 1, colors.line);
     const blockW = model.width * v.sx;
     const size = (m) => blockW * (0.55 + 0.45 * Math.cbrt(m / 10));
     const maxV = Math.max(Math.abs(values.v1), Math.abs(values.v2), 1);
-    [[s.x1, values.m1, s.v1, colors.accent, '1'], [s.x2, values.m2, s.v2, colors.orange, '2']].forEach(([x, m, vel, color, name]) => {
+    [[s.x1, values.m1, s.v1, colors.accent, '1', '₁'], [s.x2, values.m2, s.v2, colors.orange, '2', '₂']].forEach(([x, m, vel, color, name, sub]) => {
       const h = size(m);
       const left = v.x(x) - blockW / 2;
-      c.fillStyle = color;
-      c.fillRect(left, trackY - h, blockW, h);
-      text(c, 'm' + name + ' = ' + core.formatNumber(m, 1) + ' kg', left + blockW / 2, trackY + 12, colors.secondary, 'center', 10);
-      arrow(c, left + blockW / 2, trackY - h - 14, left + blockW / 2 + (vel / maxV) * 50, trackY - h - 14, color, 2);
-      text(c, core.formatNumber(vel, 2) + ' m/s', left + blockW / 2, trackY - h - 28, colors.text, 'center', 10);
+      block(c, left, trackY - h, blockW, h, color);
+      text(c, 'm' + name + ' = ' + core.formatNumber(m, 1) + ' kg', left + blockW / 2, trackY + 18, colors.secondary, 'center', 10);
+      labeledArrow(c, left + blockW / 2, trackY - h - 14, left + blockW / 2 + (vel / maxV) * 50, trackY - h - 14, color, 2, 'v' + sub);
+      text(c, core.formatNumber(vel, 2) + ' m/s', left + blockW / 2, trackY - h - 30, colors.text, 'center', 10);
+      view.hit(left + blockW / 2, trackY - h / 2, Math.max(blockW, h) / 2 + 6, '物块 ' + name, () => [
+        core.reading('质量 m', m, 'kg', 1), core.reading('速度 v', vel, 'm/s'),
+        core.reading('动量 p = mv', m * vel, 'kg·m/s'), core.reading('动能', 0.5 * m * vel * vel, 'J'),
+      ]);
     });
     const P = values.m1 * s.v1 + values.m2 * s.v2;
     const E = 0.5 * values.m1 * s.v1 * s.v1 + 0.5 * values.m2 * s.v2 * s.v2;
@@ -467,11 +650,31 @@
     bar.append(playButton, replayButton, speedGroup, clock);
     container.appendChild(bar);
 
-    // 结果、实时读数、参数
+    // 时间轴（第八版）：拖动就暂停并跳到那个时刻，松手停在那里，点播放继续。周期运动拖动一个周期。
+    const timeline = document.createElement('input');
+    timeline.type = 'range';
+    timeline.className = 'simulation-timeline';
+    timeline.min = '0';
+    timeline.max = '1000';
+    timeline.step = '1';
+    timeline.value = '0';
+    timeline.setAttribute('aria-label', '时间轴');
+    container.appendChild(timeline);
+
+    // 画面下方一行实时数值小标签，和力学模拟的能量柱
+    const chips = el('div', 'simulation-chips');
+    const energy = el('div', 'simulation-energy');
+    container.append(chips, energy);
+
+    // 点画面里的物体显示的读数
+    const pop = el('div', 'simulation-pop');
+    pop.hidden = true;
+    stage.appendChild(pop);
+
+    // 结果和参数
     const panel = el('div', 'graph-controls');
     const results = el('div', 'graph-readouts');
-    const live = el('div', 'graph-readouts simulation-live');
-    panel.append(results, live);
+    panel.append(results);
     const sliders = {};
     const labels = {};
     spec.params.forEach((p) => {
@@ -521,6 +724,10 @@
     let cameraFrame = 0;
     let dragging = false;
     let ghost = null;
+    // 时间轴：正在拖动时不跟着播放更新。
+    let scrubbing = false;
+    // 这一帧画面里可以点的物体：{ x, y, r, title, rows }
+    let hits = [];
 
     function beginDrag() {
       if (dragging) return;
@@ -571,6 +778,123 @@
       cameraFrame = requestAnimationFrame(step);
     }
 
+    /** 时间轴的范围：有限时长的运动是整个过程，周期运动是一个周期。都没有时（电路）不显示。 */
+    function timelineSpan() {
+      if (!model) return 0;
+      if (Number.isFinite(model.duration)) return model.duration;
+      return model.cycle > 0 ? model.cycle : 0;
+    }
+
+    timeline.addEventListener('pointerdown', () => { scrubbing = true; });
+    timeline.addEventListener('touchstart', () => { scrubbing = true; }, { passive: true });
+    timeline.addEventListener('input', () => {
+      const span = timelineSpan();
+      if (!span) return;
+      scrubbing = true;
+      playing = false;
+      hidePop();
+      time = (Number(timeline.value) / 1000) * span;
+      paint();
+    });
+    const endScrub = () => { scrubbing = false; };
+    timeline.addEventListener('change', endScrub);
+    timeline.addEventListener('pointerup', endScrub);
+    timeline.addEventListener('touchend', endScrub);
+    timeline.addEventListener('touchcancel', endScrub);
+
+    function updateTimeline() {
+      const span = timelineSpan();
+      timeline.hidden = !span;
+      if (!span || scrubbing) return;
+      const local = Number.isFinite(model.duration) ? Math.min(time, span) : ((time % span) + span) % span;
+      timeline.value = String(Math.round((local / span) * 1000));
+    }
+
+    /** 实时数值小标签。数量不变时只改文字，不每帧重建。 */
+    function updateChips(items) {
+      if (chips.childElementCount !== items.length) {
+        chips.innerHTML = '';
+        items.forEach(() => {
+          const chip = el('span', 'simulation-chip');
+          chip.append(el('span', 'simulation-chip-label'), el('span', 'simulation-chip-value'));
+          chips.appendChild(chip);
+        });
+      }
+      items.forEach((r, i) => {
+        const chip = chips.children[i];
+        chip.firstChild.textContent = r.label;
+        chip.lastChild.textContent = Number.isNaN(r.value) ? '' : core.formatNumber(r.value, r.decimals) + (r.unit ? ' ' + r.unit : '');
+      });
+      chips.hidden = !items.length;
+    }
+
+    /** 能量柱：动能、势能、总能量，长度按总能量算。没有能量的模拟不显示。 */
+    function updateEnergy() {
+      const e = model && model.energy ? model.energy(time) : null;
+      energy.hidden = !e;
+      if (!e) return;
+      const signature = e.bars.map((b) => b.label).join('|') + '|' + e.note;
+      if (energy.dataset.signature !== signature) {
+        energy.dataset.signature = signature;
+        energy.innerHTML = '';
+        e.bars.forEach((b) => {
+          const row = el('div', 'simulation-energy-row');
+          const track = el('span', 'simulation-energy-track');
+          track.appendChild(el('span', 'simulation-energy-fill energy-' + b.key));
+          row.append(el('span', 'simulation-energy-label', b.label), track, el('span', 'simulation-energy-value'));
+          energy.appendChild(row);
+        });
+        if (e.note) energy.appendChild(el('div', 'simulation-energy-note', e.note));
+      }
+      e.bars.forEach((b, i) => {
+        const row = energy.children[i];
+        const fraction = Math.max(0, Math.min(1, b.value / e.max));
+        row.children[1].firstChild.style.width = (fraction * 100).toFixed(1) + '%';
+        row.children[2].textContent = core.formatNumber(b.value, 2) + ' ' + e.unit;
+      });
+    }
+
+    function hidePop() {
+      pop.hidden = true;
+    }
+
+    /** 点一下画面里的物体：暂停，在物体旁边显示它此刻的读数。点空白处收起。 */
+    function showPop(target) {
+      pop.innerHTML = '';
+      pop.appendChild(el('div', 'simulation-pop-title', target.title));
+      target.rows().forEach((r) => {
+        const row = el('div');
+        row.append(el('span', '', r.label), el('span', 'graph-readout-value',
+          Number.isNaN(r.value) ? '' : core.formatNumber(r.value, r.decimals) + (r.unit ? ' ' + r.unit : '')));
+        pop.appendChild(row);
+      });
+      pop.hidden = false;
+      const w = stage.clientWidth;
+      const h = stage.clientHeight;
+      const left = Math.min(Math.max(8, target.x + target.r + 6), Math.max(8, w - pop.offsetWidth - 8));
+      const top = Math.min(Math.max(8, target.y - pop.offsetHeight / 2), Math.max(8, h - pop.offsetHeight - 8));
+      pop.style.left = left + 'px';
+      pop.style.top = top + 'px';
+    }
+
+    canvas.addEventListener('click', (event) => {
+      const box = canvas.getBoundingClientRect();
+      const x = event.clientX - box.left;
+      const y = event.clientY - box.top;
+      let best = null;
+      hits.forEach((h) => {
+        const d = Math.hypot(h.x - x, h.y - y);
+        if (d <= h.r + 8 && (!best || d < best.d)) best = { d, target: h };
+      });
+      if (!best) {
+        hidePop();
+        return;
+      }
+      playing = false;
+      paint();
+      showPop(best.target);
+    });
+
     function readoutRows(target, items) {
       target.innerHTML = '';
       items.forEach((r) => {
@@ -609,6 +933,7 @@
       reset.hidden = isDefault();
       if (!dragging) updateCamera();
       if (model) readoutRows(results, model.results);
+      hidePop();
       time = 0;
       playing = true;
       paint();
@@ -629,6 +954,10 @@
       c.clearRect(0, 0, width, height);
       if (!model || !(model.duration > 0)) {
         text(c, '这组参数下没有运动', width / 2, height / 2, palette().secondary, 'center', 13);
+        hits = [];
+        updateChips([]);
+        energy.hidden = true;
+        timeline.hidden = true;
         return;
       }
       const colors = palette();
@@ -636,22 +965,33 @@
       const bounds = cameraNow(performance.now()) || model.bounds;
       // 渲染函数都按 model.bounds 定镜头，这里换成当前镜头的范围，其余照旧。
       const shown = (m) => (m.bounds ? Object.assign(Object.create(m), { bounds }) : m);
+      backgroundGrid(c, rect, colors);
       frameFit = null;
+      const ignore = () => {};
       if (ghost && ghost.model && ghost.model.duration > 0) {
         // 虚影：开始拖动前的样子，画在 t = 0，不画文字。
         c.save();
         c.globalAlpha = 0.22;
         c.fillText = () => {};
         try {
-          render(c, shown(ghost.model), 0, { colors, rect, values: ghost.values });
+          render(c, shown(ghost.model), 0, { colors, rect, values: ghost.values, trail: false, hit: ignore });
         } catch (error) { /* 虚影画不出来就不画 */ }
         delete c.fillText;
         c.restore();
       }
       frameFit = null;
-      render(c, shown(model), time, { colors, rect, values });
+      const nextHits = [];
+      render(c, shown(model), time, {
+        colors, rect, values,
+        // 打开"减弱动态效果"时不画残影。
+        trail: !reducedMotion() && time > 0,
+        hit: (x, y, r, title, rows) => nextHits.push({ x, y, r, title, rows }),
+      });
+      hits = nextHits;
       if (RULER.has(spec.kind)) ruler(c, rect, colors);
-      readoutRows(live, model.live(time));
+      updateChips(model.live(time));
+      updateEnergy();
+      updateTimeline();
       clock.textContent = model.clock ? model.clock(time) : 't = ' + core.formatNumber(time, 2) + ' s';
       playButton.textContent = playing ? '暂停' : (Number.isFinite(model.duration) && time >= model.duration ? '播放' : '继续');
     }
@@ -678,6 +1018,7 @@
 
     playButton.addEventListener('click', () => {
       if (!model) return;
+      hidePop();
       if (playing) {
         playing = false;
       } else {
@@ -688,6 +1029,7 @@
       paint();
     });
     replayButton.addEventListener('click', () => {
+      hidePop();
       time = 0;
       playing = true;
       paint();

@@ -1337,6 +1337,9 @@
   //   at(t)      t 时刻的状态，供画图和实时读数使用
   //   live(t)    t 时刻的实时读数
   //   bounds     画面范围（米），{ xmin, xmax, ymin, ymax }
+  //   energy(t)  可选（第八版）：t 时刻的能量柱，{ unit, note, max, bars: [{ key, label, value }] }，
+  //              key 是 ke（动能）、pe（势能）、total（总能量）
+  //   cycle      可选：周期运动一个周期的时长，时间轴拖动的范围
 
   const DEG = Math.PI / 180;
 
@@ -1346,6 +1349,18 @@
 
   function reading(label, value, unit, decimals) {
     return { label, value, unit: unit || '', decimals: decimals === undefined ? 2 : decimals };
+  }
+
+  /** 动能、势能、总能量三根柱子。max 用总能量，柱子长度按它算。 */
+  function energyBars(ke, pe, total, unit, note) {
+    return {
+      unit, note, max: Math.max(total, 1e-12),
+      bars: [
+        { key: 'ke', label: '动能', value: ke },
+        { key: 'pe', label: '势能', value: pe },
+        { key: 'total', label: '机械能', value: total },
+      ],
+    };
   }
 
   /** 单摆：用 RK4 积分一个完整周期，之后按周期取样（大角度时比小角度公式准确）。 */
@@ -1415,6 +1430,13 @@
             for (let i = 0; i <= n; i++) points.push(at((T * i) / n));
             return points;
           },
+          // 没有质量参数，按 1 kg 算；势能以地面为零点。
+          energy(t) {
+            const s = at(t);
+            const total = 0.5 * p.v0 * p.v0 + p.g * p.h;
+            const pe = p.g * s.y;
+            return energyBars(Math.max(0, total - pe), pe, total, 'J', '按 1 kg 计，地面为势能零点');
+          },
         };
       },
     },
@@ -1448,6 +1470,14 @@
             return [reading('当前角度', s.theta / DEG, '°', 1), reading('速度大小', Math.abs(s.omega) * p.L, 'm/s')];
           },
           bounds: { xmin: -p.L * 1.1, xmax: p.L * 1.1, ymin: -p.L * 1.15, ymax: p.L * 0.15 },
+          cycle: T,
+          // 没有质量参数，按 1 kg 算；势能以最低点为零点。
+          energy(t) {
+            const s = at(t);
+            const total = p.g * p.L * (1 - Math.cos(p.theta0 * DEG));
+            const pe = p.g * p.L * (1 - Math.cos(s.theta));
+            return energyBars(Math.max(0, total - pe), Math.min(pe, total), total, 'J', '按 1 kg 计，最低点为势能零点');
+          },
         };
       },
     },
@@ -1477,6 +1507,12 @@
           },
           bounds: { xmin: -0.6, xmax: 0.6, ymin: -0.15, ymax: 0.15 },
           period: (2 * Math.PI) / w,
+          cycle: (2 * Math.PI) / w,
+          // 弹性势能以平衡位置为零点。
+          energy(t) {
+            const s = at(t);
+            return energyBars(0.5 * p.m * s.v * s.v, 0.5 * p.k * s.x * s.x, 0.5 * p.k * p.A * p.A, 'J', '平衡位置为势能零点');
+          },
         };
       },
     },
@@ -1574,6 +1610,20 @@
           bounds: { xmin: left, xmax: right, ymin: 0, ymax: 1 },
           width,
           collisionTime: tc,
+          // 一维碰撞只有动能：两个物块各自的动能和总动能。
+          energy(t) {
+            const s = at(t);
+            const k1 = ke(p.m1, s.v1);
+            const k2 = ke(p.m2, s.v2);
+            return {
+              unit: 'J', note: s.after ? '碰后' : '碰前', max: Math.max(keBefore, keAfter, 1e-12),
+              bars: [
+                { key: 'ke', label: '物块 1', value: k1 },
+                { key: 'ke2', label: '物块 2', value: k2 },
+                { key: 'total', label: '总动能', value: k1 + k2 },
+              ],
+            };
+          },
         };
       },
     },
@@ -1697,6 +1747,7 @@
             return [reading('真实时间', s.time * 1e9, 'ns', 1)];
           },
           clock: (t) => 't = ' + formatNumber(at(t).time * 1e9, 1) + ' ns（已放慢）',
+          cycle: p.boundary ? undefined : ANIM,
           bounds: p.boundary
             ? { xmin: -0.6 * r, xmax: 2.2 * r, ymin: Math.min(...ys, 0) - 0.3 * r, ymax: Math.max(...ys, 0) + 0.3 * r }
             : { xmin: -2.4 * r, xmax: 2.4 * r, ymin: -2.3 * r, ymax: 2.3 * r },
@@ -2166,6 +2217,7 @@
     simulationCamera,
     scaleBar,
     simulationKinds,
+    reading,
     evaluateNumberInput,
     isNumberCorrect,
     componentTypes,

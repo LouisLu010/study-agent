@@ -53,16 +53,41 @@
     );
   }
 
+  // ---------- 卡片顶上的一行：图标和组件种类 ----------
+
+  // 每种组件一个小图标（第八版），用 currentColor 画，跟着主题色。
+  const ICONS = {
+    graph: '<path d="M2 14h12M2 14V2"/><path d="M3.5 11.5c1.6-5.5 3.4-6 4.6-2.8s2.8 3 4.4-4.2"/>',
+    geometry: '<path d="M3 13L8 3.2 13 13z"/><circle cx="8" cy="3.2" r="1.3"/>',
+    chart: '<path d="M3.5 13.5V8.5M8 13.5V3.5M12.5 13.5V10"/>',
+    simulation: '<path d="M4 2.5h8M8 2.5l2.6 6.8"/><circle cx="11.2" cy="11" r="2.4"/>',
+    quiz: '<rect x="2.5" y="2.5" width="11" height="11" rx="3"/><path d="M5.4 8.2l1.8 1.8 3.4-3.7"/>',
+    steps: '<circle cx="4" cy="4" r="1.6"/><circle cx="4" cy="12" r="1.6"/><path d="M4 5.6v4.8M8 4h6M8 12h6"/>',
+  };
+
+  function kindHeaderHTML(type) {
+    const icon = ICONS[type] || '<circle cx="8" cy="8" r="5"/>';
+    return '<div class="sa-kind"><svg class="sa-kind-icon" viewBox="0 0 16 16" aria-hidden="true">' + icon + '</svg>' +
+      '<span>' + escapeHTML(core.componentLabel(type)) + '</span></div>';
+  }
+
+  function kindHeader(type) {
+    const template = document.createElement('template');
+    template.innerHTML = kindHeaderHTML(type);
+    return template.content.firstChild;
+  }
+
   // ---------- 代码块 → HTML ----------
 
+  // 占位框按组件种类给出接近最终大小的高度（见 renderer.css），带淡淡的闪光，组件出现时正文不跳。
   function placeholderHTML(type, key, hash) {
-    // data-label 是卡片顶上那行小字（组件种类），由 CSS 显示。
     return '<div class="sa-component sa-component-loading" data-type="' + type + '" data-key="' + key +
-      '" data-hash="' + hash + '" data-label="' + escapeHTML(core.componentLabel(type)) + '"></div>\n';
+      '" data-hash="' + hash + '">' + kindHeaderHTML(type) + '<div class="sa-loading-text">正在加载…</div></div>\n';
   }
 
   function pendingHTML(type) {
-    return '<div class="sa-component-pending">正在生成' + escapeHTML(core.componentLabel(type)) + '…</div>\n';
+    return '<div class="sa-component-pending" data-type="' + type + '">' + kindHeaderHTML(type) +
+      '<div class="sa-loading-text">正在生成' + escapeHTML(core.componentLabel(type)) + '…</div></div>\n';
   }
 
   function errorHTML(type, source, error) {
@@ -135,6 +160,7 @@
     element.classList.remove('sa-component-loading');
     try {
       definition.draw(element, spec, makeContext(element));
+      element.prepend(kindHeader(element.dataset.type));
       element.drawn = true;
     } catch (error) {
       element.innerHTML = errorHTML(element.dataset.type, '', error.message);
