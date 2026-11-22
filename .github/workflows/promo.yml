@@ -48,7 +48,8 @@ jobs:
               npx remotion still src/index.ts Promo "out/frame-$frame.png" --frame="$frame"
             done
           else
-            npx remotion render src/index.ts Promo out/gewu-promo.mp4 --concurrency=4
+            # 按机器的核数开标签页（macos-latest 目前是 3 核，写死的数字超过核数 Remotion 会直接报错）。
+            npx remotion render src/index.ts Promo out/gewu-promo.mp4 --concurrency=100%
           fi
           node scripts/cues.mjs > out/cues.md
 
