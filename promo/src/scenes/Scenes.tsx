@@ -29,9 +29,10 @@ export const Opening: React.FC = () => {
   const composerIn = smooth(frame, [64, 84]);
   const value = typed(pendulum.question, frame, 86, 2);
   const sent = frame >= 126;
-  const out = interpolate(frame, [138, 150], [1, 0], clamp);
+  // 发送后输入框和小球稍微放大一点，接着下一段（iPad 上的这次提问）从上面淡入。
+  const push = smooth(frame, [128, 165]);
   return (
-    <AbsoluteFill style={{ background: '#000', fontFamily: font, opacity: out }}>
+    <AbsoluteFill style={{ background: '#000', fontFamily: font, transform: `scale(${1 + push * 0.06})` }}>
       <div style={{ position: 'absolute', left: '50%', top: interpolate(lift, [0, 1], [400, 250]), transform: 'translateX(-50%)' }}>
         <Orb state={sent ? 'reasoning' : 'idle'} size={interpolate(lift, [0, 1], [200, 120])} />
       </div>
@@ -47,30 +48,36 @@ export const Opening: React.FC = () => {
 
 export const ReviewScene: React.FC = () => {
   const frame = useCurrentFrame();
-  const bookPhase = frame < 100;
-  const reviewPhase = frame >= 100 && frame < 225;
-  const ipadOut = interpolate(frame, [215, 232], [1, 0], clamp);
-  const phoneIn = smooth(frame, [222, 246]);
+  // 错题本 → 复习：右边的页面淡入淡出 10 帧；iPad → iPhone：iPad 往左退，iPhone 从右边进来，中间有交叠。
+  const reviewIn = smooth(frame, [100, 110]);
+  const ipadOut = smooth(frame, [212, 238]);
+  const phoneIn = smooth(frame, [206, 234]);
   return (
     <>
-      {frame < 232 && (
-        <IPadStage opacity={ipadOut} focus={detailFocus} zoom={detailZoom}>
-          <Sidebar selection={bookPhase ? 'mistakes' : 'review'} due={reviewPhase && frame >= 150 ? 2 : 3} />
-          {bookPhase ? (
-            <MistakeBookScreen insert={smooth(frame, [10, 34])} flash={interpolate(frame, [10, 30, 90], [0, 1, 0], clamp)} pressReview={frame >= 85 && frame < 95} />
-          ) : (
-            // 渲染器按这一小段自己的帧数走：第 40 帧点选项（整段的第 140 帧）。
-            <Sequence from={100} layout="none">
-              <ReviewScreen
-                actions={[{ frame: 40, answer: { question: 0, option: 0 } }]}
-                box={frame - 100 >= 50 ? 2 : 1}
-                result={smooth(frame - 100, [50, 64])}
-              />
-            </Sequence>
-          )}
-        </IPadStage>
+      {frame < 238 && (
+        <div style={{ position: 'absolute', inset: 0, opacity: 1 - ipadOut, transform: `translateX(${-ipadOut * 140}px)` }}>
+          <IPadStage focus={detailFocus} zoom={detailZoom}>
+            <Sidebar selection={frame < 100 ? 'mistakes' : 'review'} due={frame >= 150 ? 2 : 3} />
+            {frame < 110 && (
+              // 刚加入的错题等上一段淡完（第 15 帧）再插进来。
+              <MistakeBookScreen insert={smooth(frame, [18, 40])} flash={interpolate(frame, [18, 36, 96], [0, 1, 0], clamp)} pressReview={frame >= 85 && frame < 95} />
+            )}
+            {frame >= 100 && (
+              // 渲染器按这一小段自己的帧数走：第 40 帧点选项（整段的第 140 帧）。
+              <Sequence from={100} layout="none">
+                <div style={{ position: 'absolute', inset: 0, opacity: reviewIn }}>
+                  <ReviewScreen
+                    actions={[{ frame: 40, answer: { question: 0, option: 0 } }]}
+                    box={frame - 100 >= 50 ? 2 : 1}
+                    result={smooth(frame - 100, [50, 64])}
+                  />
+                </div>
+              </Sequence>
+            )}
+          </IPadStage>
+        </div>
       )}
-      {frame >= 222 && (
+      {frame >= 206 && (
         <IPhoneStage enter={phoneIn}>
           <TodayScreen compact streak={frame >= 250 ? 12 : 11} grow={smooth(frame, [228, 262])} due={2} />
         </IPhoneStage>
@@ -89,23 +96,34 @@ export const CompilationScene: React.FC = () => {
   const seconds = Math.round(interpolate(frame, [105, 240], [8, 250], clamp));
   const elapsed = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
   const cost = frame < 105 ? '约 ¥0.02' : `约 ¥${interpolate(frame, [105, 240], [0.02, 0.31], clamp).toFixed(2)}`;
-  const ipadOut = interpolate(frame, [236, 252], [1, 0], clamp);
-  const pdfIn = smooth(frame, [240, 262]);
+  // 列出试卷 → 开始收集：页面淡入淡出 10 帧。iPad → PDF：iPad 缩小淡出，PDF 从同一个位置放大出来。
+  const collectIn = smooth(frame, [104, 114]);
+  const ipadOut = smooth(frame, [234, 258]);
+  const pdfIn = smooth(frame, [236, 262]);
   const flip = smooth(frame, [296, 316]);
+  const detail = { lines, searches, elapsed, cost };
   return (
     <>
-      {frame < 252 && (
-        <IPadStage opacity={ipadOut} focus={detailFocus} zoom={detailZoom}>
-          <Sidebar selection="compilations" due={2} />
-          <CompilationDetail phase={frame < 105 ? 'choosing' : 'collecting'} lines={lines} searches={searches} elapsed={elapsed} cost={cost} pressing={frame >= 95 && frame < 101} />
-          {frame < 64 && (
-            <NewCompilationSheet appear={smooth(frame, [0, 10]) * (1 - smooth(frame, [54, 64]))} typed={typed(compilation.request, frame, 12, 2.5)} caret={frame < 50} pressing={frame >= 48 && frame < 54} />
-          )}
-        </IPadStage>
+      {frame < 258 && (
+        <div style={{ position: 'absolute', inset: 0, opacity: 1 - ipadOut, transform: `scale(${1 - ipadOut * 0.06})`, transformOrigin: '1270px 540px' }}>
+          <IPadStage focus={detailFocus} zoom={detailZoom}>
+            <Sidebar selection="compilations" due={2} />
+            {frame < 114 && <CompilationDetail phase="choosing" {...detail} lines={0} pressing={frame >= 95 && frame < 101} />}
+            {frame >= 104 && (
+              <div style={{ position: 'absolute', inset: 0, opacity: collectIn }}>
+                <CompilationDetail phase="collecting" {...detail} />
+              </div>
+            )}
+            {frame < 78 && (
+              // 等上一段淡完再弹出新建汇编的面板。
+              <NewCompilationSheet appear={smooth(frame, [14, 28]) * (1 - smooth(frame, [64, 78]))} typed={typed(compilation.request, frame, 28, 2.5)} caret={frame >= 22 && frame < 58} pressing={frame >= 58 && frame < 64} />
+            )}
+          </IPadStage>
+        </div>
       )}
-      {frame >= 240 && (
-        <Sequence from={240} layout="none">
-        <div style={{ position: 'absolute', left: 660, top: 0, width: 1240, height: video.height, opacity: pdfIn, transform: `translateY(${(1 - pdfIn) * 60}px)` }}>
+      {frame >= 236 && (
+        <Sequence from={236} layout="none">
+        <div style={{ position: 'absolute', left: 660, top: 0, width: 1240, height: video.height, opacity: pdfIn, transform: `scale(${0.92 + pdfIn * 0.08})`, transformOrigin: '610px 540px' }}>
           {[0, 1].map((index) => {
             // 先是第 1 页居中，翻页时第 1 页往左让，第 2 页从右边进来，两页并排。
             const x = index === 0 ? interpolate(flip, [0, 1], [(1240 - a4.width) / 2, 10]) : interpolate(flip, [0, 1], [760, 635]);
