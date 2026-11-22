@@ -235,7 +235,22 @@ final class BackgroundKeeper: NSObject {
 
     /// 到期回调可能在任意线程上调用，所以在 nonisolated 的地方创建，不带主线程检查，再切回主线程。
     nonisolated private static func expirationHandler() -> @Sendable () -> Void {
-        { Task { @MainActor in BackgroundKeeper.shared.expired() } }
+        { Task { @MainActor in BackgroundKeeper.shared.continuedTaskExpired() } }
+    }
+
+    /// 系统要结束 BGContinuedProcessingTask。iOS 26 上它和强力保活会同时开着，
+    /// 系统常常提前结束它（例如一步深度搜索要好几分钟，进度条停着不动）。
+    /// 这时后台定位还在让 App 运行，只放掉这个任务，工作继续；没有定位时才停下保存进度。
+    private func continuedTaskExpired() {
+        guard locationManager != nil else {
+            expired()
+            return
+        }
+        if #available(iOS 26.0, *), let task = continuedTask as? BGContinuedProcessingTask {
+            task.setTaskCompleted(success: false)
+        }
+        continuedTask = nil
+        systemTask = .refused("系统提前结束了后台任务")
     }
 
     /// 系统要结束后台运行：通知所有工作停下保存进度。
