@@ -100,6 +100,9 @@ public enum ChatStreamEvent: Sendable, Equatable {
     case reasoning(String)
     /// 用量。服务商可能分几次给出（例如先给输入、最后给输出），为 nil 的一项表示这次没有给出。
     case usage(input: Int?, output: Int?)
+    /// 输入里命中服务商缓存的 token 数（已经算在 usage 的 input 里）。命中缓存的部分单价低很多，
+    /// 例如 DeepSeek 只有未命中的 1/50。服务商没有给出时不发这个事件。
+    case cachedInput(Int)
     /// 模型开始一次联网搜索。搜索词这时可能还不知道（nil），之后会再给一次。
     case searching(query: String?)
     /// 搜索结果里的网页。

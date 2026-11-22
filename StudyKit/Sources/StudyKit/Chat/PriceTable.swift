@@ -7,9 +7,42 @@ public struct ModelPrice: Equatable, Sendable {
         case cny = "CNY"
     }
 
+    /// 服务商的空闲时段折扣，例如 DeepSeek：北京时间工作日 9–12、14–18 点是高峰，其余时间半价。
+    /// 不认法定节假日（那几天其实也是空闲时段），所以节假日会算贵一点。
+    public struct OffPeak: Codable, Equatable, Sendable {
+        /// 时区，例如 Asia/Shanghai。
+        public var timeZone: String
+        /// 高峰时段，[开始小时, 结束小时)，只在周一到周五。
+        public var peakHours: [[Int]]
+        /// 空闲时段的价格是高峰的几倍，例如 0.5。
+        public var factor: Double
+
+        public init(timeZone: String, peakHours: [[Int]], factor: Double) {
+            self.timeZone = timeZone
+            self.peakHours = peakHours
+            self.factor = factor
+        }
+
+        /// 这个时刻的价格倍数：高峰 1，空闲 factor。
+        public func multiplier(at date: Date) -> Double {
+            var calendar = Calendar(identifier: .gregorian)
+            guard let zone = TimeZone(identifier: timeZone) else { return 1 }
+            calendar.timeZone = zone
+            let weekday = calendar.component(.weekday, from: date)
+            let hour = calendar.component(.hour, from: date)
+            let workday = (2...6).contains(weekday)
+            let peak = workday && peakHours.contains { $0.count == 2 && hour >= $0[0] && hour < $0[1] }
+            return peak ? 1 : factor
+        }
+    }
+
     public var input: Double
+    /// 命中缓存的输入单价。没有时按 input 算。
+    public var cachedInput: Double?
     public var output: Double
     public var currency: Currency
+    /// 空闲时段折扣。没有时不打折。
+    public var offPeak: OffPeak?
     /// 联网搜索每 1000 次的价格。没有时为 nil，不计搜索费。
     public var webSearchPer1000: Double?
     /// 搜索单价的币种。手动填写 token 单价（人民币）时，搜索单价仍沿用价格表里的币种。
@@ -20,9 +53,13 @@ public struct ModelPrice: Equatable, Sendable {
         output: Double,
         currency: Currency,
         webSearchPer1000: Double? = nil,
-        webSearchCurrency: Currency? = nil
+        webSearchCurrency: Currency? = nil,
+        cachedInput: Double? = nil,
+        offPeak: OffPeak? = nil
     ) {
         self.input = input
+        self.cachedInput = cachedInput
+        self.offPeak = offPeak
         self.output = output
         self.currency = currency
         self.webSearchPer1000 = webSearchPer1000
@@ -38,14 +75,23 @@ public struct ModelPrice: Equatable, Sendable {
             output: output * tokenRate,
             currency: .cny,
             webSearchPer1000: webSearchPer1000.map { $0 * searchRate },
-            webSearchCurrency: .cny
+            webSearchCurrency: .cny,
+            cachedInput: cachedInput.map { $0 * tokenRate },
+            offPeak: offPeak
         )
     }
 
-    /// 一次请求的估算费用（人民币），包括联网搜索的费用。
-    public func costCNY(inputTokens: Int, outputTokens: Int, webSearches: Int = 0, usdToCNY rate: Double) -> Double {
+    /// 一次请求的估算费用（人民币），包括联网搜索的费用。cachedInputTokens 是 inputTokens 里命中缓存的部分；
+    /// date 是请求的时间，用来判断是不是空闲时段。
+    public func costCNY(
+        inputTokens: Int, cachedInputTokens: Int = 0, outputTokens: Int, webSearches: Int = 0,
+        usdToCNY rate: Double, at date: Date = .now
+    ) -> Double {
         let price = inCNY(usdToCNY: rate)
-        let tokens = (Double(inputTokens) * price.input + Double(outputTokens) * price.output) / 1_000_000
+        let cached = Double(min(max(0, cachedInputTokens), inputTokens))
+        let miss = Double(inputTokens) - cached
+        let input = miss * price.input + cached * (price.cachedInput ?? price.input)
+        let tokens = (input + Double(outputTokens) * price.output) / 1_000_000 * (offPeak?.multiplier(at: date) ?? 1)
         let searches = Double(max(0, webSearches)) * (price.webSearchPer1000 ?? 0) / 1000
         return tokens + searches
     }
@@ -58,6 +104,8 @@ public struct PriceTable: Sendable {
             struct Model: Decodable {
                 let ids: [String]
                 let input: Double
+                /// 命中缓存的输入单价。
+                let cachedInput: Double?
                 let output: Double
                 /// 这个模型自己的搜索单价，优先于服务商的。
                 let webSearchPer1000: Double?
@@ -65,6 +113,8 @@ public struct PriceTable: Sendable {
 
             let name: String
             let currency: ModelPrice.Currency
+            /// 空闲时段折扣。
+            let offPeak: ModelPrice.OffPeak?
             /// 联网搜索每 1000 次的价格（服务商币种）。
             let webSearchPer1000: Double?
             let models: [Model]
@@ -102,7 +152,9 @@ public struct PriceTable: Sendable {
                     input: model.input,
                     output: model.output,
                     currency: provider.currency,
-                    webSearchPer1000: model.webSearchPer1000 ?? provider.webSearchPer1000
+                    webSearchPer1000: model.webSearchPer1000 ?? provider.webSearchPer1000,
+                    cachedInput: model.cachedInput,
+                    offPeak: provider.offPeak
                 )
                 for id in model.ids {
                     prices[Self.normalize(id)] = price

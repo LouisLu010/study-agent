@@ -204,16 +204,29 @@ public struct OpenAICompatibleService: ChatService {
                 }
             }
 
+            struct PromptDetails: Decodable {
+                let cachedTokens: Int?
+                enum CodingKeys: String, CodingKey { case cachedTokens = "cached_tokens" }
+            }
+
             let promptTokens: Int?
             let completionTokens: Int?
             let totalTokens: Int?
             let serverToolUse: ServerToolUse?
+            /// DeepSeek 的缓存命中数。
+            let promptCacheHitTokens: Int?
+            /// OpenAI 和多数兼容服务商的缓存命中数。
+            let promptTokensDetails: PromptDetails?
+
+            var cachedTokens: Int? { promptCacheHitTokens ?? promptTokensDetails?.cachedTokens }
 
             enum CodingKeys: String, CodingKey {
                 case promptTokens = "prompt_tokens"
                 case completionTokens = "completion_tokens"
                 case totalTokens = "total_tokens"
                 case serverToolUse = "server_tool_use"
+                case promptCacheHitTokens = "prompt_cache_hit_tokens"
+                case promptTokensDetails = "prompt_tokens_details"
             }
 
             /// 输出数。有的服务商（例如 grok）的 completion_tokens 不含思考过程，只算进了 total_tokens，
@@ -273,6 +286,7 @@ public struct OpenAICompatibleService: ChatService {
         }
         if let usage = chunk.usage, usage.promptTokens != nil || usage.completionTokens != nil {
             events.append(.usage(input: usage.promptTokens, output: usage.output))
+            if let cached = usage.cachedTokens, cached > 0 { events.append(.cachedInput(cached)) }
         }
         if let searches = chunk.usage?.serverToolUse?.toolSearch, searches > 0 {
             events.append(.searchCount(searches))

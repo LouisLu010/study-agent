@@ -28,11 +28,23 @@ import Testing
         let start = try AnthropicService.decodeStreamData(
             #"{"type":"message_start","message":{"id":"m","usage":{"input_tokens":30,"cache_read_input_tokens":70,"output_tokens":1}}}"#
         )
-        #expect(start == .events([.usage(input: 100, output: nil)]))
+        #expect(start == .events([.usage(input: 100, output: nil), .cachedInput(70)]))
         let delta = try AnthropicService.decodeStreamData(
             #"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":512}}"#
         )
         #expect(delta == .events([.usage(input: nil, output: 512)]))
+    }
+
+    @Test func openAIReadsCacheHits() throws {
+        // DeepSeek 用 prompt_cache_hit_tokens，OpenAI 用 prompt_tokens_details.cached_tokens。
+        let deepSeek = try OpenAICompatibleService.decodeStreamData(
+            #"{"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":10,"prompt_cache_hit_tokens":768,"prompt_cache_miss_tokens":232}}"#
+        )
+        #expect(deepSeek == .events([.usage(input: 1000, output: 10), .cachedInput(768)]))
+        let openAI = try OpenAICompatibleService.decodeStreamData(
+            #"{"choices":[],"usage":{"prompt_tokens":2000,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":1536}}}"#
+        )
+        #expect(openAI == .events([.usage(input: 2000, output: 5), .cachedInput(1536)]))
     }
 
     @Test func geminiCountsThoughtsAsOutput() throws {

@@ -170,6 +170,8 @@ public final class Message {
     /// 这条回答的输入和输出 token 数。服务商没有返回时为 nil。
     public var inputTokens: Int?
     public var outputTokens: Int?
+    /// 输入里命中缓存的 token 数（已经算在 inputTokens 里）。服务商没给出时为 nil。
+    public var cachedInputTokens: Int?
     /// 生成完成时按当时模型的单价估算的费用（人民币）。没有价格时为 nil。
     public var costCNY: Double?
     /// 重新生成产生的所有版本（`ReplyVersions` 的 JSON）。只有一个版本时为空。

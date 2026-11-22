@@ -439,14 +439,17 @@ final class CompilationCenter {
     ) async throws -> String {
         var text = ""
         var input: Int?
+        var cached = 0
         var output: Int?
         var recorder = WebSearchRecorder()
+        let started = Date.now
         defer {
             let searches = recorder.record.effectiveCount
             compilation.searches += searches
             if let price = model.price(), input != nil || output != nil {
                 compilation.costCNY += price.costCNY(
-                    inputTokens: input ?? 0, outputTokens: output ?? 0, webSearches: searches, usdToCNY: AppSettingsKey.usdToCNYRate
+                    inputTokens: input ?? 0, cachedInputTokens: cached, outputTokens: output ?? 0, webSearches: searches,
+                    usdToCNY: AppSettingsKey.usdToCNYRate, at: started
                 )
             }
         }
@@ -457,6 +460,7 @@ final class CompilationCenter {
             case let .usage(newInput, newOutput):
                 if let newInput { input = newInput }
                 if let newOutput { output = newOutput }
+            case let .cachedInput(value): cached = value
             case .reasoning: break
             case .searching, .searchResults, .citations, .searchCount:
                 if case let .searching(query) = event, let query, !query.isEmpty {

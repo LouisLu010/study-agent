@@ -9,6 +9,8 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
     public var errorText: String?
     public var inputTokens: Int?
     public var outputTokens: Int?
+    /// 旧版本没有这个字段，解码为 nil。
+    public var cachedInputTokens: Int?
     public var costCNY: Double?
     /// 联网搜索记录。旧版本没有这个字段，解码为 nil。
     public var webSearchJSON: String?
@@ -21,6 +23,7 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
         errorText: String? = nil,
         inputTokens: Int? = nil,
         outputTokens: Int? = nil,
+        cachedInputTokens: Int? = nil,
         costCNY: Double? = nil,
         webSearchJSON: String? = nil
     ) {
@@ -31,6 +34,7 @@ public struct ReplyVersion: Codable, Equatable, Sendable {
         self.errorText = errorText
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
         self.costCNY = costCNY
         self.webSearchJSON = webSearchJSON
     }
@@ -80,6 +84,7 @@ extension Message {
             errorText: errorText,
             inputTokens: inputTokens,
             outputTokens: outputTokens,
+            cachedInputTokens: cachedInputTokens,
             costCNY: costCNY,
             webSearchJSON: webSearchJSON.isEmpty ? nil : webSearchJSON
         )
@@ -93,6 +98,7 @@ extension Message {
         errorText = version.errorText
         inputTokens = version.inputTokens
         outputTokens = version.outputTokens
+        cachedInputTokens = version.cachedInputTokens
         costCNY = version.costCNY
         webSearchJSON = version.webSearchJSON ?? ""
     }

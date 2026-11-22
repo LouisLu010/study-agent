@@ -204,10 +204,10 @@ import Testing
     }
 
     @Test func estimatesCost() throws {
-        let price = ModelPrice(input: 2, output: 8, currency: .cny, webSearchPer1000: 0)
-        // 每份：7 万 × 2 / 100 万 + 5 千 × 8 / 100 万 = 0.18
+        let price = ModelPrice(input: 2, output: 8, currency: .cny, webSearchPer1000: 0, cachedInput: 0.04)
+        // 每份：未命中 7.5 万 × 2 + 命中 22.5 万 × 0.04 + 输出 5 千 × 8，每百万 → 0.15 + 0.009 + 0.04 = 0.199
         let cost = try #require(CompilationPlanner.estimateCostCNY(papers: 3, price: price, usdToCNY: 7.2))
-        #expect(abs(cost - 0.54) < 1e-9)
+        #expect(abs(cost - 0.597) < 1e-9)
         #expect(CompilationPlanner.estimateCostCNY(papers: 3, price: nil, usdToCNY: 7.2) == nil)
     }
 
