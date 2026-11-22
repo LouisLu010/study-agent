@@ -1,0 +1,50 @@
+name: C0 tools trial
+
+# 第七版 C0 试验（见 docs/adr/0014 和 tools/eval/tools-trial.js）。只能在 Actions 页面手动运行。
+# DeepSeek 的 Key 放在仓库的 Actions secret STUDY_TEST_API_KEY 里，不写进仓库，也不打印到日志。
+on:
+  workflow_dispatch:
+    inputs:
+      modes:
+        description: 跑哪几种方式，逗号分开（v5、model、api）
+        default: v5,model,api
+      only:
+        description: 只跑 id 包含这几个字的题（留空表示全部）
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run trial
+        env:
+          STUDY_TEST_API_KEY: ${{ secrets.STUDY_TEST_API_KEY }}
+          MODES: ${{ inputs.modes }}
+          ONLY: ${{ inputs.only }}
+        run: |
+          if [ -z "$STUDY_TEST_API_KEY" ]; then
+            echo "仓库还没有 STUDY_TEST_API_KEY 这个 secret" >&2
+            exit 1
+          fi
+          if [[ ! "$MODES" =~ ^[a-z0-9,]+$ ]]; then echo "modes 格式不对" >&2; exit 1; fi
+          args=(--mode "$MODES")
+          if [ -n "$ONLY" ]; then args+=(--only "$ONLY"); fi
+          node tools/eval/tools-trial.js "${args[@]}" | tee trial.txt
+          { echo '```'; cat trial.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tools-trial-results
+          path: tools/eval/results/
+          retention-days: 30
