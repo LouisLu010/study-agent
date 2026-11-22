@@ -175,16 +175,19 @@ public enum CompilationPlanner {
 
     // MARK: - 估价
 
-    /// 一次联网查题的大致用量，来自 A0 试验（deepseek-flash 深度搜索）：约 7 万输入、5 千输出、8 次搜索。
-    static let tokensPerSearchInput = 70_000
+    /// 一次联网查题的大致用量，来自第七版 C0 试验（deepseek-flash 深度搜索，5 份试卷）：
+    /// 输入 13 万到 68 万，约四分之三命中缓存；输出约 5 千；搜索 20 到 30 次。取中间的值。
+    static let tokensPerSearchInput = 300_000
+    static let cachedShare = 0.75
     static let tokensPerSearchOutput = 5_000
-    static let searchesPerSearch = 8
+    static let searchesPerSearch = 25
 
     /// 列试卷一次加上每份试卷查一次的估算费用（人民币）。没有价格时返回 nil。
     public static func estimateCostCNY(papers: Int, price: ModelPrice?, usdToCNY: Double) -> Double? {
         guard let price else { return nil }
         let one = price.costCNY(
             inputTokens: tokensPerSearchInput,
+            cachedInputTokens: Int(Double(tokensPerSearchInput) * cachedShare),
             outputTokens: tokensPerSearchOutput,
             webSearches: searchesPerSearch,
             usdToCNY: usdToCNY

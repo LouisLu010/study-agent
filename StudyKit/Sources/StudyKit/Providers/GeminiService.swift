@@ -140,6 +140,7 @@ public struct GeminiService: ChatService {
             let promptTokenCount: Int?
             let candidatesTokenCount: Int?
             let thoughtsTokenCount: Int?
+            let cachedContentTokenCount: Int?
         }
 
         let candidates: [Candidate]?
@@ -169,6 +170,7 @@ public struct GeminiService: ChatService {
             let output = usage.candidatesTokenCount.map { $0 + (usage.thoughtsTokenCount ?? 0) }
                 ?? usage.thoughtsTokenCount
             events.append(.usage(input: usage.promptTokenCount, output: output))
+            if let cached = usage.cachedContentTokenCount, cached > 0 { events.append(.cachedInput(cached)) }
         }
         if let grounding = chunk.candidates?.first?.groundingMetadata?.value {
             events += groundingEvents(grounding)
