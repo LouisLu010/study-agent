@@ -29,11 +29,14 @@ struct SettingsView: View {
                 Section("服务商和模型") {
                     ForEach(providers) { provider in
                         NavigationLink(value: provider) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(provider.name.isEmpty ? "未命名服务商" : provider.name)
-                                Text("\(provider.kind.displayName) · \(provider.models?.count ?? 0) 个模型")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            HStack(spacing: Theme.Spacing.m) {
+                                ProviderLogo(provider: provider, size: 30)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(provider.name.isEmpty ? "未命名服务商" : provider.name)
+                                    Text("\(provider.kind.displayName) · \(provider.models?.count ?? 0) 个模型")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
