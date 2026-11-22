@@ -24,7 +24,10 @@ const BASE_URL = (process.env.STUDY_TEST_BASE_URL || 'https://api.deepseek.com')
 const API_KEY = process.env.STUDY_TEST_API_KEY;
 const USER_AGENT = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const USD_TO_CNY = 7.2;
-const SEARCH_API_USD = 0.75 / 1000;
+// 中文价格页：Search API、Fetch API 每 1000 次成功请求 5 元。
+const SEARCH_FETCH_CNY = 5 / 1000;
+// 缓存命中的输入价格（元/百万 token，高峰时段）。
+const CACHED_INPUT = { 'deepseek-flash': 0.04 };
 // 第五版估算一份试卷查一次的用量（CompilationPlanner.tokensPerSearch*），来自 A0 试验。
 const V5_ESTIMATE = { input: 70000, output: 5000 };
 
@@ -51,7 +54,17 @@ function price(model) {
     for (const entry of provider.models) {
       if (entry.ids.includes(model)) {
         const rate = provider.currency === 'USD' ? USD_TO_CNY : 1;
-        return { input: (entry.input * rate) / 1e6, output: (entry.output * rate) / 1e6 };
+        // 北京时间工作日 9–12、14–18 点是高峰，其余时间（含周末）半价。
+        const bj = new Date(Date.now() + 8 * 3600e3);
+        const day = bj.getUTCDay();
+        const hour = bj.getUTCHours();
+        const peak = day >= 1 && day <= 5 && ((hour >= 9 && hour < 12) || (hour >= 14 && hour < 18));
+        return {
+          input: (entry.input * rate) / 1e6,
+          cachedInput: ((CACHED_INPUT[model] ?? entry.input) * rate) / 1e6,
+          output: (entry.output * rate) / 1e6,
+          offPeak: !peak,
+        };
       }
     }
   }
@@ -64,6 +77,7 @@ class Meter {
   constructor(unit) {
     this.unit = unit;
     this.input = 0;
+    this.cached = 0;
     this.output = 0;
     this.searches = 0;
     this.apiSearches = 0;
@@ -74,12 +88,16 @@ class Meter {
     if (!usage) return;
     this.requests += 1;
     this.input += usage.prompt_tokens || 0;
+    // DeepSeek：缓存命中的输入 token 单价只有未命中的 1/50。工具循环每轮都重发前面的对话，大部分会命中。
+    this.cached += usage.prompt_cache_hit_tokens || (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0;
     this.output += usage.completion_tokens || 0;
     this.searches += (usage.server_tool_use && usage.server_tool_use.tool_search) || 0;
   }
   get costCNY() {
-    return this.input * this.unit.input + this.output * this.unit.output +
-      (this.apiSearches + this.apiFetches) * SEARCH_API_USD * USD_TO_CNY;
+    const miss = this.input - this.cached;
+    const k = this.unit.offPeak ? 0.5 : 1;
+    return k * (miss * this.unit.input + this.cached * this.unit.cachedInput + this.output * this.unit.output) +
+      (this.apiSearches + this.apiFetches) * SEARCH_FETCH_CNY;
   }
 }
 
@@ -509,14 +527,14 @@ async function main() {
       const verdict = judge(testCase, outcome);
       const row = {
         id: testCase.id, mode, pass: verdict.pass, calls: outcome.calls,
-        input: meter.input, output: meter.output, searches: meter.searches, apiSearches: meter.apiSearches,
+        input: meter.input, cached: meter.cached, output: meter.output, searches: meter.searches, apiSearches: meter.apiSearches,
         costCNY: meter.costCNY, seconds: Math.round((Date.now() - started) / 1000), checked: verdict.checked,
       };
       rows.push(row);
       const md = [
         '# ' + testCase.id + ' · ' + mode + (verdict.pass ? ' · 通过' : ' · 不通过'),
         '', testCase.paper.title + ' · ' + testCase.request, '',
-        '费用 ' + meter.costCNY.toFixed(3) + ' 元 · 输入 ' + meter.input + ' · 输出 ' + meter.output +
+        '费用 ' + meter.costCNY.toFixed(3) + ' 元 · 输入 ' + meter.input + '（缓存命中 ' + meter.cached + '）· 输出 ' + meter.output +
           ' · 模型搜索 ' + meter.searches + ' 次 · Search API ' + meter.apiSearches + ' 次 · Fetch API ' + meter.apiFetches + ' 次 · 工具调用 ' + outcome.calls + ' 次 · ' + row.seconds + ' 秒',
         '', '## 调用记录', '', ...outcome.log.map((l) => '- ' + l),
         '', '## 取到的题', '',
