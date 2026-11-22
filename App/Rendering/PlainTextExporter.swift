@@ -17,8 +17,17 @@ enum PlainTextExporter {
     }()
 
     static func plainText(from markdown: String) -> String {
+        call("toPlainText", markdown)
+    }
+
+    /// 列表行用的一行文字：组件转成文字，公式改写成 x²/16 这样能读的样子。复制和导出不用它，仍保留 LaTeX。
+    static func previewText(from markdown: String) -> String {
+        call("toPreviewText", markdown)
+    }
+
+    private static func call(_ name: String, _ markdown: String) -> String {
         guard let core = context?.objectForKeyedSubscript("StudyCore"),
-              let function = core.objectForKeyedSubscript("toPlainText"),
+              let function = core.objectForKeyedSubscript(name),
               let result = function.call(withArguments: [markdown]),
               result.isString,
               let text = result.toString()

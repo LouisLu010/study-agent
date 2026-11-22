@@ -243,8 +243,8 @@ struct ResearchNotesView: View {
                             } label: {
                                 // 列表已经按科目和知识点分组，行里不再重复科目标签。
                                 LibraryRow(
-                                    title: note.title,
-                                    summary: String(PlainTextExporter.plainText(from: note.content).prefix(120)),
+                                    title: PlainTextExporter.previewText(from: note.title),
+                                    summary: String(PlainTextExporter.previewText(from: note.content).prefix(120)),
                                     meta: note.updatedAt.formatted(.dateTime.month().day()) + (note.sources.isEmpty ? "" : " · \(note.sources.count) 个出处")
                                 )
                             }

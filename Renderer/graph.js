@@ -45,7 +45,8 @@
     const board = JXG.JSXGraph.initBoard(box.id, Object.assign({
       keepAspectRatio: false,
       showCopyright: false,
-      showNavigation: true,
+      // JSXGraph 自带的 – o + ← ↓ ↑ → 按钮在聊天里的卡片上显得乱，只在全屏页里显示；卡片上用双指缩放和平移。
+      showNavigation: document.body.classList.contains('is-fullscreen'),
       grid: false,
       // 单指上下滑动交给外层列表滚动，双指拖动和缩放图形。
       pan: { enabled: true, needTwoFingers: true },
