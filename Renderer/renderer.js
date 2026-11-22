@@ -40,7 +40,13 @@
       } catch (error) {
         html = '<code>' + escapeHTML(tex) + '</code>';
       }
-      if (mathCache.size > 1000) mathCache.clear();
+      // 满了只丢最早放进去的那个。以前整个清空：公式多的长回答生成到一半，缓存一清，
+      // 还在写的部分里所有公式都要重新排一遍，那一下特别慢。
+      if (mathCache.size >= 3000) mathCache.delete(mathCache.keys().next().value);
+      mathCache.set(key, html);
+    } else {
+      // 最近用过的挪到最后，最早被丢掉的是很久没用的。
+      mathCache.delete(key);
       mathCache.set(key, html);
     }
     const tag = display ? 'div' : 'span';

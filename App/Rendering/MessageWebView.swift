@@ -141,12 +141,17 @@ struct MessageWebView: UIViewRepresentable {
         private var rendered: (content: String, isStreaming: Bool)?
         private var pending: (content: String, isStreaming: Bool)?
         private var throttleTask: Task<Void, Never>?
+        /// 有一次渲染已经交给 WebView、还没算完。
+        private var isRendering = false
+        /// 上一次渲染在 WebView 里花了多久（秒）。
+        private var lastRenderDuration: Double = 0
 
         func loadRenderer() {
             guard let webView,
                   let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Renderer")
             else { return }
             isReady = false
+            isRendering = false
             didSendInitialOptions = false
             sentCanRegenerate = nil
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
@@ -172,16 +177,36 @@ struct MessageWebView: UIViewRepresentable {
             guard isReady else { return }
 
             if isStreaming {
-                // 生成过程中最多每 80 毫秒渲染一次。
-                guard throttleTask == nil else { return }
-                throttleTask = Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(80))
-                    guard !Task.isCancelled else { return }
-                    self?.throttleTask = nil
-                    self?.flush()
-                }
+                scheduleStreamingFlush()
             } else {
+                // 生成结束的那次完整渲染不等节流，但仍然排在正在算的那次后面。
                 cancelPendingRender()
+                if !isRendering { flush() }
+            }
+        }
+
+        /// 生成过程中的节流：同一时间只有一次渲染在算；算完以后至少隔 80 毫秒、并且至少隔上一次花的时间那么久
+        /// 才发下一次。以前固定每 80 毫秒发一次，公式多、回答长时一次渲染要几百毫秒，调用在 WebView 里排队，
+        /// WebView 一直忙着算、没空画，高度又在不停变，整条回答就成了一片空白，要等生成完才出来。
+        private func scheduleStreamingFlush() {
+            guard throttleTask == nil, !isRendering else { return }
+            let interval = max(0.08, min(1.5, lastRenderDuration))
+            throttleTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled, let self else { return }
+                self.throttleTask = nil
+                self.flush()
+            }
+        }
+
+        /// 一次渲染算完：记下用时；中间又来了新内容就接着排下一次。
+        private func renderFinished(startedAt start: Date) {
+            isRendering = false
+            lastRenderDuration = Date().timeIntervalSince(start)
+            guard let pending else { return }
+            if pending.isStreaming {
+                scheduleStreamingFlush()
+            } else {
                 flush()
             }
         }
@@ -192,9 +217,16 @@ struct MessageWebView: UIViewRepresentable {
         }
 
         private func flush() {
-            guard let webView, let next = pending else { return }
+            guard let webView, let next = pending, !isRendering else { return }
             pending = nil
             rendered = next
+            isRendering = true
+            let start = Date()
+            // 出错也算这次算完了（例如页面正在重新加载），不然后面的渲染会一直等着。
+            let done: @Sendable (Result<Any, any Error>) -> Void = { [weak self] _ in
+                let coordinator = self
+                Task { @MainActor in coordinator?.renderFinished(startedAt: start) }
+            }
 
             if didSendInitialOptions {
                 webView.callAsyncJavaScript(
@@ -202,7 +234,7 @@ struct MessageWebView: UIViewRepresentable {
                     arguments: ["text": next.content, "streaming": next.isStreaming],
                     in: nil,
                     in: .page,
-                    completionHandler: nil
+                    completionHandler: done
                 )
             } else {
                 // 第一次渲染时带上保存的组件状态，组件据此恢复滑块位置、测验答案等。
@@ -227,7 +259,7 @@ struct MessageWebView: UIViewRepresentable {
                     ],
                     in: nil,
                     in: .page,
-                    completionHandler: nil
+                    completionHandler: done
                 )
             }
         }
