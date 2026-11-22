@@ -9,10 +9,12 @@ public enum StreamPayload: Sendable, Equatable {
 
 /// 三种协议共用的流式请求：发送请求、处理 HTTP 错误、按 SSE 切分事件，再交给各协议的解码函数。
 enum SSEStreaming {
+    /// finish 在流正常结束时调用一次，返回还没发出的事件（例如收完参数的工具调用）。
     static func stream(
         session: URLSession,
         request: URLRequest,
-        decode: @escaping @Sendable (SSEEvent) throws -> StreamPayload
+        decode: @escaping @Sendable (SSEEvent) throws -> StreamPayload,
+        finish: (@Sendable () -> [ChatStreamEvent])? = nil
     ) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         var request = request
         // 推理模型可能思考很久才输出第一个字，默认的 60 秒空闲超时不够。
@@ -60,6 +62,9 @@ enum SSEStreaming {
                         if !isDone, let event = parser.finish() {
                             _ = try forward(decode(event), to: continuation)
                         }
+                    }
+                    for event in finish?() ?? [] {
+                        continuation.yield(event)
                     }
                     continuation.finish()
                 } catch {

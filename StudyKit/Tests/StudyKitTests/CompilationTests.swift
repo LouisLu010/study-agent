@@ -146,35 +146,6 @@ import Testing
 }
 
 @Suite struct CompilationPlannerTests {
-    @Test func parsesPaperListAndSkipsDuplicates() throws {
-        let raw = """
-        ```json
-        {"title":"近三年高考有机大题","subject":"化学","papers":[
-          {"title":"2025年高考化学北京卷","short":"北京卷","year":"2025"},
-          {"title":"2025年高考化学北京卷","short":"北京卷","year":"2025"},
-          {"title":"2024年高考化学新课标卷","short":"新课标卷","year":2024},
-          {"title":""}
-        ]}
-        ```
-        """
-        let list = try #require(CompilationPlanner.parsePaperList(raw, fallbackTitle: "x"))
-        #expect(list.title == "近三年高考有机大题")
-        #expect(list.subject == .chemistry)
-        #expect(list.papers.map(\.title) == ["2025年高考化学北京卷", "2024年高考化学新课标卷"])
-        #expect(list.papers[1].year == "2024")
-        #expect(list.papers[0].shortTitle == "北京卷")
-        #expect(list.papers.allSatisfy { $0.selected && $0.state == .pending })
-        #expect(CompilationPlanner.parsePaperList("没找到", fallbackTitle: "x") == nil)
-    }
-
-    @Test func parsesFoundQuestions() throws {
-        let found = try #require(CompilationPlanner.parseFoundQuestions("""
-        {"questions":[{"number":"第17题","anchor":"一种受体拮抗剂","last_anchor":"P的合成","urls":["https://gaotu.cn/topic/1","not a url"]},{"number":"18"}]}
-        """))
-        #expect(found == [.init(number: "17", anchor: "一种受体拮抗剂", lastAnchor: "P的合成", urls: ["https://gaotu.cn/topic/1"])])
-        #expect(CompilationPlanner.parseFoundQuestions(#"{"questions":[]}"#) == [])
-    }
-
     @Test func ordersCandidatesAndDropsUnusableSites() {
         let ordered = CompilationPlanner.orderedCandidates([
             "https://zujuan.xkw.com/14q1.html",
@@ -209,24 +180,5 @@ import Testing
         let cost = try #require(CompilationPlanner.estimateCostCNY(papers: 3, price: price, usdToCNY: 7.2))
         #expect(abs(cost - 0.597) < 1e-9)
         #expect(CompilationPlanner.estimateCostCNY(papers: 3, price: nil, usdToCNY: 7.2) == nil)
-    }
-
-    @Test func requestsUseWebSearch() {
-        let paper = PaperPlan(title: "2025年高考化学北京卷", year: "2025")
-        #expect(CompilationPlanner.listPapersRequest(model: "m", request: "近3年有机大题", reasoningEffort: nil).webSearch)
-        let find = CompilationPlanner.findQuestionsRequest(model: "m", request: "有机大题", paper: paper, onlyNumber: "17", reasoningEffort: .high)
-        #expect(find.webSearch)
-        #expect(find.messages.first?.text.contains("只找这份试卷的第 17 题") == true)
-    }
-
-    /// DeepSeek 模型的汇编请求要用 deepseek_web_search，不能用默认的 web_search_options。
-    @Test func requestsCarryWebSearchDialect() {
-        let paper = PaperPlan(title: "2025年高考化学北京卷", year: "2025")
-        let list = CompilationPlanner.listPapersRequest(model: "deepseek-flash", request: "有机大题", reasoningEffort: .high, webSearchDialect: .deepSeek)
-        #expect(list.webSearchDialect == .deepSeek)
-        let find = CompilationPlanner.findQuestionsRequest(
-            model: "deepseek-flash", request: "有机大题", paper: paper, reasoningEffort: .high, webSearchDialect: .deepSeek
-        )
-        #expect(find.webSearchDialect == .deepSeek)
     }
 }

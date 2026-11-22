@@ -182,6 +182,9 @@ final class GenerationCenter {
                             reply.content += marker
                         }
                         reply.webSearchJSON = search.record.encode()
+                    case .toolCall, .thinkingBlock:
+                        // 普通对话不声明工具，不会出现。
+                        break
                     }
                 }
                 reply.status = Task.isCancelled ? .stopped : .complete

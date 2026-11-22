@@ -18,6 +18,30 @@ public struct OpenAICompatibleService: ChatService {
         struct Message: Encodable {
             let role: String
             let content: Content
+            /// assistant 发起的工具调用。
+            var toolCalls: [OutgoingCall]? = nil
+            /// tool 消息对应的调用 ID。
+            var toolCallID: String? = nil
+            /// DeepSeek 思考模式下调用工具，之前每一轮的思考内容都要传回去，否则返回 400。
+            var reasoningContent: String? = nil
+
+            enum CodingKeys: String, CodingKey {
+                case role, content
+                case toolCalls = "tool_calls"
+                case toolCallID = "tool_call_id"
+                case reasoningContent = "reasoning_content"
+            }
+        }
+
+        struct OutgoingCall: Encodable {
+            struct Function: Encodable {
+                let name: String
+                let arguments: String
+            }
+
+            let id: String
+            let type = "function"
+            let function: Function
         }
 
         /// 没有图片时 content 是字符串（兼容性最好）；有图片时是内容块数组。
@@ -54,7 +78,7 @@ public struct OpenAICompatibleService: ChatService {
         let stream: Bool
         let streamOptions: StreamOptions
         let reasoningEffort: String?
-        /// DeepSeek 的服务端搜索工具。
+        /// DeepSeek 的服务端搜索工具，或者 App 的函数工具。
         let tools: [Tool]?
         /// OpenAI search 系列模型的联网搜索，内容是空对象。
         let webSearchOptions: EmptyObject?
@@ -68,8 +92,27 @@ public struct OpenAICompatibleService: ChatService {
             }
         }
 
-        struct Tool: Encodable {
-            let type: String
+        enum Tool: Encodable {
+            /// 服务端执行的工具，只有 type，例如 deepseek_web_search。
+            case server(String)
+            case function(ToolDefinition)
+
+            private enum CodingKeys: String, CodingKey { case type, function }
+            private enum FunctionKeys: String, CodingKey { case name, description, parameters }
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                switch self {
+                case let .server(type):
+                    try container.encode(type, forKey: .type)
+                case let .function(tool):
+                    try container.encode("function", forKey: .type)
+                    var function = container.nestedContainer(keyedBy: FunctionKeys.self, forKey: .function)
+                    try function.encode(tool.name, forKey: .name)
+                    try function.encode(tool.description, forKey: .description)
+                    try function.encode(tool.parameters, forKey: .parameters)
+                }
+            }
         }
 
         struct EmptyObject: Encodable {}
@@ -102,7 +145,29 @@ public struct OpenAICompatibleService: ChatService {
         if let system = request.trimmedSystemPrompt {
             messages.append(.init(role: "system", content: .text(system)))
         }
-        messages += request.messages.map { .init(role: $0.role.rawValue, content: Self.content(for: $0)) }
+        for message in request.messages {
+            // 工具结果每个调用一条 tool 消息；同一条里还有文字或图片时，再跟一条 user 消息。
+            for result in message.toolResults {
+                messages.append(.init(role: "tool", content: .text(result.content), toolCallID: result.callID))
+            }
+            if !message.toolResults.isEmpty, message.text.isEmpty, message.images.isEmpty { continue }
+            var item = RequestBody.Message(role: message.role.rawValue, content: Self.content(for: message))
+            if message.role == .assistant {
+                if !message.toolCalls.isEmpty {
+                    item.toolCalls = message.toolCalls.map {
+                        .init(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments.isEmpty ? "{}" : $0.arguments))
+                    }
+                }
+                let reasoning = message.thinking.map(\.text).joined()
+                if !reasoning.isEmpty { item.reasoningContent = reasoning }
+            }
+            messages.append(item)
+        }
+
+        var tools: [RequestBody.Tool] = []
+        // DeepSeek 声明了搜索工具时不能再带 web_search_options，否则返回 400。
+        if request.webSearch && request.webSearchDialect == .deepSeek { tools.append(.server("deepseek_web_search")) }
+        tools += request.tools.map { .function($0) }
 
         var urlRequest = URLRequest(url: baseURL.appending(path: "chat/completions"))
         urlRequest.httpMethod = "POST"
@@ -115,9 +180,7 @@ public struct OpenAICompatibleService: ChatService {
             stream: true,
             streamOptions: .init(),
             reasoningEffort: request.reasoningEffort?.rawValue,
-            // DeepSeek 声明了搜索工具时不能再带 web_search_options，否则返回 400。
-            tools: request.webSearch && request.webSearchDialect == .deepSeek
-                ? [RequestBody.Tool(type: "deepseek_web_search")] : nil,
+            tools: tools.isEmpty ? nil : tools,
             webSearchOptions: request.webSearch && request.webSearchDialect == .openAI ? RequestBody.EmptyObject() : nil
         ))
         return urlRequest
@@ -130,10 +193,12 @@ public struct OpenAICompatibleService: ChatService {
             let delta: Delta?
             /// DeepSeek 联网搜索的进度（扩展字段）。
             let serverToolEvent: Lenient<ServerToolEvent>?
+            let finishReason: String?
 
             enum CodingKeys: String, CodingKey {
                 case delta
                 case serverToolEvent = "server_tool_event"
+                case finishReason = "finish_reason"
             }
         }
 
@@ -145,12 +210,26 @@ public struct OpenAICompatibleService: ChatService {
             let reasoning: String?
             /// 引用（OpenAI 和 DeepSeek 都用 url_citation），在最后一个片段里一次给出。
             let annotations: Lenient<[Annotation]>?
+            /// 工具调用分几段给出：第一段有 id 和名字，后面按 index 接着给参数的片段。
+            let toolCalls: Lenient<[ToolCallDelta]>?
 
             enum CodingKeys: String, CodingKey {
                 case content, annotations
                 case reasoningContent = "reasoning_content"
                 case reasoning
+                case toolCalls = "tool_calls"
             }
+        }
+
+        struct ToolCallDelta: Decodable {
+            struct Function: Decodable {
+                let name: String?
+                let arguments: String?
+            }
+
+            let index: Int?
+            let id: String?
+            let function: Function?
         }
 
         struct Annotation: Decodable {
@@ -244,25 +323,81 @@ public struct OpenAICompatibleService: ChatService {
         let usage: Usage?
     }
 
-    /// 解析一个 SSE 事件的 data 字段。
+    /// 解析一个 SSE 事件的 data 字段（不跨事件记状态；分几段给出的工具调用要用 `StreamDecoder`）。
     public static func decodeStreamData(_ data: String) throws -> StreamPayload {
-        let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed == "[DONE]" {
-            return .done
+        let decoder = StreamDecoder()
+        let payload = try decoder.decode(data)
+        guard case let .events(events) = payload else { return payload }
+        return .events(events + decoder.finish())
+    }
+
+    /// 一次流式回答的解析器：把分几段给出的工具调用拼完整，在 finish_reason 或流结束时发出。
+    /// 只在一个流里按顺序使用。
+    public final class StreamDecoder: @unchecked Sendable {
+        private struct PendingCall {
+            var id = ""
+            var name = ""
+            var arguments = ""
         }
 
-        let bytes = Data(trimmed.utf8)
-        if let message = APIErrorMessage.extract(from: bytes) {
-            throw ChatServiceError.server(message: message)
+        /// 按 index 收集的工具调用；没有 index 的服务商按出现顺序编号。
+        private var pending: [Int: PendingCall] = [:]
+        private var order: [Int] = []
+
+        public init() {}
+
+        public func decode(_ data: String) throws -> StreamPayload {
+            let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "[DONE]" {
+                return .done
+            }
+
+            let bytes = Data(trimmed.utf8)
+            if let message = APIErrorMessage.extract(from: bytes) {
+                throw ChatServiceError.server(message: message)
+            }
+
+            let chunk: StreamChunk
+            do {
+                chunk = try JSONDecoder().decode(StreamChunk.self, from: bytes)
+            } catch {
+                throw ChatServiceError.invalidResponse
+            }
+
+            var events = OpenAICompatibleService.events(from: chunk)
+            for delta in chunk.choices?.first?.delta?.toolCalls?.value ?? [] {
+                let index = delta.index ?? (delta.id != nil ? order.count : max(order.count - 1, 0))
+                if pending[index] == nil {
+                    pending[index] = PendingCall()
+                    order.append(index)
+                }
+                if let id = delta.id, !id.isEmpty { pending[index]?.id = id }
+                // 名字只在第一段给出；有的服务商每段都重复一次，所以只取第一次。
+                if let name = delta.function?.name, !name.isEmpty, pending[index]?.name.isEmpty == true {
+                    pending[index]?.name = name
+                }
+                pending[index]?.arguments += delta.function?.arguments ?? ""
+            }
+            if chunk.choices?.first?.finishReason != nil {
+                events += finish()
+            }
+            return .events(events)
         }
 
-        let chunk: StreamChunk
-        do {
-            chunk = try JSONDecoder().decode(StreamChunk.self, from: bytes)
-        } catch {
-            throw ChatServiceError.invalidResponse
+        /// 发出收完整的工具调用。流结束时调用一次。
+        public func finish() -> [ChatStreamEvent] {
+            let calls = order.compactMap { pending[$0] }.enumerated().compactMap { offset, call -> ChatStreamEvent? in
+                guard !call.name.isEmpty else { return nil }
+                let id = call.id.isEmpty ? ToolCall.localIDPrefix + "\(offset)" : call.id
+                return .toolCall(ToolCall(id: id, name: call.name, arguments: call.arguments))
+            }
+            pending = [:]
+            order = []
+            return calls
         }
+    }
 
+    private static func events(from chunk: StreamChunk) -> [ChatStreamEvent] {
         var events: [ChatStreamEvent] = []
         if let toolEvent = chunk.choices?.first?.serverToolEvent?.value {
             events += searchEvents(from: toolEvent)
@@ -291,7 +426,7 @@ public struct OpenAICompatibleService: ChatService {
         if let searches = chunk.usage?.serverToolUse?.toolSearch, searches > 0 {
             events.append(.searchCount(searches))
         }
-        return .events(events)
+        return events
     }
 
     /// DeepSeek 的搜索进度：开始搜索时给出搜索词，搜完给出结果。打开网页、读链接不算搜索。
@@ -317,9 +452,13 @@ public struct OpenAICompatibleService: ChatService {
 
     public func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         do {
-            return SSEStreaming.stream(session: session, request: try makeURLRequest(for: request)) { event in
-                try Self.decodeStreamData(event.data)
-            }
+            let decoder = StreamDecoder()
+            return SSEStreaming.stream(
+                session: session,
+                request: try makeURLRequest(for: request),
+                decode: { try decoder.decode($0.data) },
+                finish: { decoder.finish() }
+            )
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }
