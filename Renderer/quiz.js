@@ -17,6 +17,9 @@
     return element;
   }
 
+  const CHECK = '<svg class="quiz-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+  const CROSS = '<svg class="quiz-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg>';
+
   function isCorrect(question, answer) {
     if (!answer) return false;
     if (question.type === 'choice') {
@@ -50,10 +53,22 @@
     container.classList.add('quiz');
 
     if (spec.title) container.appendChild(el('div', 'quiz-title', ctx.renderInline(spec.title)));
+    // 顶上一条细进度条："已答 2/5"（只有一道题时不显示）。
+    const progress = el('div', 'quiz-progress');
+    const progressText = el('span', 'quiz-progress-text');
+    const progressTrack = el('span', 'quiz-progress-track');
+    const progressFill = el('span', 'quiz-progress-fill');
+    progressTrack.appendChild(progressFill);
+    progress.append(progressText, progressTrack);
+    if (spec.questions.length > 1) container.appendChild(progress);
     const list = el('div', 'quiz-questions');
     container.appendChild(list);
     const footer = el('div', 'quiz-footer');
     container.appendChild(footer);
+    // 刚答完的那道题（不是从保存的状态恢复的）：只有它播放对错的动画。
+    let justAnswered = null;
+    // 上一次刷新时是否已经全部答完。从没答完变成答完时，分数圆环从 0 画到得分；恢复的状态不播放。
+    let wasFinished = null;
 
     function save() {
       // 多选题选了但还没提交的不保存。
@@ -100,6 +115,7 @@
       const answered = !!answer && (q.type === 'number' || !q.multiple || answer.submitted !== false);
       const correct = answered && isCorrect(q, answer);
       if (answered) card.classList.add(correct ? 'is-correct' : 'is-wrong');
+      if (answered && justAnswered === index) card.classList.add('just-answered');
 
       const head = el('div', 'quiz-head');
       head.appendChild(el('span', 'quiz-number', String(index + 1)));
@@ -117,8 +133,13 @@
           if (chosen.has(k)) button.classList.add('is-chosen');
           if (answered) {
             button.disabled = true;
-            if (q.answer.includes(k)) button.classList.add('is-answer');
-            else if (chosen.has(k)) button.classList.add('is-mistake');
+            if (q.answer.includes(k)) {
+              button.classList.add('is-answer');
+              button.insertAdjacentHTML('beforeend', CHECK);
+            } else if (chosen.has(k)) {
+              button.classList.add('is-mistake');
+              button.insertAdjacentHTML('beforeend', CROSS);
+            }
           } else {
             button.addEventListener('click', () => {
               if (q.multiple) {
@@ -129,6 +150,7 @@
                 else delete answers[index];
               } else {
                 answers[index] = { choice: [k] };
+                justAnswered = index;
                 save();
                 report(index);
               }
@@ -146,6 +168,7 @@
           submit.disabled = !answer || !answer.choice.length;
           submit.addEventListener('click', () => {
             answers[index] = { choice: answers[index].choice };
+            justAnswered = index;
             save();
             report(index);
             refresh();
@@ -177,6 +200,7 @@
               return;
             }
             answers[index] = { input: text };
+            justAnswered = index;
             save();
             report(index);
             refresh();
@@ -199,7 +223,7 @@
         }
         result.appendChild(el('div', 'quiz-verdict', escapeHTML(verdict)));
         if (!correct && window.StudyRenderer.getOptions().recordsMistakes) {
-          result.appendChild(el('div', 'quiz-mistake-note', '已加入错题本'));
+          result.appendChild(el('span', 'quiz-mistake-note', '已加入错题本'));
         }
         if (q.explanation) result.appendChild(el('div', 'quiz-explanation', ctx.renderMarkdown(q.explanation)));
         const ask = el('button', 'quiz-ask', correct ? '问问 AI：再讲讲这道题' : '问问 AI：我哪里错了');
@@ -210,25 +234,68 @@
       return card;
     }
 
+    const isDone = (q, i) => !!answers[i] && (q.type === 'number' || !q.multiple || answers[i].submitted !== false);
+
+    /** 分数圆环：答对的比例。刚答完时从 0 画过去（打开"减弱动态效果"时直接画好）。 */
+    function scoreRing(score, total, animate) {
+      const r = 22;
+      const circumference = 2 * Math.PI * r;
+      const ring = el('div', 'quiz-ring');
+      ring.innerHTML = '<svg viewBox="0 0 56 56" aria-hidden="true"><circle class="quiz-ring-track" cx="28" cy="28" r="' + r +
+        '"/><circle class="quiz-ring-fill" cx="28" cy="28" r="' + r + '" transform="rotate(-90 28 28)"/></svg>' +
+        '<span class="quiz-ring-text">' + Math.round((100 * score) / total) + '%</span>';
+      const fill = ring.querySelector('.quiz-ring-fill');
+      const target = circumference * (1 - score / total);
+      fill.style.strokeDasharray = String(circumference);
+      fill.style.strokeDashoffset = String(animate ? circumference : target);
+      if (score === total) ring.classList.add('is-perfect');
+      if (animate) requestAnimationFrame(() => requestAnimationFrame(() => { fill.style.strokeDashoffset = String(target); }));
+      return ring;
+    }
+
     function refresh() {
       list.innerHTML = '';
       spec.questions.forEach((q, i) => list.appendChild(renderQuestion(q, i)));
 
+      const total = spec.questions.length;
+      const doneCount = spec.questions.filter(isDone).length;
+      progressText.textContent = '已答 ' + doneCount + '/' + total;
+      progressFill.style.width = ((100 * doneCount) / total).toFixed(1) + '%';
+
       footer.innerHTML = '';
-      const done = spec.questions.filter((q, i) => answers[i] && (q.type === 'number' || answers[i].submitted !== false));
-      if (done.length === spec.questions.length && spec.questions.length > 1) {
-        const score = spec.questions.filter((q, i) => isCorrect(q, answers[i])).length;
-        footer.appendChild(el('div', 'quiz-score', '答对 ' + score + ' / ' + spec.questions.length + ' 题'));
+      const finished = doneCount === total;
+      const justFinished = finished && wasFinished === false;
+      wasFinished = finished;
+      const wrong = spec.questions.map((q, i) => i).filter((i) => isDone(spec.questions[i], i) && !isCorrect(spec.questions[i], answers[i]));
+      if (finished && total > 1) {
+        const score = total - wrong.length;
+        const summary = el('div', 'quiz-score');
+        summary.appendChild(scoreRing(score, total, justFinished));
+        summary.appendChild(el('span', '', '答对 ' + score + ' / ' + total + ' 题'));
+        footer.appendChild(summary);
+      }
+      if (finished && wrong.length && total > 1) {
+        // 只清空答错的题，答对的保留。
+        const redoWrong = el('button', 'sa-button is-primary', '重做答错的题');
+        redoWrong.addEventListener('click', () => {
+          wrong.forEach((i) => { delete answers[i]; });
+          justAnswered = null;
+          save();
+          refresh();
+        });
+        footer.appendChild(redoWrong);
       }
       if (Object.keys(answers).length) {
         const reset = el('button', 'sa-button', '重做');
         reset.addEventListener('click', () => {
           answers = {};
+          justAnswered = null;
           ctx.setState(null);
           refresh();
         });
         footer.appendChild(reset);
       }
+      justAnswered = null;
     }
 
     refresh();

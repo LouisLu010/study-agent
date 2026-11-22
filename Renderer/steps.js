@@ -27,24 +27,51 @@
 
     container.innerHTML = '';
     container.classList.add('steps');
-    if (spec.title) container.appendChild(el('div', 'steps-title', ctx.renderInline(spec.title)));
+    // 顶上一行：标题和"第 3 / 7 步"。
+    const top = el('div', 'steps-top');
+    if (spec.title) top.appendChild(el('div', 'steps-title', ctx.renderInline(spec.title)));
+    const count = el('span', 'steps-count');
+    top.appendChild(count);
+    container.appendChild(top);
     const list = el('ol', 'steps-list');
     container.appendChild(list);
     const controls = el('div', 'steps-controls');
     container.appendChild(controls);
+    // 这次刷新前展开到第几步。比它多出来的步是新展开的，从下方淡入。
+    let shownBefore = revealed;
 
     function setRevealed(next) {
+      shownBefore = revealed;
       revealed = Math.min(total, Math.max(1, next));
       ctx.setState(revealed > 1 ? { revealed } : null);
       refresh();
     }
 
+    /** 新展开的一步不在屏幕里时，请 Swift 把外面的聊天列表滚过去。 */
+    function reveal(item) {
+      requestAnimationFrame(() => {
+        const rect = item.getBoundingClientRect();
+        window.StudyRenderer.post('reveal', { top: rect.top + window.scrollY, bottom: rect.bottom + window.scrollY });
+      });
+    }
+
     function refresh() {
       list.innerHTML = '';
+      count.textContent = '第 ' + revealed + ' / ' + total + ' 步';
+      let newest = null;
       spec.steps.slice(0, revealed).forEach((step, i) => {
         const item = el('li', 'steps-item');
+        const current = i === revealed - 1;
+        if (current) item.classList.add('is-current');
+        else item.classList.add('is-done');
+        if (i >= shownBefore) {
+          item.classList.add('is-new');
+          newest = item;
+        }
         const head = el('div', 'steps-head');
-        head.appendChild(el('span', 'steps-number', String(i + 1)));
+        // 看过的步变成勾，当前这一步的圆点高亮。
+        head.appendChild(el('span', 'steps-number', current ? String(i + 1)
+          : '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>'));
         head.appendChild(el('span', 'steps-name', step.title ? ctx.renderInline(step.title) : '第 ' + (i + 1) + ' 步'));
         item.appendChild(head);
         item.appendChild(el('div', 'steps-content', ctx.renderMarkdown(step.content)));
@@ -58,8 +85,10 @@
         list.appendChild(item);
       });
 
+      if (newest) reveal(newest);
+      shownBefore = revealed;
+
       controls.innerHTML = '';
-      controls.appendChild(el('span', 'steps-progress', revealed + ' / ' + total));
       if (revealed < total) {
         const next = el('button', 'sa-button is-primary steps-next', '下一步');
         next.addEventListener('click', () => setRevealed(revealed + 1));

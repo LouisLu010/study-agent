@@ -448,14 +448,45 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 .quiz-option.is-chosen { border-color: var(--accent); }
 .quiz-option.is-answer { border-color: var(--green); background: var(--green-fill); }
 .quiz-option.is-mistake { border-color: var(--red); background: var(--red-fill); }
-.quiz-option.is-answer::after, .quiz-option.is-mistake::after {
+/* 选项右边的勾和叉：刚答完时一笔画出来 */
+.quiz-mark {
   margin-left: auto;
-  padding-left: 8px;
-  font-weight: 700;
   flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
-.quiz-option.is-answer::after { content: '✓'; color: var(--green); }
-.quiz-option.is-mistake::after { content: '✕'; color: var(--red); }
+.is-answer .quiz-mark { stroke: var(--green); }
+.is-mistake .quiz-mark { stroke: var(--red); }
+.just-answered .quiz-mark path { stroke-dasharray: 20; stroke-dashoffset: 20; animation: sa-draw 0.35s 0.1s ease-out forwards; }
+/* 答对：选中的选项轻弹一下；答错：选错的选项左右抖一下 */
+.just-answered.is-correct .quiz-option.is-chosen { animation: sa-pop 0.35s ease-out; }
+.just-answered.is-wrong .quiz-option.is-mistake { animation: sa-shake 0.4s ease-in-out; }
+@keyframes sa-draw { to { stroke-dashoffset: 0; } }
+@keyframes sa-pop { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
+@keyframes sa-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+/* 顶上的进度条 */
+.quiz-progress { display: flex; align-items: center; gap: 10px; margin: -2px 0 12px; font-size: 0.8em; color: var(--secondary); }
+.quiz-progress-text { flex: none; font-variant-numeric: tabular-nums; }
+.quiz-progress-track { flex: 1; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.quiz-progress-fill { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--accent); transition: width 0.3s ease-out; }
+/* 分数圆环 */
+.quiz-ring { position: relative; width: 44px; height: 44px; flex: none; }
+.quiz-ring svg { width: 100%; height: 100%; }
+.quiz-ring circle { fill: none; stroke-width: 5; }
+.quiz-ring-track { stroke: var(--track); }
+.quiz-ring-fill { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 0.8s ease-out; }
+.quiz-ring.is-perfect .quiz-ring-fill { stroke: var(--green); }
+.quiz-ring-text { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .quiz-letter {
   flex: none;
   width: 1.7em;
@@ -515,7 +546,7 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
   margin-top: 12px;
 }
 .quiz-footer:empty { display: none; }
-.quiz-score { margin-right: auto; font-weight: 600; }
+.quiz-score { margin-right: auto; font-weight: 600; display: flex; align-items: center; gap: 10px; }
 
 /* 分步讲解：左边是编号圆点和竖线的时间轴 */
 .steps-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
@@ -544,7 +575,17 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 }
 .steps-content { margin-left: 0; }
 .steps-ask { margin-left: 0; }
-.steps-progress { margin-right: auto; color: var(--secondary); font-size: 0.85em; }
+/* 顶上一行：标题和"第 3 / 7 步" */
+.steps-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.steps-top .steps-title { margin-bottom: 0; flex: 1; }
+.steps-count { margin-left: auto; flex: none; color: var(--secondary); font-size: 0.82em; font-variant-numeric: tabular-nums; }
+/* 看过的步：圆点变成勾；当前这一步：圆点外加一圈光晕 */
+.steps-item.is-done .steps-number { background: var(--accent-fill); color: var(--accent); }
+.steps-number svg { width: 1em; height: 1em; fill: none; stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; }
+.steps-item.is-current .steps-number { box-shadow: 0 0 0 4px var(--accent-fill); }
+/* 新展开的一步从下方淡入 */
+.steps-item.is-new { animation: sa-rise 0.35s ease-out; }
+@keyframes sa-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* 几何图 */
 .geometry-readout { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9em; }
@@ -561,7 +602,18 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
   box-sizing: border-box;
 }
 .chart-box.chart-pie { height: 300px; }
-.quiz-mistake-note { color: var(--secondary); font-size: 0.85em; margin: -2px 0 4px; }
+/* "已加入错题本"小标签 */
+.quiz-mistake-note {
+  display: block;
+  width: fit-content;
+  color: var(--red);
+  background: var(--red-fill);
+  font-size: 0.78em;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin: 0 0 6px;
+}
 
 /* 模拟 */
 .simulation-stage {
@@ -634,6 +686,12 @@ body.can-regenerate .sa-regenerate { display: inline-block; }
 .simulation-pop > div { display: flex; justify-content: space-between; gap: 10px; }
 .simulation-pop > div > span:first-child { color: var(--secondary); }
 .simulation-pop-title { font-weight: 700; margin-bottom: 2px; }
+
+/* 打开"减弱动态效果"后，装饰性的动画都不动：闪光、勾叉、弹和抖、分数圆环、分步讲解的淡入。 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .just-answered .quiz-mark path { stroke-dashoffset: 0; }
+}
 
 /* ---------- 汇编 PDF ---------- */
 body.print { color: #000; background: #fff; font: 11pt/1.65 -apple-system, "PingFang SC", sans-serif; color-scheme: light; }

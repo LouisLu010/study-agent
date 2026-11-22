@@ -83,7 +83,7 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult"]
+        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal"]
 
         /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
         private weak var lockedScrollView: UIScrollView?
@@ -98,6 +98,22 @@ struct MessageWebView: UIViewRepresentable {
             } else {
                 lockedScrollView?.panGestureRecognizer.isEnabled = true
                 lockedScrollView = nil
+            }
+        }
+
+        /// 分步讲解新展开的一步不在屏幕里时，把外面的列表滚过去（第八版）。WebView 自己不滚动，高度就是内容高度。
+        private func reveal(top: Double, bottom: Double) {
+            guard bottom > top else { return }
+            // 等高度更新、列表重新排好后再滚。
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(150))
+                guard let self, let webView = self.webView, let scrollView = self.enclosingScrollView() else { return }
+                let rect = CGRect(x: 0, y: top, width: webView.bounds.width, height: bottom - top)
+                let target = scrollView.convert(rect, from: webView).insetBy(dx: 0, dy: -24)
+                let visible = CGRect(origin: scrollView.contentOffset, size: scrollView.bounds.size)
+                    .inset(by: scrollView.adjustedContentInset)
+                guard !visible.contains(target) else { return }
+                scrollView.scrollRectToVisible(target, animated: true)
             }
         }
 
@@ -246,6 +262,12 @@ struct MessageWebView: UIViewRepresentable {
                 }
             case "scrollLock":
                 setOuterScrollLocked((body as? NSNumber)?.boolValue ?? false)
+            case "reveal":
+                guard let payload = body as? [String: Any],
+                      let top = (payload["top"] as? NSNumber)?.doubleValue,
+                      let bottom = (payload["bottom"] as? NSNumber)?.doubleValue
+                else { return }
+                reveal(top: top, bottom: bottom)
             case "regenerate":
                 if parent?.canRegenerate == true {
                     parent?.onRegenerate()
