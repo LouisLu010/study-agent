@@ -139,6 +139,7 @@ final class CompilationToolbox {
             do {
                 let data = try await post(deepSeek, "search", ["query": .string(String(query.prefix(128))), "count": 8], timeout: 30)
                 results = CompilationTools.parseSearchAPI(data)
+                compilation.searches += 1
                 if !results.isEmpty { compilation.costCNY += Self.deepSeekToolPriceUSD * AppSettingsKey.usdToCNYRate }
             } catch is CancellationError {
                 throw CancellationError()
@@ -154,7 +155,6 @@ final class CompilationToolbox {
                 problem = ChatErrorDescription.describe(error)
             }
         }
-        compilation.searches += 1
         if let problem {
             log(.warning, "搜索失败：\(problem)")
             return Step(outcome: ToolLoop.Outcome(["error": .string(problem)]))
@@ -187,8 +187,8 @@ final class CompilationToolbox {
             }
             _ = recorder.handle(event, content: text)
         }
-        // 子请求里服务商自带搜索的次数和费用照常算；外面已经把这次找寻记为 1 次搜索。
-        usage.searches = max(recorder.record.effectiveCount - 1, 0)
+        // 子请求里服务商自带搜索的次数和费用照常记到汇编上。
+        usage.searches = max(recorder.record.effectiveCount, 1)
         record(usage)
         return CompilationTools.parseSearchReply(text, fallback: sources)
     }
@@ -290,7 +290,7 @@ final class CompilationToolbox {
         let label = "获取第 \(number) 题 · \(CompilationPlanner.siteName(for: url))"
 
         let attempt: QuestionFetch.Attempt
-        switch try await QuestionFetch.attempt(url: url, anchor: anchor, lastAnchor: lastAnchor, number: number, load: load) {
+        switch try await QuestionFetch.attempt(url: url, anchor: anchor, lastAnchor: lastAnchor, number: number, load: { try await self.load($0) }) {
         case let .success(value): attempt = value
         case let .failure(status, reason):
             log(.warning, "\(label) · \(status.label)")
