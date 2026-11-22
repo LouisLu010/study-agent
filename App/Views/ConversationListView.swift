@@ -69,6 +69,8 @@ struct ConversationListView: View {
             }
             }
         }
+        // 第八版：浅灰底加白色圆角卡片，深色模式是黑底加深灰卡片。
+        .listStyle(.insetGrouped)
         .searchable(text: $searchText, prompt: "搜索会话标题")
         .overlay {
             if conversations.isEmpty {

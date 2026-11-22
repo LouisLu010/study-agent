@@ -33,6 +33,7 @@ struct StudyStatsView: View {
             .frame(maxWidth: 820)
             .frame(maxWidth: .infinity)
         }
+        .groupedPageBackground()
         .navigationTitle("学习记录")
     }
 
@@ -48,7 +49,7 @@ struct StudyStatsView: View {
     }
 
     private func chart(_ markdown: String) -> some View {
-        RenderedContentView(id: StatsChartID.id(for: markdown), content: markdown)
+        RenderedContentView(id: StatsChartID.id(for: markdown), content: markdown, grouped: true)
             .id(markdown)
     }
 }
@@ -64,7 +65,7 @@ private struct StatTile: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Spacing.m)
-        .cardBackground()
+        .groupedCardBackground()
     }
 }
 

@@ -30,6 +30,11 @@
   }
 }
 
+/* 分组页面（浅灰底）上：卡片是白色，卡片里浮起的一层改成浅灰。深色模式本来就是黑底深灰卡片。 */
+@media (prefers-color-scheme: light) {
+  body.on-grouped { --card: #ffffff; --raised: #f2f2f7; }
+}
+
 html, body {
   margin: 0;
   padding: 0;

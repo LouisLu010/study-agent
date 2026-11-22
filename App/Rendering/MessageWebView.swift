@@ -28,6 +28,8 @@ struct MessageWebView: UIViewRepresentable {
     var onQuizResult: ([String: Any]) -> Void = { _ in }
     /// 答错的题会自动加入错题本时为 true，测验组件会在结果里提示一句。
     var recordsMistakes = false
+    /// 放在浅灰底的分组页面上时为 true，组件卡片改成白色。
+    var groupedSurface = false
     /// 外面用来截长图的引用。
     var handle: WebViewHandle?
 
@@ -191,7 +193,7 @@ struct MessageWebView: UIViewRepresentable {
                     """
                     let state = {};
                     try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
-                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes });
+                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes, grouped });
                     """,
                     arguments: [
                         "text": next.content,
@@ -199,6 +201,7 @@ struct MessageWebView: UIViewRepresentable {
                         "stateJSON": parent?.componentStateJSON ?? "",
                         "canRegenerate": canRegenerate,
                         "recordsMistakes": parent?.recordsMistakes ?? false,
+                        "grouped": parent?.groupedSurface ?? false,
                     ],
                     in: nil,
                     in: .page,

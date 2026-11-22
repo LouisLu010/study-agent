@@ -113,12 +113,14 @@
    * options：
    *   state         这条消息保存的组件状态，{ 组件键: 状态 }
    *   canRegenerate 是否显示"重新生成"按钮（只有最后一条消息可以）
+   *   grouped       放在浅灰底的分组页面上（学习记录）：组件卡片改成白色
    */
   let options = { state: {}, canRegenerate: false };
 
   function setOptions(next) {
     options = Object.assign({}, options, next || {});
     document.body.classList.toggle('can-regenerate', !!options.canRegenerate);
+    document.body.classList.toggle('on-grouped', !!options.grouped);
   }
 
   function render(text, streaming, nextOptions) {

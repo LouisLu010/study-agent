@@ -227,6 +227,8 @@ struct ResearchNotesView: View {
                     }
                 }
                 .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: Theme.Spacing.xs, leading: Theme.Spacing.l, bottom: Theme.Spacing.xs, trailing: Theme.Spacing.l))
             }
             ForEach(groups, id: \.subject) { group in
                 Section(group.subject.rawValue) {
@@ -257,6 +259,7 @@ struct ResearchNotesView: View {
                 }
             }
         }
+        .listStyle(.insetGrouped)
         .overlay {
             if notes.isEmpty {
                 OrbEmptyState(
