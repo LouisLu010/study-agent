@@ -4,7 +4,7 @@
 
 所以汇编改成工具调用：App 给模型一组内置的工具，模型自己决定先搜什么、读哪个网页、取哪道题，看到每次的结果后再决定下一步，最后整理顺序并生成 PDF。工具都由 App 在设备上执行，模型只能从这几个里选，不能自己写新的。原题仍然只从出处网页里取（ADR-0013），获取工具把 App 取到的文字交给模型核对，但模型不能改写原题。
 
-主循环的请求里只放 App 的工具，不放服务商自带的搜索。DeepSeek 的联网工具目前不能和其他工具一起声明（[文档](https://api-docs.deepseek.com/guides/web_tools)：会返回 400），OpenAI 在 Chat Completions 里能用 `web_search_options` 的搜索模型（如 `gpt-4o-search-preview`）不支持函数工具；Anthropic 和 [Gemini](https://ai.google.dev/gemini-api/docs/tool-combination) 可以混用，但三种协议走同一条路更好测。搜索工具由 App 另发一次只开服务商自带搜索的请求来完成（ADR-0011 的适配继续用），所以仍然不用另申请搜索服务的 Key。DeepSeek 官方地址还可以直接调它的 [Search API](https://api-docs.deepseek.com/guides/search)（同一个 Key，每 1000 次 0.75 美元），用哪种由 C0 试验决定。
+主循环的请求里只放 App 的工具，不放服务商自带的搜索。DeepSeek 的联网工具目前不能和其他工具一起声明（[文档](https://api-docs.deepseek.com/guides/web_tools)：会返回 400），OpenAI 在 Chat Completions 里能用 `web_search_options` 的搜索模型（如 `gpt-4o-search-preview`）不支持函数工具；Anthropic 和 [Gemini](https://ai.google.dev/gemini-api/docs/tool-combination) 可以混用，但三种协议走同一条路更好测。搜索工具由 App 另发一次只开服务商自带搜索的请求来完成（ADR-0011 的适配继续用），所以仍然不用另申请搜索服务的 Key。DeepSeek 官方地址还可以直接调它的 [Search API](https://api-docs.deepseek.com/guides/search)（同一个 Key，每 1000 次 0.75 美元），用哪种由 C0 试验决定。C0 试验（README 第七版"C0 结果"）选了 Search API：5 道题找对 4 道，平均每题 0.55 元，另发搜索请求的做法 3/5、1.57 元。
 
 代价是三种协议都要实现"工具调用 → 执行 → 继续生成"的循环，包括把思考内容按各家要求原样传回去（Anthropic 的 thinking 签名、Gemini 的 thought signature、DeepSeek 的 `reasoning_content`）。这正是 ADR-0011 当初想省掉的工作。普通对话不受影响：没有工具时请求和现在完全一样，联网搜索仍然只用服务商自带的。每次搜索多一次子请求，费用会比第五版高，试验时要量出来。
 
