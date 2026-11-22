@@ -1,0 +1,59 @@
+name: Promo video
+
+# 渲染宣传片（见 docs/promo/README.md）。只能在 Actions 页面手动运行。
+# 用 macOS 机器：画面里用苹果系统字体（苹方、SF Pro）和 SF Symbols，这两样只能在 Apple 平台上用，
+# 仓库里不放字体文件和图标图片，都在这台机器上现取。
+on:
+  workflow_dispatch:
+    inputs:
+      stills:
+        description: 只出几张截图检查（帧号，逗号分开；留空就渲染整部片子）
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: promo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci
+
+      - name: Export SF Symbols
+        run: swift scripts/export-symbols.swift symbols.json public/symbols
+
+      - name: Check component JSON
+        run: node scripts/check-content.mjs
+
+      - name: Render
+        env:
+          STILLS: ${{ inputs.stills }}
+        run: |
+          npm run prepare-renderer
+          mkdir -p out
+          if [ -n "$STILLS" ]; then
+            if [[ ! "$STILLS" =~ ^[0-9,]+$ ]]; then echo "stills 只能是帧号和逗号" >&2; exit 1; fi
+            for frame in ${STILLS//,/ }; do
+              npx remotion still src/index.ts Promo "out/frame-$frame.png" --frame="$frame"
+            done
+          else
+            npx remotion render src/index.ts Promo out/gewu-promo.mp4 --concurrency=4
+          fi
+          node scripts/cues.mjs > out/cues.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gewu-promo
+          path: promo/out/
+          retention-days: 30
