@@ -45,6 +45,7 @@ struct ChatView: View {
                             canRegenerate: !isGenerating && message.id == lastAssistantID,
                             canEdit: !isGenerating,
                             onRegenerate: { regenerate(message) },
+                            onContinue: { perform { try generation.continueReply(message, in: conversation, context: context) } },
                             onEdit: { editingMessage = message },
                             onAsk: ask,
                             onSelectVersion: { index in
@@ -241,7 +242,7 @@ struct ChatView: View {
         let messages = conversation.sortedMessages
         guard let index = messages.firstIndex(where: { $0.id == message.id }), index + 1 < messages.count else { return nil }
         let reply = messages[index + 1]
-        guard reply.role == .assistant, reply.status == .complete || reply.status == .stopped, !reply.content.isEmpty else {
+        guard reply.role == .assistant, [.complete, .stopped, .interrupted].contains(reply.status), !reply.content.isEmpty else {
             return nil
         }
         return reply

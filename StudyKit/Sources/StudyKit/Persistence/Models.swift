@@ -138,11 +138,11 @@ public final class Conversation {
         (messages ?? []).sorted { $0.index < $1.index }
     }
 
-    /// 发给模型的历史消息。生成失败或还在生成中的消息不发送。
+    /// 发给模型的历史消息。生成失败或还在生成中的消息不发送；停止和被系统中断的回答按已经写出的部分发送。
     public func chatHistory() -> [ChatMessage] {
         sortedMessages.compactMap { message in
             let images = message.imageData
-            guard message.status == .complete || message.status == .stopped,
+            guard message.status == .complete || message.status == .stopped || message.status == .interrupted,
                   !message.content.isEmpty || !images.isEmpty
             else { return nil }
             return ChatMessage(role: message.role, text: message.content, images: images)
@@ -154,7 +154,10 @@ public enum MessageStatus: String, Sendable {
     case complete
     case streaming
     case failed
+    /// 用户点了停止。
     case stopped
+    /// 生成到一半被系统打断（切到别的 App 后被挂起，或者 App 被关掉）。保留已经写出的部分，可以继续生成。
+    case interrupted
 }
 
 /// 消息：会话中的一条发言。

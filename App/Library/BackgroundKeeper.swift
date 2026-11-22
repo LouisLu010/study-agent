@@ -11,6 +11,10 @@ import UIKit
 ///
 /// 查找试卷、逐份查题、重新获取一道题、写 AI 解析都算一项"工作"，可以同时有好几项。
 /// 第一项开始时申请后台运行，最后一项结束时释放。系统进度显示最近开始的那一项。
+///
+/// 第八版起聊天的回答也算一项工作，但是"轻"的：一般只用 `beginBackgroundTask` 的几十秒，
+/// 强力保活只在设置里已经打开、也已经有定位权限时才用，不请求权限；
+/// 生成超过两分钟（例如深度思考）才升级成普通工作，在 iOS 26 上申请 `BGContinuedProcessingTask`。
 @MainActor
 @Observable
 final class BackgroundKeeper: NSObject {
@@ -45,13 +49,27 @@ final class BackgroundKeeper: NSObject {
     /// 现在切到别的 App 能不能继续运行。
     var isProtected: Bool { locationActive || systemTask == .running }
 
+    /// 已经申请过系统长任务，但没批下来、也没有强力保活：切到别的 App 约 30 秒后会被暂停。
+    var cannotStayInBackground: Bool {
+        guard !locationActive else { return false }
+        switch systemTask {
+        case .refused, .unsupported: return true
+        case .idle, .waiting, .running: return false
+        }
+    }
+
     private struct Job {
         var title: String
         var completed = 0
         var total = 1
         var subtitle: String
+        /// 轻的工作（聊天）：不申请系统长任务，不请求定位权限，也不让屏幕常亮。
+        var light = false
         var onExpire: () -> Void
     }
+
+    /// 轻的工作运行多久后升级成普通工作。
+    private static let lightEscalation: Duration = .seconds(120)
 
     @ObservationIgnored private var jobs: [UUID: Job] = [:]
     /// 开始的先后顺序，最后一个显示在系统进度里。
@@ -63,6 +81,9 @@ final class BackgroundKeeper: NSObject {
     @ObservationIgnored private var locationManager: CLLocationManager?
     @ObservationIgnored private var continuedTask: AnyObject?
     @ObservationIgnored private var legacyTask: UIBackgroundTaskIdentifier = .invalid
+    /// 这一轮（从第一项工作开始到最后一项结束）是否已经申请过系统长任务、请求过定位权限。
+    @ObservationIgnored private var requestedSystemTask = false
+    @ObservationIgnored private var requestedLocation = false
 
     /// App 最近一次进入后台的时间。用来判断一次网络错误是不是因为切到了别的 App。
     @ObservationIgnored private(set) var lastEnteredBackground: Date?
@@ -77,16 +98,29 @@ final class BackgroundKeeper: NSObject {
     }
 
     /// 开始一项工作。`onExpire` 在系统要结束后台运行时调用，应该尽快停下并保存进度。
-    func begin(id: UUID, title: String, subtitle: String = "正在准备", onExpire: @escaping () -> Void = {}) {
-        let first = jobs.isEmpty
-        jobs[id] = Job(title: title, subtitle: subtitle, onExpire: onExpire)
+    /// `light` 为 true 时是轻的工作（聊天的回答），见上面的说明。
+    func begin(
+        id: UUID,
+        title: String,
+        subtitle: String = "正在准备",
+        light: Bool = false,
+        onExpire: @escaping () -> Void = {}
+    ) {
+        jobs[id] = Job(title: title, subtitle: subtitle, light: light, onExpire: onExpire)
         order.removeAll { $0 == id }
         order.append(id)
         ticks = 0
-        if first {
-            startKeepAlive(title: title, subtitle: subtitle)
-        } else {
-            refresh()
+        ensureKeepAlive()
+        refresh()
+        if light {
+            Task { [weak self] in
+                try? await Task.sleep(for: Self.lightEscalation)
+                guard let self, var job = self.jobs[id], job.light else { return }
+                job.light = false
+                self.jobs[id] = job
+                self.ensureKeepAlive()
+                self.refresh()
+            }
         }
     }
 
@@ -119,24 +153,33 @@ final class BackgroundKeeper: NSObject {
 
     // MARK: - 申请和释放
 
-    private func startKeepAlive(title: String, subtitle: String) {
-        UIApplication.shared.isIdleTimerDisabled = true
-        legacyTask = UIApplication.shared.beginBackgroundTask(withName: "汇编") { [weak self] in
-            Task { @MainActor in self?.legacyExpired() }
+    /// 按现在有哪些工作补上该有的后台运行：几十秒的后台时间、强力保活的定位、系统长任务。已经有的不重复申请。
+    private func ensureKeepAlive() {
+        guard let job = current else { return }
+        let full = jobs.values.contains { !$0.light }
+        if legacyTask == .invalid {
+            legacyTask = UIApplication.shared.beginBackgroundTask(withName: "格物后台生成") { [weak self] in
+                Task { @MainActor in self?.legacyExpired() }
+            }
         }
-        if UserDefaults.standard.bool(forKey: AppSettingsKey.strongKeepAlive) {
+        if full { UIApplication.shared.isIdleTimerDisabled = true }
+        if locationManager == nil && UserDefaults.standard.bool(forKey: AppSettingsKey.strongKeepAlive) {
             LocationPermission.shared.refresh()
             if LocationPermission.shared.status == .granted {
                 startLocation()
-            } else {
+            } else if full && !requestedLocation {
                 // 开关开着但没有权限（例如旧版本打开的开关）：现在补请求，下次生成就能用。
+                requestedLocation = true
                 Task { _ = await LocationPermission.shared.request() }
             }
         }
-        if #available(iOS 26.0, *) {
-            submitContinuedTask(title: title, subtitle: subtitle)
-        } else {
-            systemTask = .unsupported
+        if full && !requestedSystemTask {
+            requestedSystemTask = true
+            if #available(iOS 26.0, *) {
+                submitContinuedTask(title: job.title, subtitle: job.subtitle)
+            } else {
+                systemTask = .unsupported
+            }
         }
     }
 
@@ -155,6 +198,8 @@ final class BackgroundKeeper: NSObject {
         }
         continuedTask = nil
         systemTask = .idle
+        requestedSystemTask = false
+        requestedLocation = false
         stopLocation()
         if legacyTask != .invalid {
             UIApplication.shared.endBackgroundTask(legacyTask)

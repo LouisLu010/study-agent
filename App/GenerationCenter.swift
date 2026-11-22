@@ -22,6 +22,11 @@ enum GenerationError: LocalizedError {
 @Observable
 final class GenerationCenter {
     private var tasks: [UUID: Task<Void, Never>] = [:]
+    /// 被系统结束后台运行而停下的会话。它们的回答标为"被系统中断"，不算用户点了停止。
+    @ObservationIgnored private var interruptedBySystem: Set<UUID> = []
+
+    /// 让模型从断点接着写的固定说明。只放在这一次请求里，不保存成消息。
+    static let continuePrompt = "（上一条回答写到一半被系统中断了。请从中断的地方直接接着写，不要重复已经写过的内容，也不要加开场白或说明。）"
 
     func isGenerating(_ conversation: Conversation) -> Bool {
         tasks[conversation.id] != nil
@@ -84,16 +89,34 @@ final class GenerationCenter {
         tasks[conversation.id]?.cancel()
     }
 
-    /// App 上次在生成过程中被关闭时，把残留的"生成中"消息标记为已停止。
+    /// 被系统打断的最后一条回答：把已经写出的部分交回模型，让它接着写，写进同一条回答。
+    /// 这一次不联网搜索（出处的编号和位置接不上）。
+    func continueReply(_ reply: Message, in conversation: Conversation, context: ModelContext) throws {
+        guard tasks[conversation.id] == nil, reply.role == .assistant, reply.status == .interrupted,
+              conversation.sortedMessages.last?.id == reply.id
+        else { return }
+        let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
+        let service = try prepareService(for: conversation, hasImages: hasImages)
+        startReply(in: conversation, service: service, context: context, into: reply, continuing: true)
+    }
+
+    /// App 上次在生成过程中被关闭时，把残留的"生成中"消息标记为被中断，可以继续生成。
     func recoverInterruptedMessages(in context: ModelContext) {
         let streaming = MessageStatus.streaming.rawValue
         let descriptor = FetchDescriptor<Message>(predicate: #Predicate { $0.statusRaw == streaming })
         guard let messages = try? context.fetch(descriptor), !messages.isEmpty else { return }
         for message in messages where tasks[message.conversation?.id ?? UUID()] == nil {
-            message.status = .stopped
+            message.status = message.content.isEmpty ? .stopped : .interrupted
             message.finishVersion()
         }
         try? context.save()
+    }
+
+    /// 系统要结束后台运行：停下这个会话的生成，回答标为被中断。
+    private func interruptBySystem(_ conversationID: UUID) {
+        guard let task = tasks[conversationID] else { return }
+        interruptedBySystem.insert(conversationID)
+        task.cancel()
     }
 
     // MARK: - 内部
@@ -126,12 +149,20 @@ final class GenerationCenter {
         in conversation: Conversation,
         service: any ChatService,
         context: ModelContext,
-        into existing: Message? = nil
+        into existing: Message? = nil,
+        continuing: Bool = false
     ) {
         guard let model = conversation.model else { return }
 
-        // 只有会话打开了"联网"、模型也支持时才联网搜索。
-        let webSearch = conversation.webSearchEnabled && model.supportsWebSearch
+        // 只有会话打开了"联网"、模型也支持时才联网搜索。接着写被中断的回答时不搜索。
+        let webSearch = !continuing && conversation.webSearchEnabled && model.supportsWebSearch
+        // 历史里带着被中断的这条回答（已经写出的部分），后面加一句固定的说明。
+        var history = conversation.chatHistory()
+        if continuing {
+            history.append(ChatMessage(role: .user, text: Self.continuePrompt))
+            existing?.status = .streaming
+            existing?.errorText = nil
+        }
         let request = ChatRequest(
             model: model.modelID,
             systemPrompt: SystemPrompt.compose(
@@ -139,7 +170,7 @@ final class GenerationCenter {
                 conversationInstructions: conversation.instructions,
                 simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
             ),
-            messages: conversation.chatHistory(),
+            messages: history,
             reasoningEffort: model.reasoningEffort,
             webSearch: webSearch,
             webSearchDialect: model.webSearchDialect
@@ -165,8 +196,26 @@ final class GenerationCenter {
         let price = model.price()
         // DeepSeek 空闲时段半价，按开始的时间算。
         let started = Date.now
+        // 接着写时，用量和费用加在原来的上面。
+        let previous = continuing
+            ? (input: reply.inputTokens ?? 0, cached: reply.cachedInputTokens ?? 0, output: reply.outputTokens ?? 0, cost: reply.costCNY ?? 0)
+            : (input: 0, cached: 0, output: 0, cost: 0)
+        if continuing {
+            reply.inputTokens = nil
+            reply.cachedInputTokens = nil
+            reply.outputTokens = nil
+        }
+
+        // 切到别的 App 时也申请后台运行（第八版），和汇编共用 BackgroundKeeper，但是"轻"的工作。
+        let keeper = BackgroundKeeper.shared
+        let jobID = UUID()
+        keeper.begin(id: jobID, title: "格物正在回答", subtitle: conversation.title, light: true) { [weak self] in
+            self?.interruptBySystem(conversationID)
+        }
+
         tasks[conversationID] = Task { [weak self] in
             var search = WebSearchRecorder()
+            var events = 0
             do {
                 for try await event in service.streamChat(request) {
                     switch event {
@@ -186,15 +235,35 @@ final class GenerationCenter {
                         // 普通对话不声明工具，不会出现。
                         break
                     }
+                    // 系统长任务要看到进度在走，否则会当成卡住结束它。
+                    events += 1
+                    if events % 40 == 0 {
+                        let step = events / 40
+                        keeper.update(id: jobID, completed: step, total: step + 1, subtitle: "已写 \(reply.content.count) 字")
+                    }
                 }
-                reply.status = Task.isCancelled ? .stopped : .complete
+                if Task.isCancelled {
+                    reply.status = self?.interruptedBySystem.contains(conversationID) == true ? .interrupted : .stopped
+                } else {
+                    reply.status = .complete
+                }
             } catch {
-                if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                if self?.interruptedBySystem.contains(conversationID) == true {
+                    reply.status = .interrupted
+                } else if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     reply.status = .stopped
+                } else if CompilationCenter.isBackgroundInterruption(error, since: started) {
+                    // 切到后台被系统断开了连接：不算失败，保留写出的部分，可以继续生成。
+                    reply.status = .interrupted
                 } else {
                     reply.status = .failed
                     reply.errorText = ChatErrorDescription.describe(error)
                 }
+            }
+            if reply.status == .interrupted && reply.content.isEmpty {
+                // 一个字都还没写出来：没有可以接着写的，按失败处理，给"重试"。
+                reply.status = .failed
+                reply.errorText = "切到别的 App 后被系统中断了，还没有写出内容。"
             }
             // 按位置定位的引用（DeepSeek、Gemini）要等正文完整后再插角标。
             if webSearch || !search.record.isEmpty {
@@ -202,7 +271,7 @@ final class GenerationCenter {
                 reply.webSearchJSON = search.record.encode()
             }
             if let price, reply.inputTokens != nil || reply.outputTokens != nil {
-                reply.costCNY = price.costCNY(
+                let cost = price.costCNY(
                     inputTokens: reply.inputTokens ?? 0,
                     cachedInputTokens: reply.cachedInputTokens ?? 0,
                     outputTokens: reply.outputTokens ?? 0,
@@ -210,11 +279,19 @@ final class GenerationCenter {
                     usdToCNY: AppSettingsKey.usdToCNYRate,
                     at: started
                 )
+                reply.costCNY = previous.cost + cost
+            }
+            if continuing {
+                reply.inputTokens = previous.input + (reply.inputTokens ?? 0)
+                reply.cachedInputTokens = previous.cached + (reply.cachedInputTokens ?? 0)
+                reply.outputTokens = previous.output + (reply.outputTokens ?? 0)
             }
             reply.finishVersion()
             conversation.updatedAt = .now
             try? context.save()
             self?.tasks[conversationID] = nil
+            self?.interruptedBySystem.remove(conversationID)
+            keeper.end(id: jobID, success: reply.status == .complete)
 
             if reply.status == .complete {
                 await Self.generateTitleIfNeeded(for: conversation, service: service, modelID: modelID, context: context)

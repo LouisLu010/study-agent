@@ -8,6 +8,8 @@ struct MessageRow: View {
     var canRegenerate = false
     var canEdit = false
     var onRegenerate: () -> Void = {}
+    /// 被系统中断的最后一条回答：接着写。
+    var onContinue: () -> Void = {}
     var onEdit: () -> Void = {}
     /// 组件里的"问问 AI"按钮：以用户的名义发一条消息。
     var onAsk: (String) -> Void = { _ in }
@@ -27,6 +29,7 @@ struct MessageRow: View {
                 message: message,
                 canRegenerate: canRegenerate,
                 onRegenerate: onRegenerate,
+                onContinue: onContinue,
                 onAsk: onAsk,
                 onSelectVersion: onSelectVersion,
                 onQuizResult: onQuizResult
@@ -70,7 +73,8 @@ private struct UserMessageView: View {
                         .textSelection(.enabled)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color.accentColor.opacity(0.22), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
+                        // 第八版：中性浅灰，深色模式是深灰。
+                        .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
                 }
             }
         }
@@ -96,11 +100,13 @@ private struct AssistantMessageView: View {
     let message: Message
     let canRegenerate: Bool
     let onRegenerate: () -> Void
+    let onContinue: () -> Void
     let onAsk: (String) -> Void
     let onSelectVersion: (Int) -> Void
     let onQuizResult: ([String: Any]) -> Void
 
     @Environment(\.modelContext) private var context
+    @State private var keeper = BackgroundKeeper.shared
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
     @State private var didCopy = false
@@ -115,6 +121,7 @@ private struct AssistantMessageView: View {
         message: Message,
         canRegenerate: Bool,
         onRegenerate: @escaping () -> Void,
+        onContinue: @escaping () -> Void,
         onAsk: @escaping (String) -> Void,
         onSelectVersion: @escaping (Int) -> Void,
         onQuizResult: @escaping ([String: Any]) -> Void
@@ -122,6 +129,7 @@ private struct AssistantMessageView: View {
         self.message = message
         self.canRegenerate = canRegenerate
         self.onRegenerate = onRegenerate
+        self.onContinue = onContinue
         self.onAsk = onAsk
         self.onSelectVersion = onSelectVersion
         self.onQuizResult = onQuizResult
@@ -141,6 +149,10 @@ private struct AssistantMessageView: View {
             }
             if let search, !search.queries.isEmpty || isStreaming {
                 WebSearchSummaryView(record: search, isSearching: isStreaming && message.content.isEmpty)
+            }
+            // 出处卡片横排在正文上方（第八版），拿到出处就显示。复制和导出 Markdown 仍在末尾附文字版出处。
+            if let search, !search.displayedSources.isEmpty {
+                SourceStripView(sources: search.displayedSources, numbered: !search.sources.isEmpty)
             }
 
             if !message.reasoning.isEmpty {
@@ -197,12 +209,26 @@ private struct AssistantMessageView: View {
                 Text("已停止生成")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            case .complete, .streaming:
+            case .interrupted:
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("回答被系统中断", systemImage: "pause.circle")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                    if canRegenerate {
+                        Button("继续生成", systemImage: "arrow.right.circle", action: onContinue)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
+            case .streaming:
+                // 生成超过两分钟后系统没批准后台运行：切走可能会中断，提示一行小字。
+                if keeper.cannotStayInBackground {
+                    Text("系统没有批准后台运行，切到别的 App 约 30 秒后回答可能会中断。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            case .complete:
                 EmptyView()
-            }
-
-            if !isStreaming, let sources = search?.displayedSources, !sources.isEmpty {
-                SourceListView(sources: sources, numbered: !(search?.sources.isEmpty ?? true))
             }
 
             if !isStreaming && (hasActions || showsVersionSwitcher) {
@@ -517,7 +543,7 @@ private struct WebSearchSummaryView: View {
     }
 }
 
-/// 回答末尾的出处列表。编号和正文里的角标一致；点按用系统浏览器打开。
+/// 出处列表：资料里的出处，以及出处卡片上"全部 N 个"打开的列表。编号和正文里的角标一致；点按用系统浏览器打开。
 struct SourceListView: View {
     let sources: [WebSource]
     /// 有引用时按 [1] [2] 编号；只有搜索结果时不编号。
