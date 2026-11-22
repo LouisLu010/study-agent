@@ -179,7 +179,7 @@ private struct MistakeRow: View {
 
     var body: some View {
         LibraryRow(
-            title: mistake.previewText.isEmpty ? "（图片题）" : mistake.previewText,
+            title: mistake.previewText.isEmpty ? "（图片题）" : PlainTextExporter.previewText(from: mistake.previewText),
             subject: mistake.subject?.rawValue ?? "分类中…",
             meta: [mistake.topic, MistakeFormatting.status(mistake)].filter { !$0.isEmpty }.joined(separator: " · ")
         )

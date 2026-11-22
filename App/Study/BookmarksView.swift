@@ -74,7 +74,7 @@ struct BookmarksView: View {
                     LibraryRow(
                         title: bookmark.title,
                         subject: bookmark.subject?.rawValue ?? "分类中…",
-                        summary: String(PlainTextExporter.plainText(from: bookmark.content).prefix(120)),
+                        summary: String(PlainTextExporter.previewText(from: bookmark.content).prefix(120)),
                         meta: [bookmark.topic, bookmark.createdAt.formatted(.dateTime.month().day())]
                             .filter { !$0.isEmpty }.joined(separator: " · ")
                     )

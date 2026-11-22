@@ -2281,6 +2281,135 @@
     return lines.join('\n').replace(CITATION_MARKER, '[$1]');
   }
 
+  // ---------- 列表里的预览文字 ----------
+
+  // 错题本、收藏、资料的列表行只能显示纯文字，公式要改写成能读的样子，
+  // 例如 $\frac{x^2}{16}$ 写成 x²/16。复制和导出仍然保留 LaTeX 原文，不用这个。
+  const SUPERSCRIPTS = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+    '+': '⁺', '-': '⁻', '−': '⁻', '=': '⁼', '(': '⁽', ')': '⁾', n: 'ⁿ', i: 'ⁱ', x: 'ˣ', T: 'ᵀ' };
+  const SUBSCRIPTS = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+    '+': '₊', '-': '₋', '−': '₋', '=': '₌', '(': '₍', ')': '₎', a: 'ₐ', e: 'ₑ', o: 'ₒ', x: 'ₓ', n: 'ₙ', m: 'ₘ', k: 'ₖ', t: 'ₜ', i: 'ᵢ', r: 'ᵣ' };
+  const LATEX_SYMBOLS = {
+    alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε', varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ',
+    vartheta: 'θ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ', pi: 'π', rho: 'ρ', sigma: 'σ', tau: 'τ', phi: 'φ',
+    varphi: 'φ', chi: 'χ', psi: 'ψ', omega: 'ω', Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Pi: 'Π',
+    Sigma: 'Σ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω',
+    times: '×', cdot: '·', div: '÷', pm: '±', mp: '∓', leq: '≤', le: '≤', geq: '≥', ge: '≥', neq: '≠', ne: '≠',
+    approx: '≈', equiv: '≡', sim: '∼', cong: '≅', propto: '∝', infty: '∞', to: '→', rightarrow: '→',
+    leftarrow: '←', Rightarrow: '⇒', Leftarrow: '⇐', Leftrightarrow: '⇔', leftrightarrow: '↔', in: '∈',
+    notin: '∉', subset: '⊂', subseteq: '⊆', cup: '∪', cap: '∩', emptyset: '∅', varnothing: '∅', forall: '∀',
+    exists: '∃', angle: '∠', triangle: '△', perp: '⊥', parallel: '∥', circ: '°', degree: '°', sum: 'Σ',
+    prod: 'Π', int: '∫', partial: '∂', nabla: '∇', ldots: '…', cdots: '…', dots: '…', because: '∵',
+    therefore: '∴', sin: 'sin', cos: 'cos', tan: 'tan', ln: 'ln', log: 'log', lg: 'lg', lim: 'lim',
+    max: 'max', min: 'min', quad: ' ', qquad: ' ', ',': ' ', ';': ' ', '!': '', ' ': ' ',
+    left: '', right: '', displaystyle: '', '{': '{', '}': '}', '%': '%',
+  };
+
+  /** 从 pos 开始读一个参数：{…} 或单个字符；返回内容和结束位置。 */
+  function readArgument(src, pos) {
+    while (src[pos] === ' ') pos++;
+    if (src[pos] === '\\') {
+      const command = /^\\([a-zA-Z]+|.)/.exec(src.slice(pos));
+      if (command) return { value: command[0], end: pos + command[0].length };
+    }
+    if (src[pos] !== '{') return { value: src[pos] || '', end: pos + 1 };
+    let depth = 0;
+    for (let i = pos; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}' && --depth === 0) return { value: src.slice(pos + 1, i), end: i + 1 };
+    }
+    return { value: src.slice(pos + 1), end: src.length };
+  }
+
+  /** 能整体写成上标或下标就写，否则写成 ^(…) / _(…)。 */
+  function scriptText(text, table, marker) {
+    const chars = Array.from(text);
+    if (chars.length > 0 && chars.every((c) => table[c])) return chars.map((c) => table[c]).join('');
+    return chars.length === 1 ? marker + text : marker + '(' + text + ')';
+  }
+
+  /** 分子分母不止一个"项"时加括号：x^2/16 不加，(x+1)/2 加。 */
+  function wrapFraction(text) {
+    return /^[\p{L}\p{N}.⁰¹²³⁴⁵⁶⁷⁸⁹ⁿ₀₁₂₃₄₅₆₇₈₉√π]+$/u.test(text) ? text : '(' + text + ')';
+  }
+
+  /** mhchem 的 \ce{…}：元素后的数字写成下标，箭头写成符号。 */
+  function chemistryText(src) {
+    return src
+      .replace(/<=>|<-->|<=>>|<<=>/g, '⇌')
+      .replace(/->/g, '→')
+      .replace(/<-/g, '←')
+      .replace(/([A-Za-z\)\]])(\d+)/g, (m, before, digits) => before + scriptText(digits, SUBSCRIPTS, '_'))
+      .replace(/\^\{?([0-9]*[+-])\}?/g, (m, charge) => scriptText(charge, SUPERSCRIPTS, '^'));
+  }
+
+  function latexToText(src) {
+    let out = '';
+    let i = 0;
+    while (i < src.length) {
+      const ch = src[i];
+      if (ch === '\\') {
+        const match = /^\\([a-zA-Z]+|.)/.exec(src.slice(i));
+        if (!match) { i++; continue; }
+        const name = match[1];
+        i += match[0].length;
+        if (name === 'frac' || name === 'dfrac' || name === 'tfrac') {
+          const top = readArgument(src, i);
+          const bottom = readArgument(src, top.end);
+          i = bottom.end;
+          out += wrapFraction(latexToText(top.value)) + '/' + wrapFraction(latexToText(bottom.value));
+        } else if (name === 'sqrt') {
+          let index = '';
+          if (src[i] === '[') {
+            const close = src.indexOf(']', i);
+            index = close > i ? src.slice(i + 1, close) : '';
+            i = close > i ? close + 1 : i;
+          }
+          const radicand = readArgument(src, i);
+          i = radicand.end;
+          const inner = latexToText(radicand.value);
+          out += (index ? scriptText(index, SUPERSCRIPTS, '') : '') + '√' + (Array.from(inner).length > 1 ? '(' + inner + ')' : inner);
+        } else if (name === 'ce' || name === 'pu') {
+          const arg = readArgument(src, i);
+          i = arg.end;
+          out += chemistryText(arg.value);
+        } else if (/^(text|mathrm|mathbf|mathit|operatorname|boldsymbol|textbf|mathbb|overline|vec|bar|hat)$/.test(name)) {
+          const arg = readArgument(src, i);
+          i = arg.end;
+          const inner = latexToText(arg.value);
+          out += name === 'vec' ? inner + '⃗' : name === 'overline' || name === 'bar' ? inner + '̄' : inner;
+        } else if (Object.prototype.hasOwnProperty.call(LATEX_SYMBOLS, name)) {
+          out += LATEX_SYMBOLS[name];
+          // \angle ABC 写成 ∠ABC，不留空格。
+          if ((name === 'angle' || name === 'triangle') && src[i] === ' ') i++;
+        } else {
+          out += name;
+        }
+      } else if (ch === '^' || ch === '_') {
+        const arg = readArgument(src, i + 1);
+        i = arg.end;
+        const inner = latexToText(arg.value);
+        out += ch === '^' && (inner === '°' || inner === '∘') ? '°' : scriptText(inner, ch === '^' ? SUPERSCRIPTS : SUBSCRIPTS, ch);
+      } else if (ch === '{' || ch === '}') {
+        i++;
+      } else {
+        out += ch;
+        i++;
+      }
+    }
+    return out.replace(/ {2,}/g, ' ');
+  }
+
+  /** 列表行用的一行纯文字：组件转成文字，公式改写成能读的样子，换行和多余的空白合成一个空格。 */
+  function toPreviewText(markdown) {
+    const text = toPlainText(markdown)
+      .replace(/\$\$([\s\S]+?)\$\$/g, (m, tex) => latexToText(tex))
+      .replace(/\\\[([\s\S]+?)\\\]/g, (m, tex) => latexToText(tex))
+      .replace(/\\\(([\s\S]+?)\\\)/g, (m, tex) => latexToText(tex))
+      .replace(/(^|[^\\])\$([^$\n]+?)\$/g, (m, before, tex) => before + latexToText(tex));
+    return text.replace(/\s+/g, ' ').trim();
+  }
+
   // ---------- 引用角标 ----------
 
   // 联网搜索的引用在正文里写成 [[1]](<url>)，渲染成上标的 [1]。
@@ -2351,5 +2480,7 @@
     parseComponent,
     extractFences,
     toPlainText,
+    latexToText,
+    toPreviewText,
   };
 });
