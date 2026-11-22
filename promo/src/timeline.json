@@ -2,6 +2,7 @@
   "fps": 30,
   "width": 1920,
   "height": 1080,
+  "transition": 15,
   "scenes": [
     {
       "id": "opening",
@@ -80,39 +81,43 @@
       "sound": "发送"
     },
     {
-      "frame": 195,
+      "frame": 150,
+      "sound": "转场：开场淡到 iPad（每段之间都是 15 帧淡入淡出，可配一声轻的过渡音）"
+    },
+    {
+      "frame": 216,
       "sound": "按住摆长滑块"
     },
     {
-      "frame": 226,
+      "frame": 246,
       "sound": "松手，单摆重新摆起来"
     },
     {
-      "frame": 375,
+      "frame": 389,
       "sound": "按住参数 a 的滑块"
     },
     {
-      "frame": 456,
+      "frame": 465,
       "sound": "松手"
     },
     {
-      "frame": 545,
+      "frame": 560,
       "sound": "点 2× 速度"
     },
     {
-      "frame": 605,
+      "frame": 610,
       "sound": "中途加入 A，平衡移动"
     },
     {
-      "frame": 755,
+      "frame": 766,
       "sound": "测验答对（轻震）"
     },
     {
-      "frame": 800,
+      "frame": 820,
       "sound": "测验答错（震动），出现\"已加入错题本\""
     },
     {
-      "frame": 910,
+      "frame": 918,
       "sound": "错题本里插入新的一行"
     },
     {
@@ -132,7 +137,7 @@
       "sound": "连续学习天数从 11 变成 12"
     },
     {
-      "frame": 1250,
+      "frame": 1258,
       "sound": "点\"查找试卷\""
     },
     {

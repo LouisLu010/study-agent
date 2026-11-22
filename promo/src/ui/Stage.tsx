@@ -46,7 +46,7 @@ export const IPhoneStage: React.FC<{ enter: number; children: React.ReactNode }>
   const x = video.width - (iphone.width + 24) * iphoneScale - 330;
   const y = (video.height - (iphone.height + 24) * iphoneScale) / 2;
   return (
-    <div style={{ position: 'absolute', left: x, top: y + (1 - enter) * 120, opacity: enter, transform: `scale(${iphoneScale})`, transformOrigin: '0 0' }}>
+    <div style={{ position: 'absolute', left: x + (1 - enter) * 180, top: y, opacity: enter, transform: `scale(${iphoneScale})`, transformOrigin: '0 0' }}>
       <IPhone scale={1} style={{ left: 0, top: 0 }}>{children}</IPhone>
     </div>
   );

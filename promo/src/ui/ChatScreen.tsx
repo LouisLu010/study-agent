@@ -32,11 +32,13 @@ type Props = {
   scroll?: number;
   /** 回答还在生成：显示小球，不显示操作栏。 */
   thinking?: boolean;
+  /** 回答刚出来时淡入。 */
+  answerOpacity?: number;
   composer?: { value?: string; caret?: boolean; pressing?: boolean };
   onLayout?: (layout: { height: number; rects: Rect[] }) => void;
 };
 
-export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, scroll = 0, thinking, composer, onLayout }) => (
+export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, scroll = 0, thinking, answerOpacity = 1, composer, onLayout }) => (
   <div style={{ position: 'absolute', left: chat.left, top: 0, width: chat.width, bottom: 0, background: color.background, overflow: 'hidden' }}>
     <div style={{ position: 'absolute', left: chat.contentLeft - chat.left, width: chat.contentWidth, top: chat.navHeight + 16 - scroll }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', paddingLeft: 48 }}>
@@ -51,7 +53,7 @@ export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, 
           正在思考…
         </div>
       ) : (
-        <>
+        <div style={{ opacity: answerOpacity }}>
           <Renderer markdown={answer} width={chat.contentWidth} actions={actions} onLayout={onLayout} />
           <div style={{ display: 'flex', gap: 16, marginTop: 8, color: color.secondary }}>
             {['doc.on.doc', 'arrow.clockwise', 'bookmark', 'doc.text.magnifyingglass', 'square.and.arrow.up'].map((name) => (
@@ -59,7 +61,7 @@ export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, 
             ))}
           </div>
           <div style={{ ...text.caption2, color: color.tertiary, marginTop: 8 }}>输入 2,310（缓存 1,840） · 输出 640 tokens · 约 ¥0.003</div>
-        </>
+        </div>
       )}
     </div>
 
