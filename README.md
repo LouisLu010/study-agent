@@ -282,3 +282,7 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 3. **M3 坐标图**：```` ```graph ```` 代码块格式、内置提示词、JSXGraph 绘制。
 4. **M4 补全协议**：Anthropic 和 Gemini 协议、思考过程、思考强度设置。
 5. **M5 图片和细节**：图片输入、自动生成会话标题、搜索、重新生成和编辑后重发、错误提示和重试。
+
+## 许可证
+
+本仓库的代码按 [MIT 许可证](./LICENSE) 发布。复制进来的第三方代码保留各自的许可证，见 `Renderer/vendor/LICENSES.md` 和 `App/Vendor/` 下各目录里的许可证文件。各家服务商的名称和图标是各自公司的商标，不在 MIT 许可的范围内。
