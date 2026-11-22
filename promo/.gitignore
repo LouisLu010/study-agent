@@ -1,0 +1,7 @@
+node_modules/
+out/
+# 由 scripts/prepare-renderer.mjs 生成
+public/renderer/
+src/vendor/
+# 由 scripts/export-symbols.swift 在 macOS 上生成（SF Symbols 只能在 Apple 平台上用）
+public/symbols/
