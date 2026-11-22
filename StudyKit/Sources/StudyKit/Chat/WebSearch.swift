@@ -158,7 +158,7 @@ public struct WebSearchRecorder: Sendable {
                 }
             }
             return immediate.isEmpty ? nil : immediate
-        case .text, .reasoning, .usage:
+        case .text, .reasoning, .usage, .cachedInput:
             return nil
         }
     }

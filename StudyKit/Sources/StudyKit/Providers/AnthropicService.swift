@@ -285,7 +285,9 @@ public struct AnthropicService: ChatService {
             case "message_start":
                 // 开始时给出输入数；输出数这时还不准，等 message_delta。
                 if let usage = event.message?.usage, let input = usage.totalInput {
-                    return .events([.usage(input: input, output: nil)])
+                    var events: [ChatStreamEvent] = [.usage(input: input, output: nil)]
+                    if let cached = usage.cacheReadInputTokens, cached > 0 { events.append(.cachedInput(cached)) }
+                    return .events(events)
                 }
                 return .events([])
             case "message_delta":
@@ -293,6 +295,7 @@ public struct AnthropicService: ChatService {
                 var events: [ChatStreamEvent] = []
                 if let usage = event.usage, usage.outputTokens != nil || usage.totalInput != nil {
                     events.append(.usage(input: usage.totalInput, output: usage.outputTokens))
+                    if let cached = usage.cacheReadInputTokens, cached > 0 { events.append(.cachedInput(cached)) }
                 }
                 if let searches = event.usage?.serverToolUse?.webSearchRequests, searches > 0 {
                     events.append(.searchCount(searches))

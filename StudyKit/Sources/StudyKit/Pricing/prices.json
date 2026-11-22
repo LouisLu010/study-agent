@@ -1,6 +1,6 @@
 {
- "updated": "2026-11-19",
- "note": "官方标价，按最低的上下文档位；不含缓存和批量折扣；DeepSeek 按高峰时段价格。联网搜索按每 1000 次的官方价格（webSearchPer1000）：Gemini 是 Gemini 3 起按搜索词计费的价格，不计每月免费额度；DeepSeek 自 2026-11-18 起对话中的搜索不再单独收费。",
+ "updated": "2026-11-22",
+ "note": "官方标价，按最低的上下文档位；不含批量折扣。联网搜索按每 1000 次的官方价格（webSearchPer1000）：Gemini 是 Gemini 3 起按搜索词计费的价格，不计每月免费额度；DeepSeek 自 2026-11-18 起对话中的搜索不再单独收费。DeepSeek 命中缓存的输入按 cachedInput 计；北京时间工作日 9–12、14–18 点以外半价（offPeak），不认法定节假日。其他服务商还没填缓存价，命中缓存的部分按全价算，会偏高。",
  "providers": [
   {
    "name": "OpenAI",
@@ -237,16 +237,32 @@
       "deepseek-v4-flash-vision-exp"
      ],
      "input": 2,
-     "output": 8
+     "output": 8,
+     "cachedInput": 0.04
     },
     {
      "ids": [
       "deepseek-v4-pro"
      ],
      "input": 9,
-     "output": 27
+     "output": 27,
+     "cachedInput": 0.3
     }
-   ]
+   ],
+   "offPeak": {
+    "timeZone": "Asia/Shanghai",
+    "peakHours": [
+     [
+      9,
+      12
+     ],
+     [
+      14,
+      18
+     ]
+    ],
+    "factor": 0.5
+   }
   },
   {
    "name": "Qwen",
