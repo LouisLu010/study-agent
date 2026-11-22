@@ -6,6 +6,11 @@ public enum PageText {
     public struct Page: Sendable, Equatable {
         public var title: String
         public var text: String
+
+        public init(title: String, text: String) {
+            self.title = title
+            self.text = text
+        }
     }
 
     static let breakTags: Set<String> = MarkdownRenderer.blockTags.union(["br", "tr", "table", "hr"])

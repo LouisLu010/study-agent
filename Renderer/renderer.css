@@ -493,6 +493,7 @@ body.print a { color: #000; }
 .print-title { font-size: 18pt; text-align: center; margin: 0 0 4pt; }
 .print-subtitle { text-align: center; color: #555; font-size: 9pt; margin: 0 0 14pt; }
 .print-question { margin: 0 0 6pt; }
+body.print h2.print-group { font-size: 13pt; margin: 16pt 0 2pt; padding-bottom: 2pt; border-bottom: 0.75pt solid #333; break-after: avoid; page-break-after: avoid; }
 .print-label { font-weight: 600; margin: 10pt 0 4pt; break-after: avoid; page-break-after: avoid; }
 .print-space { height: 90pt; }
 .print-missing { color: #888; }

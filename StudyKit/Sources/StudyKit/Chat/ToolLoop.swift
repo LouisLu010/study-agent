@@ -39,6 +39,14 @@ public struct ToolLoop: Sendable {
         public var searches: Int
         /// 请求开始的时间，用来按时段算价格。
         public var started: Date
+
+        public init(input: Int? = nil, cachedInput: Int = 0, output: Int? = nil, searches: Int = 0, started: Date = .now) {
+            self.input = input
+            self.cachedInput = cachedInput
+            self.output = output
+            self.searches = searches
+            self.started = started
+        }
     }
 
     public enum Ending: Sendable, Equatable {
@@ -156,7 +164,7 @@ public struct ToolLoop: Sendable {
     static func stream(
         service: any ChatService, request: ChatRequest, onEvent: @Sendable (ChatStreamEvent) async -> Void
     ) async throws -> Turn {
-        var turn = Turn(usage: Usage(input: nil, cachedInput: 0, output: nil, searches: 0, started: .now))
+        var turn = Turn(usage: Usage())
         var recorder = WebSearchRecorder()
         for try await event in service.streamChat(request) {
             await onEvent(event)

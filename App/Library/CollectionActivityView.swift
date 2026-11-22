@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 汇编的收集过程：每一步一行，最新的在最下面（搜了什么、打开了哪个网页、每道题取到了没有）。
+/// 汇编的调用记录：模型每调用一次工具一行，最新的在最下面（搜了什么、读了哪个网页、每道题取到了没有）。
 /// 运行中最后一行带小球，顶上一行是"已搜索 N 次 · 用时"。默认只显示最近 6 行，可以展开全部。
 struct CollectionActivityView: View {
     let compilationID: UUID
@@ -14,7 +14,7 @@ struct CollectionActivityView: View {
         if !lines.isEmpty {
             VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                 HStack {
-                    Text("收集过程")
+                    Text("调用记录")
                         .font(.subheadline.weight(.semibold))
                     Spacer()
                     if let stats = center.runStats[compilationID] {
@@ -45,7 +45,7 @@ struct CollectionActivityView: View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.s) {
             Group {
                 if isLast && isRunning {
-                    ActivityOrb(activity: line.kind == .search ? .searching : .working, size: 14)
+                    ActivityOrb(activity: line.kind == .search ? .searching : .background, size: 14)
                 } else {
                     Image(systemName: icon(line.kind))
                         .foregroundStyle(color(line.kind))

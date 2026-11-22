@@ -84,8 +84,8 @@ private struct CompilationRow: View {
         switch compilation.status {
         case .listing: return "正在查找试卷…"
         case .choosing: return "已列出 \(compilation.papers.count) 份试卷，等你确认"
-        case .collecting, .paused: return "已暂停 · 已收 \(count) 题"
-        case .done: return "\(count) 题" + (compilation.pdfData == nil ? "" : " · 已生成 PDF")
+        case .collecting, .paused, .arranging: return "已暂停 · 已收 \(count) 题"
+        case .done: return "\(count) 题" + (compilation.pdfData == nil ? (compilation.pdfPending ? " · PDF 待生成" : "") : " · 已生成 PDF")
         case .failed: return compilation.errorText ?? "失败"
         }
     }
@@ -125,7 +125,7 @@ struct NewCompilationSheet: View {
                         }
                     }
                 } footer: {
-                    Text("先列出试卷给你确认，确认后才逐份查题。DeepSeek 会打开深度搜索，自己打开网页核对原文。")
+                    Text("先列出试卷给你确认，确认后模型逐份试卷调用 App 的工具：搜索、读网页、取原题，最后整理顺序并生成 PDF。用 DeepSeek 官方地址时搜索走 DeepSeek 的 Search API。模型要支持工具调用。")
                 }
             }
             .navigationTitle("新建汇编")
@@ -198,7 +198,7 @@ struct CompilationDetailView: View {
                 }
             case .choosing:
                 paperChooser
-            case .collecting, .paused, .done:
+            case .collecting, .paused, .arranging, .done:
                 progressSection
                 questionList
             }
@@ -394,6 +394,8 @@ struct CompilationDetailView: View {
             } footer: {
                 if let date = compilation.pdfGeneratedAt, compilation.pdfData != nil {
                     Text("生成于 \(date.formatted(date: .abbreviated, time: .shortened))")
+                } else if compilation.pdfPending {
+                    Text("整理完时格物在后台，PDF 会在回到格物时自动生成。")
                 }
             }
         }
