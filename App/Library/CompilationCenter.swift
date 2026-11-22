@@ -280,6 +280,14 @@ final class CompilationCenter {
                     context.insert(question)
                     question.compilation = compilation
                     await Self.fetch(question, context: context, log: log)
+                    // 模型把共用一段材料的几道小题拆成了几项时，每项都会取到同一组题：只留第一份，题号合并。
+                    if !question.content.isEmpty, let same = (compilation.questions ?? []).first(where: {
+                        $0.id != question.id && $0.paperTitle == question.paperTitle && $0.content == question.content
+                    }) {
+                        same.number = Self.mergedNumber(same.number, question.number)
+                        log(.step, "\(question.label) 和 \(same.label) 是同一组题，合并")
+                        context.delete(question)
+                    }
                     try? context.save()
                 }
                 updated.state = .done
@@ -473,6 +481,7 @@ final class CompilationCenter {
     static func fetch(_ question: ExamQuestion, context: ModelContext, log: Logger? = nil) async {
         let anchor = question.anchor
         let lastAnchor = question.lastAnchor
+        let group = QuestionExtractor.isGroupNumber(question.number)
         var best: (url: URL, result: QuestionExtractor.Result, images: [Int: (Data, String)])?
         for url in CompilationPlanner.orderedCandidates(question.candidateURLs) {
             if Task.isCancelled { return }
@@ -483,7 +492,7 @@ final class CompilationCenter {
                 continue
             }
             let extracted = await Task.detached {
-                QuestionExtractor.extract(html: html, baseURL: url, anchor: anchor, lastAnchor: lastAnchor)
+                QuestionExtractor.extract(html: html, baseURL: url, anchor: anchor, lastAnchor: lastAnchor, group: group)
             }.value
             guard case let .success(result) = extracted else {
                 log?(.warning, "\(host) 上没找到这道题，换下一个网页")
@@ -526,6 +535,13 @@ final class CompilationCenter {
         let figures = best.result.imageURLs.isEmpty ? "" : "，图 \(best.images.count)/\(best.result.imageURLs.count)"
         log?(question.status == .complete ? .success : .warning,
              "\(question.label)：取到原文\(figures)" + (question.answerKind == .site ? "，带网站解析" : ""))
+    }
+
+    /// 合并题号，例如 18 和 20 → 18～20。
+    nonisolated static func mergedNumber(_ a: String, _ b: String) -> String {
+        let numbers = (a + " " + b).split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        guard let low = numbers.min(), let high = numbers.max(), low != high else { return a }
+        return "\(low)～\(high)"
     }
 
     /// 发给模型的题目文字：图片换成"[图]"。
