@@ -1,7 +1,17 @@
 import PhotosUI
+import StudyKit
 import UniformTypeIdentifiers
 import SwiftUI
 
+/// 输入框放在哪里。
+enum ComposerPlacement {
+    /// 聊天页底部，浮在消息上面（玻璃效果）。
+    case bottomBar
+    /// "今天"页里的一张卡片。
+    case inline
+}
+
+/// 输入框（第八版）：浮起的大圆角卡片，上面一行输入文字，下面一行放附件、联网开关和模型名，右边是实心圆形发送按钮。
 struct ComposerView: View {
     @Binding var text: String
     @Binding var images: [PendingImage]
@@ -17,6 +27,9 @@ struct ComposerView: View {
     /// 当前模型是否支持联网搜索。不支持时按钮显示为灰色，点按时提示原因。
     let webSearchAllowed: Bool
     let onWebSearchNotAllowed: () -> Void
+    /// 下一条消息用的模型，显示在输入框里，点开可以换。
+    @Binding var model: ChatModel?
+    var placement: ComposerPlacement = .bottomBar
 
     @State private var showPhotoPicker = false
     @State private var showCamera = false
@@ -26,7 +39,7 @@ struct ComposerView: View {
     @State private var pdfError = false
     @State private var photoItems: [PhotosPickerItem] = []
     /// 按钮的点按区域，跟随字号变大。
-    @ScaledMetric(relativeTo: .title2) private var buttonSize: CGFloat = 36
+    @ScaledMetric(relativeTo: .title2) private var buttonSize: CGFloat = 34
 
     private var remainingSlots: Int {
         max(0, ImageCompressor.maxImagesPerMessage - images.count)
@@ -44,33 +57,23 @@ struct ComposerView: View {
                 }
             }
 
-            HStack(alignment: .bottom, spacing: Theme.Spacing.xs) {
+            TextField(placement == .inline ? "问点什么" : "发消息", text: $text, axis: .vertical)
+                .lineLimit(placement == .inline ? 2...8 : 1...6)
+                .padding(.horizontal, Theme.Spacing.s)
+                .padding(.top, Theme.Spacing.xs)
+
+            HStack(spacing: Theme.Spacing.xs) {
                 attachmentMenu
                 webSearchButton
-
-                TextField("发消息", text: $text, axis: .vertical)
-                    .lineLimit(1...6)
-                    .padding(.horizontal, Theme.Spacing.xs)
-                    .padding(.vertical, Theme.Spacing.s)
-                    .frame(minHeight: buttonSize)
-
-                Button {
-                    isGenerating ? onStop() : onSend()
-                } label: {
-                    Image(systemName: isGenerating ? "stop.circle.fill" : "arrow.up.circle.fill")
-                        .font(.largeTitle)
-                        .contentTransition(.symbolEffect(.replace))
-                        .frame(width: buttonSize, height: buttonSize)
-                }
-                .disabled(!isGenerating && !canSend)
-                .accessibilityLabel(isGenerating ? "停止生成" : "发送")
+                ModelPickerMenu(selection: $model, style: .compact)
+                Spacer(minLength: Theme.Spacing.xs)
+                sendButton
             }
         }
         .padding(Theme.Spacing.s)
-        // 输入框底栏浮在消息上面，消息可以从它下面滚过去。
-        .glassSurface(in: RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous))
-        .padding(.horizontal, Theme.Spacing.m)
-        .padding(.bottom, Theme.Spacing.s)
+        .background { surface }
+        .padding(.horizontal, placement == .bottomBar ? Theme.Spacing.m : 0)
+        .padding(.bottom, placement == .bottomBar ? Theme.Spacing.s : 0)
         .photosPicker(
             isPresented: $showPhotoPicker,
             selection: $photoItems,
@@ -121,6 +124,42 @@ struct ComposerView: View {
         }
     }
 
+    /// 卡片的底：聊天页用玻璃效果（消息可以从下面滚过去），"今天"页用白色卡片。都带一层淡阴影，看起来是浮起的。
+    @ViewBuilder
+    private var surface: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.fieldRadius, style: .continuous)
+        switch placement {
+        case .bottomBar:
+            Color.clear
+                .glassSurface(in: shape)
+                .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+        case .inline:
+            shape
+                .fill(Color(.secondarySystemGroupedBackground))
+                .shadow(color: .black.opacity(0.06), radius: 10, y: 3)
+        }
+    }
+
+    /// 实心圆形的发送按钮；生成中变成停止按钮。
+    private var sendButton: some View {
+        let enabled = isGenerating || canSend
+        return Button {
+            isGenerating ? onStop() : onSend()
+        } label: {
+            Image(systemName: isGenerating ? "stop.fill" : "arrow.up")
+                .font(.body.weight(.bold))
+                .foregroundStyle(isGenerating ? Color(.systemBackground) : (enabled ? Color.white : Color(.tertiaryLabel)))
+                .contentTransition(.symbolEffect(.replace))
+                .frame(width: buttonSize, height: buttonSize)
+                .background(
+                    Circle().fill(isGenerating ? Color.primary : (enabled ? Color.accentColor : Color(.tertiarySystemFill)))
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(isGenerating ? "停止生成" : "发送")
+    }
+
     @ViewBuilder
     private var attachmentMenu: some View {
         if imagesAllowed {
@@ -165,7 +204,7 @@ struct ComposerView: View {
     }
 
     private var attachmentIcon: some View {
-        Image(systemName: "photo.badge.plus")
+        Image(systemName: "plus")
             .font(.title3)
             .frame(width: buttonSize, height: buttonSize)
             .accessibilityLabel("添加附件")

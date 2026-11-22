@@ -109,11 +109,7 @@ struct ChatView: View {
         }
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                ModelPickerMenu(selection: $conversation.model)
-            }
-        }
+        // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
         .toolbarTitleMenu {
             Button(
@@ -210,7 +206,8 @@ struct ChatView: View {
             webSearchAllowed: conversation.model?.supportsWebSearch ?? false,
             onWebSearchNotAllowed: {
                 errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
-            }
+            },
+            model: $conversation.model
         )
         .frame(maxWidth: 820)
         .frame(maxWidth: .infinity)

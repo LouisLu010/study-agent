@@ -31,6 +31,21 @@ public enum StudyStats {
         }
     }
 
+    /// 连续学习天数（见 GLOSSARY「连续学习天数」）：到今天为止，每天都至少做过一次测验或复习的连续天数。
+    /// 今天还没做题时按截至昨天计算，早上打开不会先看到 0。传入每次作答的时间。
+    public static func streak(_ dates: [Date], now: Date = .now, calendar: Calendar = .current) -> Int {
+        let days = Set(dates.map { calendar.startOfDay(for: $0) })
+        let today = calendar.startOfDay(for: now)
+        guard var day = days.contains(today) ? today : calendar.date(byAdding: .day, value: -1, to: today) else { return 0 }
+        var count = 0
+        while days.contains(day) {
+            count += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: day) else { break }
+            day = previous
+        }
+        return count
+    }
+
     public struct SubjectCount: Equatable {
         public var subject: Subject
         public var total: Int
