@@ -107,6 +107,33 @@ import Testing
         #expect(QuestionExtractor.extract(html: "<p>别的题</p>", baseURL: base, anchor: "脱落酸是一种植物激素", lastAnchor: "") == .failure(.notFound))
     }
 
+    /// 语言文字运用：模型给的定位字是某道小题的题干，要把整段材料一起取下来。
+    @Test func includesSharedPassageForQuestionGroups() throws {
+        let html = """
+        <div class="nav">语言文字应用 语言积累 词语</div>
+        <div class="topic"><p>阅读下面的文字，完成各题。</p>
+        <p>谐音双关是一种常见的修辞手法，即有意使用语音相同、相近而语义不同的词构成双重语义。</p>
+        <p>在当代社会，谐音双关也很常见。民俗节庆文化中，常用到表示具体形象的谐音字；________。</p>
+        <div class="q"><p>18．文中第二段标序号的部分有两处表述不当，请指出其序号并做修改。</p></div>
+        <div class="q"><p>19．下列填入文中横线处的句子，衔接最恰当的一项是（　）</p><p>A．甲 B．乙</p></div>
+        </div>
+        """
+        let one = try QuestionExtractor.extract(html: html, baseURL: base, anchor: "下列填入文中横线处的句子", lastAnchor: "衔接最恰当的一项是").get()
+        #expect(one.content.contains("谐音双关是一种常见的修辞手法"))
+        #expect(one.content.contains("下列填入文中横线处的句子"))
+        #expect(!one.content.contains("语言积累"))
+        let group = try QuestionExtractor.extract(
+            html: html, baseURL: base, anchor: "谐音双关是一种常见的修辞手法", lastAnchor: "下列填入文中横线", group: true
+        ).get()
+        #expect(group.content.hasPrefix("阅读下面的文字"))
+        // 普通的题不受影响：没有说到"文中"就不往外扩。
+        let plain = try QuestionExtractor.extract(html: "<div><p>前言</p><p>求函数的最大值。</p></div>", baseURL: base, anchor: "求函数的最大值", lastAnchor: "").get()
+        #expect(plain.content == "求函数的最大值。")
+        #expect(QuestionExtractor.isGroupNumber("18～20"))
+        #expect(QuestionExtractor.isGroupNumber("18-20"))
+        #expect(!QuestionExtractor.isGroupNumber("18"))
+    }
+
     @Test func flagsTextThatMentionsMissingFigures() throws {
         let result = try QuestionExtractor.extract(html: "<p>某物质的合成路线如下。回答问题。</p>", baseURL: base, anchor: "某物质的合成路线", lastAnchor: "").get()
         #expect(result.probablyMissingImages)
