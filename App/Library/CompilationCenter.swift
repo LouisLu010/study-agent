@@ -185,6 +185,7 @@ final class CompilationCenter {
     /// 系统要结束后台运行：停下保存进度，记下来，回到 App 时自动继续。
     private func interrupt(_ id: UUID) {
         guard tasks[id] != nil else { return }
+        log(id, .warning, "系统结束了后台运行，已保存进度")
         interrupted.insert(id)
         tasks[id]?.cancel()
     }
@@ -207,6 +208,9 @@ final class CompilationCenter {
     static func isBackgroundInterruption(_ error: any Error, since start: Date) -> Bool {
         let codes: [URLError.Code] = [.networkConnectionLost, .notConnectedToInternet, .timedOut, .cannotConnectToHost]
         guard let code = (error as? URLError)?.code, codes.contains(code) else { return false }
+        // 强力保活开着时 App 在后台一直运行、没有被挂起，这是真的网络错误：
+        // 按普通失败处理，这份试卷记为失败、接着查下一份，而不是整个汇编停下等回到 App。
+        if BackgroundKeeper.shared.locationActive { return false }
         if UIApplication.shared.applicationState != .active { return true }
         return (BackgroundKeeper.shared.lastEnteredBackground ?? .distantPast) >= start
     }
@@ -298,6 +302,7 @@ final class CompilationCenter {
                     stopped = true
                 } else if Self.isBackgroundInterruption(error, since: started) {
                     // 切到后台被断开：这份试卷不算失败，回到 App 后从它继续。
+                    log(.warning, "切到后台后连接断开：\(ChatErrorDescription.describe(error))")
                     interrupted.insert(compilation.id)
                     stopped = true
                 } else {
