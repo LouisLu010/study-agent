@@ -29,11 +29,95 @@ public struct ChatMessage: Sendable, Equatable {
     public var text: String
     /// JPEG 格式的图片。
     public var images: [Data]
+    /// 模型这一轮发起的工具调用（只在 assistant 消息里）。
+    public var toolCalls: [ToolCall]
+    /// 工具的执行结果（只在 user 消息里，跟在发起调用的 assistant 消息后面）。
+    public var toolResults: [ToolResult]
+    /// 这一轮的思考内容，调用工具时要按各家要求原样传回去（只在 assistant 消息里）。
+    public var thinking: [ThinkingBlock]
 
-    public init(role: ChatRole, text: String, images: [Data] = []) {
+    public init(
+        role: ChatRole, text: String, images: [Data] = [],
+        toolCalls: [ToolCall] = [], toolResults: [ToolResult] = [], thinking: [ThinkingBlock] = []
+    ) {
         self.role = role
         self.text = text
         self.images = images
+        self.toolCalls = toolCalls
+        self.toolResults = toolResults
+        self.thinking = thinking
+    }
+}
+
+// MARK: - 工具调用（见 docs/adr/0014）
+
+/// 声明给模型的一个工具。parameters 是 JSON Schema（type 为 object）。
+public struct ToolDefinition: Sendable, Equatable {
+    public var name: String
+    public var description: String
+    public var parameters: JSONValue
+
+    public init(name: String, description: String, parameters: JSONValue) {
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+    }
+}
+
+/// 模型发起的一次工具调用。
+public struct ToolCall: Sendable, Equatable {
+    /// 服务商给的调用 ID，工具结果要带上它。Gemini 旧版本不给，这时是 App 自己编的（`localIDPrefix` 开头）。
+    public var id: String
+    public var name: String
+    /// 参数的 JSON 文字，原样保存，传回去时不改动。
+    public var arguments: String
+    /// Gemini 的 thought signature，要放回这次调用所在的位置。
+    public var signature: String?
+
+    public static let localIDPrefix = "local-"
+
+    public init(id: String, name: String, arguments: String, signature: String? = nil) {
+        self.id = id
+        self.name = name
+        self.arguments = arguments
+        self.signature = signature
+    }
+
+    /// 解析后的参数；不是 JSON 对象时为空对象。
+    public var input: JSONValue {
+        if let value = JSONValue.parse(arguments), value.objectValue != nil { return value }
+        return .object([:])
+    }
+
+    var hasServiceID: Bool { !id.hasPrefix(Self.localIDPrefix) }
+}
+
+/// 一次工具调用的结果。content 是交给模型看的文字（通常是 JSON）。
+public struct ToolResult: Sendable, Equatable {
+    public var callID: String
+    public var name: String
+    public var content: String
+
+    public init(callID: String, name: String, content: String) {
+        self.callID = callID
+        self.name = name
+        self.content = content
+    }
+}
+
+/// 一段要原样传回的思考内容。
+/// Anthropic：thinking 块（文字 + signature）或 redacted_thinking 块（data）。
+/// Gemini：不在函数调用上的 thought signature（text 为空）。
+/// OpenAI 兼容协议（DeepSeek）只用 text，拼成 reasoning_content。
+public struct ThinkingBlock: Sendable, Equatable {
+    public var text: String
+    public var signature: String?
+    public var redactedData: String?
+
+    public init(text: String, signature: String? = nil, redactedData: String? = nil) {
+        self.text = text
+        self.signature = signature
+        self.redactedData = redactedData
     }
 }
 
@@ -49,6 +133,8 @@ public struct ChatRequest: Sendable, Equatable {
     public var webSearch: Bool
     /// OpenAI 兼容协议下用哪家的搜索格式。其他协议忽略。
     public var webSearchDialect: WebSearchDialect
+    /// App 内置的工具。为空时请求和第七版之前完全一样。
+    public var tools: [ToolDefinition]
 
     public init(
         model: String,
@@ -56,7 +142,8 @@ public struct ChatRequest: Sendable, Equatable {
         messages: [ChatMessage],
         reasoningEffort: ReasoningEffort? = nil,
         webSearch: Bool = false,
-        webSearchDialect: WebSearchDialect = .openAI
+        webSearchDialect: WebSearchDialect = .openAI,
+        tools: [ToolDefinition] = []
     ) {
         self.model = model
         self.systemPrompt = systemPrompt
@@ -64,6 +151,7 @@ public struct ChatRequest: Sendable, Equatable {
         self.reasoningEffort = reasoningEffort
         self.webSearch = webSearch
         self.webSearchDialect = webSearchDialect
+        self.tools = tools
     }
 
     /// 去掉空白的系统提示词；为空时返回 nil。
@@ -84,6 +172,9 @@ public struct ChatRequest: Sendable, Equatable {
                     .filter { !$0.isEmpty }
                     .joined(separator: "\n\n")
                 result[result.count - 1].images += message.images
+                result[result.count - 1].toolCalls += message.toolCalls
+                result[result.count - 1].toolResults += message.toolResults
+                result[result.count - 1].thinking += message.thinking
             } else {
                 result.append(message)
             }
@@ -111,6 +202,10 @@ public enum ChatStreamEvent: Sendable, Equatable {
     case citations([Citation])
     /// 到目前为止的搜索次数（累计值）。
     case searchCount(Int)
+    /// 模型发起的一次工具调用，参数已经收完整。
+    case toolCall(ToolCall)
+    /// 一段要原样传回的思考内容（签名等）。文字本身已经通过 reasoning 事件给出过。
+    case thinkingBlock(ThinkingBlock)
 }
 
 /// 某种 API 协议的聊天服务。

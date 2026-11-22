@@ -1,6 +1,7 @@
 /*
  * 汇编排版成 PDF：Swift 调用 window.StudyRenderer.renderPrint(doc)，等图片都加载完再返回。
- * doc：{ title, subtitle, includeAnswers, questions: [{ label, content, answer, answerLabel }] }
+ * doc：{ title, subtitle, includeAnswers, questions: [{ label, content, answer, answerLabel, group }] }
+ * group 是整理时定的组名，可以为空。
  * 分页、页眉页脚由 Swift 的 UIPrintPageRenderer 处理。
  */
 (function () {
@@ -22,7 +23,13 @@
     const questions = doc.questions || [];
     let html = '<h1 class="print-title">' + esc(doc.title || '') + '</h1>';
     if (doc.subtitle) html += '<p class="print-subtitle">' + esc(doc.subtitle) + '</p>';
+    let group = '';
     questions.forEach((q, i) => {
+      // 整理时模型按知识点或年份分了组：组名变了就印一个组标题，题号接着往下编。
+      if (q.group && q.group !== group) {
+        html += '<h2 class="print-group">' + esc(q.group) + '</h2>';
+      }
+      group = q.group || '';
       html += '<section class="print-question">' +
         '<div class="print-label">' + (i + 1) + '．' + esc(q.label || '') + '</div>' +
         (q.content ? R.renderMarkdown(q.content) : '<p class="print-missing">（未能获取原文）</p>') +

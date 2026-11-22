@@ -43,6 +43,7 @@ struct RootView: View {
         .task {
             generation.recoverInterruptedMessages(in: context)
             compilations.recoverInterrupted(in: context)
+            compilations.makePendingPDFs(in: context)
             // 本机还没有服务商、也没跳过过引导时显示引导（见 GLOSSARY「引导」）。
             let providerCount = (try? context.fetchCount(FetchDescriptor<Provider>())) ?? 0
             if providerCount == 0 && !onboardingSeen {
@@ -53,7 +54,11 @@ struct RootView: View {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。
             if scenePhase != .inactive { ReviewReminder.reschedule(in: context) }
             // 回到前台：继续因为切到别的 App 被系统打断的汇编。
-            if scenePhase == .active { compilations.resumeInterrupted(in: context) }
+            if scenePhase == .active {
+                compilations.resumeInterrupted(in: context)
+                // 整理完时 App 在后台，PDF 没能生成：现在生成。
+                compilations.makePendingPDFs(in: context)
+            }
         }
     }
 }

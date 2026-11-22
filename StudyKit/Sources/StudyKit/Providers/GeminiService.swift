@@ -21,20 +21,48 @@ public struct GeminiService: ChatService {
             let data: String
         }
 
-        let text: String?
-        let thought: Bool?
-        let inlineData: InlineData?
+        struct FunctionCall: Codable {
+            var id: String?
+            let name: String
+            var args: JSONValue?
+        }
 
-        init(text: String) {
+        struct FunctionResponse: Codable {
+            var id: String?
+            let name: String
+            let response: JSONValue
+        }
+
+        var text: String?
+        var thought: Bool?
+        var inlineData: InlineData?
+        var functionCall: FunctionCall?
+        var functionResponse: FunctionResponse?
+        /// Gemini 3 调用函数时必须把它原样放回原来的位置，否则返回 400。
+        var thoughtSignature: String?
+
+        init(text: String, signature: String? = nil) {
             self.text = text
-            self.thought = nil
-            self.inlineData = nil
+            self.thoughtSignature = signature
         }
 
         init(jpeg: Data) {
-            self.text = nil
-            self.thought = nil
             self.inlineData = InlineData(mimeType: "image/jpeg", data: jpeg.base64EncodedString())
+        }
+
+        init(call: ToolCall) {
+            self.functionCall = FunctionCall(id: call.hasServiceID ? call.id : nil, name: call.name, args: call.input)
+            self.thoughtSignature = call.signature
+        }
+
+        /// 函数结果必须是 JSON 对象；工具给的不是对象时包一层 {"result": …}。
+        init(result: ToolResult, callHasServiceID: Bool) {
+            let value = JSONValue.parse(result.content) ?? .string(result.content)
+            self.functionResponse = FunctionResponse(
+                id: callHasServiceID ? result.callID : nil,
+                name: result.name,
+                response: value.objectValue != nil ? value : ["result": value]
+            )
         }
     }
 
@@ -53,13 +81,35 @@ public struct GeminiService: ChatService {
             let thinkingLevel: String?
         }
 
-        /// Google 搜索接地。内容是空对象。
-        struct Tool: Encodable {
-            struct GoogleSearch: Encodable {}
-            let googleSearch = GoogleSearch()
+        /// Google 搜索接地（内容是空对象），或者 App 的函数工具。
+        enum Tool: Encodable {
+            case googleSearch
+            case functions([ToolDefinition])
 
-            enum CodingKeys: String, CodingKey {
+            private enum CodingKeys: String, CodingKey {
                 case googleSearch = "google_search"
+                case functionDeclarations
+            }
+
+            private struct Declaration: Encodable {
+                let name: String
+                let description: String
+                let parameters: JSONValue
+            }
+
+            private struct Empty: Encodable {}
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                switch self {
+                case .googleSearch:
+                    try container.encode(Empty(), forKey: .googleSearch)
+                case let .functions(tools):
+                    try container.encode(
+                        tools.map { Declaration(name: $0.name, description: $0.description, parameters: $0.parameters) },
+                        forKey: .functionDeclarations
+                    )
+                }
             }
         }
 
@@ -75,12 +125,20 @@ public struct GeminiService: ChatService {
             .appending(path: "models/\(model):streamGenerateContent")
             .appending(queryItems: [URLQueryItem(name: "alt", value: "sse")])
 
+        // 函数结果要不要带 ID，看对应的调用有没有服务商给的 ID。
+        let serviceIDs = Set(request.messages.flatMap(\.toolCalls).filter(\.hasServiceID).map(\.id))
+        var tools: [RequestBody.Tool] = request.webSearch ? [.googleSearch] : []
+        if !request.tools.isEmpty { tools.append(.functions(request.tools)) }
         let body = RequestBody(
             contents: request.alternatingMessages.map { message in
-                var parts = message.images.map { Part(jpeg: $0) }
-                if !message.text.isEmpty || parts.isEmpty {
-                    parts.append(Part(text: message.text))
+                var parts = message.toolResults.map { Part(result: $0, callHasServiceID: serviceIDs.contains($0.callID)) }
+                parts += message.images.map { Part(jpeg: $0) }
+                // 不在函数调用上的签名放回文字那一块。
+                let signature = message.thinking.compactMap(\.signature).first
+                if !message.text.isEmpty || (parts.isEmpty && message.toolCalls.isEmpty) || (signature != nil && message.toolCalls.isEmpty) {
+                    parts.append(Part(text: message.text, signature: signature))
                 }
+                parts += message.toolCalls.map { Part(call: $0) }
                 return Content(role: message.role == .user ? "user" : "model", parts: parts)
             },
             systemInstruction: request.trimmedSystemPrompt.map { Content(role: nil, parts: [Part(text: $0)]) },
@@ -88,7 +146,7 @@ public struct GeminiService: ChatService {
                 includeThoughts: true,
                 thinkingLevel: request.reasoningEffort?.rawValue
             )),
-            tools: request.webSearch ? [RequestBody.Tool()] : nil
+            tools: tools.isEmpty ? nil : tools
         )
 
         var urlRequest = URLRequest(url: url)
@@ -161,9 +219,24 @@ public struct GeminiService: ChatService {
         }
 
         let parts = chunk.candidates?.first?.content?.parts ?? []
-        var events: [ChatStreamEvent] = parts.compactMap { part in
-            guard let text = part.text, !text.isEmpty else { return nil }
-            return part.thought == true ? .reasoning(text) : .text(text)
+        var events: [ChatStreamEvent] = []
+        for part in parts {
+            if let call = part.functionCall {
+                // 函数调用一次给完整。旧版本不给 ID，自己编一个，用来和结果对上。
+                events.append(.toolCall(ToolCall(
+                    id: call.id ?? ToolCall.localIDPrefix + UUID().uuidString,
+                    name: call.name,
+                    arguments: (call.args ?? .object([:])).jsonString,
+                    signature: part.thoughtSignature
+                )))
+                continue
+            }
+            if let text = part.text, !text.isEmpty {
+                events.append(part.thought == true ? .reasoning(text) : .text(text))
+            }
+            if let signature = part.thoughtSignature, !signature.isEmpty {
+                events.append(.thinkingBlock(ThinkingBlock(text: "", signature: signature)))
+            }
         }
         // 每个片段都带着到目前为止的累计用量；输出包括思考过程。
         if let usage = chunk.usageMetadata, usage.promptTokenCount != nil || usage.candidatesTokenCount != nil {

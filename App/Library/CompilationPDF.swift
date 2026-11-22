@@ -12,6 +12,8 @@ enum CompilationPDF {
             let content: String
             let answer: String
             let answerLabel: String
+            /// 整理时定的组名，组名变了就印一个组标题。
+            let group: String
         }
 
         let title: String
@@ -35,7 +37,8 @@ enum CompilationPDF {
                     label: question.label,
                     content: question.content,
                     answer: question.answer,
-                    answerLabel: answerLabel(question)
+                    answerLabel: answerLabel(question),
+                    group: question.groupName
                 )
             }
         )

@@ -8,6 +8,8 @@ public enum CompilationStatus: String, Sendable {
     case choosing
     /// 正在逐份试卷查题。
     case collecting
+    /// 试卷都查完了，正在请模型定标题、顺序和分组，然后生成 PDF（第七版）。
+    case arranging
     /// 中途停下（用户停止、App 被系统暂停或关闭），可以继续。
     case paused
     case done
