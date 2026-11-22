@@ -1,0 +1,23 @@
+{
+  "name": "gewu-promo",
+  "private": true,
+  "description": "格物宣传片：用 Remotion 按帧生成，组件由 App 的渲染器绘制。",
+  "scripts": {
+    "prepare-renderer": "node scripts/prepare-renderer.mjs",
+    "studio": "npm run prepare-renderer && remotion studio src/index.ts",
+    "still": "npm run prepare-renderer && remotion still src/index.ts Promo",
+    "render": "npm run prepare-renderer && remotion render src/index.ts Promo out/gewu-promo.mp4",
+    "cues": "node scripts/cues.mjs"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.545",
+    "@yogesharc/thinking-orbs": "0.1.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "remotion": "4.0.545"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "typescript": "5.9.3"
+  }
+}

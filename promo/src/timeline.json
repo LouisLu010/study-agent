@@ -1,0 +1,159 @@
+{
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "scenes": [
+    {
+      "id": "opening",
+      "from": 0,
+      "duration": 150,
+      "caption": null
+    },
+    {
+      "id": "pendulum",
+      "from": 150,
+      "duration": 195,
+      "caption": [
+        "摆长、周期、能量，\n直接看得见",
+        null
+      ]
+    },
+    {
+      "id": "graph",
+      "from": 345,
+      "duration": 195,
+      "caption": [
+        "参数一拖，\n图像跟着变",
+        null
+      ]
+    },
+    {
+      "id": "equilibrium",
+      "from": 540,
+      "duration": 180,
+      "caption": [
+        "加入反应物，\n平衡往哪边移",
+        null
+      ]
+    },
+    {
+      "id": "quiz",
+      "from": 720,
+      "duration": 180,
+      "caption": [
+        "做错的题，\n自动进错题本",
+        null
+      ]
+    },
+    {
+      "id": "review",
+      "from": 900,
+      "duration": 300,
+      "caption": [
+        "隔 1、3、7、14、30 天\n再考你一次",
+        null
+      ]
+    },
+    {
+      "id": "compilation",
+      "from": 1200,
+      "duration": 360,
+      "caption": [
+        "一句话，\n汇编高考原题",
+        "原题取自出处网页，不由模型改写"
+      ]
+    },
+    {
+      "id": "ending",
+      "from": 1560,
+      "duration": 240,
+      "caption": null
+    }
+  ],
+  "cues": [
+    {
+      "frame": 20,
+      "sound": "开场：小球和\"格物\"出现"
+    },
+    {
+      "frame": 126,
+      "sound": "发送"
+    },
+    {
+      "frame": 195,
+      "sound": "按住摆长滑块"
+    },
+    {
+      "frame": 226,
+      "sound": "松手，单摆重新摆起来"
+    },
+    {
+      "frame": 375,
+      "sound": "按住参数 a 的滑块"
+    },
+    {
+      "frame": 456,
+      "sound": "松手"
+    },
+    {
+      "frame": 545,
+      "sound": "点 2× 速度"
+    },
+    {
+      "frame": 605,
+      "sound": "中途加入 A，平衡移动"
+    },
+    {
+      "frame": 755,
+      "sound": "测验答对（轻震）"
+    },
+    {
+      "frame": 800,
+      "sound": "测验答错（震动），出现\"已加入错题本\""
+    },
+    {
+      "frame": 910,
+      "sound": "错题本里插入新的一行"
+    },
+    {
+      "frame": 985,
+      "sound": "点\"开始复习\""
+    },
+    {
+      "frame": 1040,
+      "sound": "复习答对（轻震）"
+    },
+    {
+      "frame": 1050,
+      "sound": "档位从第 1 档升到第 2 档"
+    },
+    {
+      "frame": 1150,
+      "sound": "连续学习天数从 11 变成 12"
+    },
+    {
+      "frame": 1250,
+      "sound": "点\"查找试卷\""
+    },
+    {
+      "frame": 1295,
+      "sound": "点\"开始收集\""
+    },
+    {
+      "frame": 1305,
+      "sound": "调用记录开始滚动（每 8 帧一行，可配轻点击声）"
+    },
+    {
+      "frame": 1440,
+      "sound": "PDF 出现"
+    },
+    {
+      "frame": 1500,
+      "sound": "PDF 翻到第 2 页"
+    },
+    {
+      "frame": 1575,
+      "sound": "片尾：小球和\"格物\""
+    }
+  ]
+}
