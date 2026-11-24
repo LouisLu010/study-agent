@@ -22,8 +22,10 @@ struct ChatView: View {
     /// 测验答完一道题，用来触发答对或答错的震动。
     @State private var quizFeedback: QuizFeedback?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    private let bottomID = "bottom"
+    /// 聊天列表的滚动位置。"回到底部"和发新消息时用它滚到内容的底边。
+    /// 以前用 ScrollViewReader 滚到列表末尾那个 id：中间的回答在 LazyVStack 里还没建出来、高度是估的，
+    /// 离得远时滚不到底，看起来像按钮没反应。按边滚不依赖某一行是否已经建出来。
+    @State private var scrollPosition = ScrollPosition(edge: .bottom)
 
     /// 消息出现的动画。打开"减弱动态效果"后不用动画。
     private var messageAnimation: Animation? {
@@ -36,7 +38,7 @@ struct ChatView: View {
         let lastAssistantID = messages.last(where: { $0.role == .assistant })?.id
         let lastReplyCompleted = messages.last?.status == .complete
 
-        ScrollViewReader { proxy in
+        Group {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.xl) {
                     ForEach(messages) { message in
@@ -65,19 +67,17 @@ struct ChatView: View {
                                 : AnyTransition.opacity
                         )
                     }
-                    Color.clear
-                        .frame(height: 1)
-                        .id(bottomID)
                 }
                 .padding()
                 .frame(maxWidth: 820)
                 .frame(maxWidth: .infinity)
             }
+            .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
             .defaultScrollAnchor(.bottom, for: .sizeChanges)
             .onChange(of: messages.count) {
-                withAnimation(messageAnimation) { proxy.scrollTo(bottomID, anchor: .bottom) }
+                scrollToBottom()
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height - geometry.visibleRect.maxY > geometry.containerSize.height
@@ -91,7 +91,7 @@ struct ChatView: View {
             }
             .overlay(alignment: .bottom) {
                 if showJumpToBottom && !messages.isEmpty {
-                    jumpToBottomButton(proxy)
+                    jumpToBottomButton
                         .padding(.bottom, Theme.Spacing.s)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
@@ -179,15 +179,26 @@ struct ChatView: View {
         }
     }
 
-    private func jumpToBottomButton(_ proxy: ScrollViewProxy) -> some View {
+    /// 滚到底。中间的回答滚进屏幕时才建出 WebView、量出真实高度，内容会跟着变长，
+    /// 所以等这些高度报上来以后再补滚一次（不带动画），保证停在最底下。
+    private func scrollToBottom() {
+        withAnimation(messageAnimation) { scrollPosition.scrollTo(edge: .bottom) }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            scrollPosition.scrollTo(edge: .bottom)
+        }
+    }
+
+    private var jumpToBottomButton: some View {
         Button {
-            withAnimation(messageAnimation) { proxy.scrollTo(bottomID, anchor: .bottom) }
+            scrollToBottom()
         } label: {
             Image(systemName: "arrow.down")
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .frame(width: 44, height: 44)
                 .glassSurface(in: Circle(), interactive: true)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel("回到底部")
