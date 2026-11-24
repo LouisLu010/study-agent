@@ -47,6 +47,16 @@ public struct ChatMessage: Sendable, Equatable {
         self.toolResults = toolResults
         self.thinking = thinking
     }
+
+    /// 发给不支持图片的模型：图片换成文字"[图片]"，每张一个，放在文字前面。
+    public func replacingImagesWithPlaceholders() -> ChatMessage {
+        guard !images.isEmpty else { return self }
+        var copy = self
+        let marks = Array(repeating: "[图片]", count: images.count).joined(separator: " ")
+        copy.text = text.isEmpty ? marks : marks + "\n" + text
+        copy.images = []
+        return copy
+    }
 }
 
 // MARK: - 工具调用（见 docs/adr/0014）

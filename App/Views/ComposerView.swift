@@ -30,7 +30,10 @@ struct ComposerView: View {
     /// 下一条消息用的模型，显示在输入框里，点开可以换。
     @Binding var model: ChatModel?
     var placement: ComposerPlacement = .bottomBar
+    /// 打开页面时自动弹出键盘（第九版：新会话直接打字）。
+    var autoFocus = false
 
+    @FocusState private var isFocused: Bool
     @State private var showPhotoPicker = false
     @State private var showCamera = false
     @State private var showHandwriting = false
@@ -59,6 +62,7 @@ struct ComposerView: View {
 
             TextField(placement == .inline ? "问点什么" : "发消息", text: $text, axis: .vertical)
                 .lineLimit(placement == .inline ? 2...8 : 1...6)
+                .focused($isFocused)
                 .padding(.horizontal, Theme.Spacing.s)
                 .padding(.top, Theme.Spacing.xs)
 
@@ -72,6 +76,12 @@ struct ComposerView: View {
         }
         .padding(Theme.Spacing.s)
         .background { surface }
+        .task {
+            guard autoFocus else { return }
+            // 等页面推入的动画走完再弹键盘，不然键盘和页面一起动，看着乱。
+            try? await Task.sleep(for: .milliseconds(400))
+            isFocused = true
+        }
         .padding(.horizontal, placement == .bottomBar ? Theme.Spacing.m : 0)
         .padding(.bottom, placement == .bottomBar ? Theme.Spacing.s : 0)
         .photosPicker(

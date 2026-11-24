@@ -17,6 +17,9 @@ enum AppSettingsKey {
     /// 用户已经看完或跳过了引导。本机没有服务商、这一项也没有时，打开 App 会显示引导。
     static let onboardingSeen = "onboardingSeen"
 
+    /// "今天"提问框上次选的模型（`ChatModel.id`）和联网开关（第九版：回来时还是上次的选择）。
+    static let todayModelID = "todayModelID"
+    static let todayWebSearch = "todayWebSearch"
     /// 默认人格的 ID（`Persona.id`）。没有设置时是"标准"。
     static let defaultPersonaID = "defaultPersonaID"
 

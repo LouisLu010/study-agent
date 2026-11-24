@@ -17,9 +17,12 @@ struct ChatView: View {
     /// 正在写备注的错题。
     @State private var notingMistake: Mistake?
     @Environment(ToastCenter.self) private var toasts
+    @Environment(AppNavigation.self) private var navigation
     @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
     /// 往上翻超过一屏时显示"回到底部"按钮。
     @State private var showJumpToBottom = false
+    /// 停在底部附近。只有这时来新内容才跟着滚到底，往上翻着看时不动（第九版）。
+    @State private var isNearBottom = true
     /// 每发一条消息加一，用来触发震动。
     @State private var sendCount = 0
     /// 测验答完一道题，用来触发答对或答错的震动。
@@ -78,14 +81,24 @@ struct ChatView: View {
             .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            // 内容变高时：停在底部附近就贴着底边，往上翻着看时贴着顶边，看的内容不动。
+            .defaultScrollAnchor(isNearBottom ? .bottom : .top, for: .sizeChanges)
             .onChange(of: messages.count) {
+                if isNearBottom { scrollToBottom() }
+            }
+            // 自己发的消息总是滚到底。
+            .onChange(of: sendCount) {
                 scrollToBottom()
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 geometry.contentSize.height - geometry.visibleRect.maxY > geometry.containerSize.height
             } action: { _, isFar in
                 withAnimation(reduceMotion ? nil : .snappy) { showJumpToBottom = isFar }
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentSize.height - geometry.visibleRect.maxY < 120
+            } action: { _, near in
+                isNearBottom = near
             }
             .overlay {
                 if messages.isEmpty {
@@ -115,6 +128,7 @@ struct ChatView: View {
         }
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
+        .onDisappear(perform: discardIfEmpty)
         // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
         .toolbarTitleMenu {
@@ -226,7 +240,8 @@ struct ChatView: View {
             onWebSearchNotAllowed: {
                 errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
             },
-            model: $conversation.model
+            model: $conversation.model,
+            autoFocus: conversation.messages?.isEmpty ?? true
         )
         .frame(maxWidth: 820)
         .frame(maxWidth: .infinity)
@@ -267,6 +282,22 @@ struct ChatView: View {
     }
 
     /// 组件里的"问问 AI"：直接发出，不经过输入框。
+    /// 离开一个什么都没写的会话时删掉它，列表里不留一串空的"新会话"（第九版）。
+    /// 写过会话提示词或换过人格的留着，那是用户特意设置的。
+    private func discardIfEmpty() {
+        guard !conversation.isDeleted,
+              !toasts.isHidden(conversation),
+              (conversation.messages ?? []).isEmpty,
+              conversation.instructions.isEmpty,
+              conversation.personaID.isEmpty
+        else { return }
+        if navigation.selection == .conversation(conversation) {
+            navigation.selection = nil
+        }
+        context.delete(conversation)
+        try? context.save()
+    }
+
     /// 长按提问选"加入错题本"：直接加入，提示条上可以接着写备注。
     private func addMistake(question: Message, solution: Message) {
         let mistake = StudyCenter.addManualMistake(question: question, solution: solution, conversation: conversation, context: context)

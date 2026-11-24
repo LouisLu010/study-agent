@@ -56,8 +56,8 @@ final class GenerationCenter {
     /// 重新生成最后一条模型回答（也用于失败后重试）。旧的回答作为另一个版本保留。
     func regenerate(_ reply: Message, in conversation: Conversation, context: ModelContext) throws {
         guard tasks[conversation.id] == nil, reply.role == .assistant else { return }
-        let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
-        let service = try prepareService(for: conversation, hasImages: hasImages)
+        // 第九版：只看这次要新发的内容。历史里的图片在换成纯文字模型时改成"[图片]"发送（见 startReply）。
+        let service = try prepareService(for: conversation, hasImages: false)
 
         if conversation.sortedMessages.last?.id == reply.id {
             reply.beginNewVersion()
@@ -95,8 +95,7 @@ final class GenerationCenter {
         guard tasks[conversation.id] == nil, reply.role == .assistant, reply.status == .interrupted,
               conversation.sortedMessages.last?.id == reply.id
         else { return }
-        let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
-        let service = try prepareService(for: conversation, hasImages: hasImages)
+        let service = try prepareService(for: conversation, hasImages: false)
         startReply(in: conversation, service: service, context: context, into: reply, continuing: true)
     }
 
@@ -158,6 +157,10 @@ final class GenerationCenter {
         let webSearch = !continuing && conversation.webSearchEnabled && model.supportsWebSearch
         // 历史里带着被中断的这条回答（已经写出的部分），后面加一句固定的说明。
         var history = conversation.chatHistory()
+        // 会话中途换成了不支持图片的模型：以前发过的图片换成文字"[图片]"，不然服务商会拒绝整个请求。
+        if !model.supportsImages {
+            history = history.map { $0.replacingImagesWithPlaceholders() }
+        }
         if continuing {
             history.append(ChatMessage(role: .user, text: Self.continuePrompt))
             existing?.status = .streaming

@@ -17,8 +17,9 @@ struct TodayView: View {
 
     @State private var draft = ""
     @State private var draftImages: [PendingImage] = []
-    @State private var webSearchEnabled = false
-    /// 这次提问用的模型，默认是默认模型，可以在输入框里换。
+    @AppStorage(AppSettingsKey.todayWebSearch) private var webSearchEnabled = false
+    @AppStorage(AppSettingsKey.todayModelID) private var savedModelID = ""
+    /// 这次提问用的模型：上次在这里选的，没选过或者被删了就用默认模型。
     @State private var model: ChatModel?
     @State private var errorMessage: String?
     @State private var examples = ExampleQuestions.random(4)
@@ -56,10 +57,17 @@ struct TodayView: View {
         .scrollDismissesKeyboard(.interactively)
         .groupedPageBackground()
         .navigationTitle("今天")
-        .task { if model == nil { model = ModelLookup.defaultModel(in: context) } }
-        .onChange(of: defaultModelID) { model = ModelLookup.defaultModel(in: context) }
+        .task { if model == nil { model = rememberedModel() } }
+        // 在设置里改了默认模型：以新的默认模型为准，忘掉这里上次的选择。
+        .onChange(of: defaultModelID) {
+            savedModelID = ""
+            model = ModelLookup.defaultModel(in: context)
+        }
         .onChange(of: models.count) {
-            if model == nil || model?.modelContext == nil { model = ModelLookup.defaultModel(in: context) }
+            if model == nil || model?.modelContext == nil { model = rememberedModel() }
+        }
+        .onChange(of: model?.id) {
+            if let id = model?.id { savedModelID = id.uuidString }
         }
         .alert("提示", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) {}
@@ -88,6 +96,10 @@ struct TodayView: View {
             model: $model,
             placement: .inline
         )
+    }
+
+    private func rememberedModel() -> ChatModel? {
+        models.first { $0.id.uuidString == savedModelID } ?? ModelLookup.defaultModel(in: context)
     }
 
     private var trimmedDraft: String {

@@ -131,3 +131,14 @@ import Testing
         #expect(Persona.resolve(conversationID: "gone", defaultID: "").id == Persona.standardID)
     }
 }
+
+@Suite struct ImagePlaceholderTests {
+    @Test func imagesBecomeTextMarks() {
+        let message = ChatMessage(role: .user, text: "这道题怎么做", images: [Data([1]), Data([2])])
+        let stripped = message.replacingImagesWithPlaceholders()
+        #expect(stripped.images.isEmpty)
+        #expect(stripped.text == "[图片] [图片]\n这道题怎么做")
+        #expect(ChatMessage(role: .user, text: "", images: [Data([1])]).replacingImagesWithPlaceholders().text == "[图片]")
+        #expect(ChatMessage(role: .user, text: "hi").replacingImagesWithPlaceholders() == ChatMessage(role: .user, text: "hi"))
+    }
+}
