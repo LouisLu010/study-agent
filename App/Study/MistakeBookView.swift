@@ -145,7 +145,7 @@ struct MistakeBookView: View {
             if mistakes.isEmpty {
                 OrbEmptyState(
                     title: "还没有错题",
-                    message: "测验里答错的题会自动加入这里。也可以长按自己问过的题，选\"加入错题本\"。"
+                    message: "测验答错的题会自动加入，也可以长按自己的提问加入。"
                 )
             } else if filtered.isEmpty {
                 ContentUnavailableView("没有符合条件的错题", systemImage: "line.3.horizontal.decrease.circle")

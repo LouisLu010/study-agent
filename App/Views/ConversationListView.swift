@@ -78,7 +78,7 @@ struct ConversationListView: View {
         .overlay {
             if conversations.isEmpty {
                 if models.isEmpty {
-                    OrbEmptyState(title: "还没有模型", message: "先添加一个服务商和模型。") {
+                    OrbEmptyState(title: "还没有模型") {
                         VStack(spacing: Theme.Spacing.s) {
                             Button("开始设置") { navigation.showsOnboarding = true }
                                 .buttonStyle(.borderedProminent)

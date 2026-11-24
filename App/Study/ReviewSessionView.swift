@@ -24,7 +24,7 @@ struct ReviewSessionView: View {
             if !didStart {
                 ProgressView()
             } else if queue.isEmpty {
-                OrbEmptyState(title: "今天没有要复习的题", message: "答错的题会在第二天出现在这里。")
+                OrbEmptyState(title: "今天没有要复习的题")
             } else if position >= queue.count {
                 finished
             } else {
@@ -90,10 +90,6 @@ struct ReviewSessionView: View {
                     } else {
                         Button("看解答") { showSolution = true }
                             .buttonStyle(.borderedProminent)
-                            .frame(maxWidth: .infinity)
-                        Text("先自己想一想，想好了再看解答。")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                     }
                 }

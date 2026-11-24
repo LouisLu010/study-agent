@@ -21,7 +21,7 @@ struct ModelFormFields: View {
                 .autocorrectionDisabled()
             TextField("显示名称（可选）", text: $displayName)
         } footer: {
-            Text("模型 ID 要和服务商文档里写的完全一致。")
+            Text("模型 ID 要和服务商文档里的完全一致。")
         }
 
         Section {
@@ -38,8 +38,6 @@ struct ModelFormFields: View {
                     }
                 }
             }
-        } footer: {
-            Text(webSearchFooter)
         }
 
         Section {
@@ -50,20 +48,7 @@ struct ModelFormFields: View {
                 }
             }
         } footer: {
-            Text("只对推理模型有效。不支持这个参数的模型可能会报错，这时改回\"默认\"即可。Claude 只有设置了思考强度才会返回思考过程。")
-        }
-    }
-}
-
-extension ModelFormFields {
-    fileprivate var webSearchFooter: String {
-        switch providerKind {
-        case .anthropic:
-            "使用服务商自带的 web_search 工具。打开后，在会话输入框旁点\"联网\"即可让模型搜索。"
-        case .gemini:
-            "使用 Google 搜索接地。打开后，在会话输入框旁点\"联网\"即可让模型搜索。"
-        case .openAICompatible:
-            "使用服务商自带的搜索：DeepSeek 用 deepseek_web_search 工具，OpenAI 的 search 系列模型用 web_search_options。\"自动\"按地址和模型 ID 判断。其他服务商一般不支持。"
+            Text("模型报错时改回\"默认\"。Claude 要设置后才显示思考过程。")
         }
     }
 }
@@ -180,10 +165,9 @@ private struct ModelPriceSection: View {
     private var footer: String {
         let rate = AppSettingsKey.usdToCNYRate
         let builtIn = PriceTable.builtIn.price(for: model.modelID)
-        var text = builtIn.map { "内置价格：" + UsageFormatting.price($0, usdToCNY: rate) + "，是服务商官网的标价。" }
-            ?? "内置价格表里没有这个模型，填写单价后才会显示费用。"
-        text += "通过中转服务调用时价格可能不同，可以在上面手动填写，两项都填才会生效。"
-        return text
+        let text = builtIn.map { "内置价格：" + UsageFormatting.price($0, usdToCNY: rate) + "。" }
+            ?? "没有内置价格。"
+        return text + "手动填写时两项都填才生效。"
     }
 
     private func parse(_ text: String) -> Double? {

@@ -64,8 +64,6 @@ struct SettingsView: View {
                     Toggle("简洁模式", isOn: $simpleMode)
                 } header: {
                     Text("回答")
-                } footer: {
-                    Text("用户提示词对所有会话生效，例如：我是高二学生，讲解要循序渐进。\n简洁模式打开后，模型只用文字、公式和化学式回答，不使用坐标图等交互组件。之前已经生成的组件不受影响。")
                 }
 
                 Section {
@@ -76,9 +74,9 @@ struct SettingsView: View {
                 } header: {
                     Text("复习")
                 } footer: {
-                    Text(permissionDenied
-                         ? "通知权限被关闭了，请在系统设置 → 通知 → 格物 里打开。"
-                         : "每天在这个时间提醒一次，只在有到期的错题时才提醒。")
+                    if permissionDenied {
+                        Text("通知权限被关闭了，请在系统设置 → 通知 → 格物 里打开。")
+                    }
                 }
                 .onChange(of: reminderEnabled) {
                     Task {
@@ -130,9 +128,9 @@ struct SettingsView: View {
                     Text("其他")
                 } footer: {
                     Text("""
-                    费用统一按人民币显示，美元价格按这个汇率折算。内置价格是各服务商官网的标价，更新于 \(PriceTable.builtIn.updated)，DeepSeek 按缓存命中和空闲时段计价，其他服务商命中缓存的部分按全价算，不计批量折扣，所以显示的金额是估算值。
+                    费用是按官网标价（更新于 \(PriceTable.builtIn.updated)）折算的估算值。
 
-                    生成汇编要好几分钟。iOS 26 及以上默认由系统显示进度、在后台继续。打开强力保活时会请求定位权限（选"使用 App 期间"即可），生成期间用后台定位让 App 一直运行（旧系统也能用），状态栏会显示定位图标，比较耗电；生成结束立即关闭，位置不保存、不发送。
+                    强力保活在生成时用后台定位让 App 一直运行，比较耗电；生成结束就关，位置不保存、不发送。
                     """)
                 }
             }

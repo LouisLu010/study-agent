@@ -88,7 +88,7 @@ struct BookmarksView: View {
         .listStyle(.insetGrouped)
         .overlay {
             if bookmarks.isEmpty {
-                OrbEmptyState(title: "还没有收藏", message: "点回答下方的书签按钮，就能把整条回答收藏到这里。")
+                OrbEmptyState(title: "还没有收藏")
             } else if filtered.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }

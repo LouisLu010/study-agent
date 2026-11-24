@@ -323,7 +323,7 @@ private struct EditMessageSheet: View {
                         .frame(minHeight: 160)
                         .focused($isFocused)
                 } footer: {
-                    Text("重新发送后，这条消息之后的所有内容都会被删除。" + (hasImages ? "原来的图片会保留。" : ""))
+                    Text("重新发送会删掉这条之后的所有内容" + (hasImages ? "，图片保留。" : "。"))
                 }
             }
             .navigationTitle("编辑消息")
@@ -360,8 +360,6 @@ private struct ConversationInstructionsSheet: View {
                 Section {
                     TextEditor(text: $text)
                         .frame(minHeight: 160)
-                } footer: {
-                    Text("只对这个会话生效，从下一条消息开始使用。例如：这个会话只讲高中物理，讲解时多举生活中的例子。")
                 }
             }
             .navigationTitle("会话提示词")
@@ -411,8 +409,6 @@ private struct AddMistakeSheet: View {
                         .lineLimit(2...5)
                 } header: {
                     Text("备注（可选）")
-                } footer: {
-                    Text("会保存这条提问和后面那条 AI 解答。复习时先看题目，自己想好后再看解答。")
                 }
             }
             .navigationTitle("加入错题本")

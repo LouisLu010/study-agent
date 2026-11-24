@@ -67,7 +67,7 @@ struct FetchModelsSheet: View {
                         row(for: model)
                     }
                 } footer: {
-                    Text("共 \(models.count) 个模型。是否支持图片由服务商的信息推断；DeepSeek、Anthropic、Gemini 的模型默认打开联网搜索。添加后都可以在模型设置里修改。")
+                    Text("共 \(models.count) 个模型")
                 }
             }
             .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索模型 ID 或名称")

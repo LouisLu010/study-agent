@@ -264,7 +264,7 @@ struct ResearchNotesView: View {
             if notes.isEmpty {
                 OrbEmptyState(
                     title: "还没有资料",
-                    message: "在会话标题菜单或回答下方点\"整理成资料\"，模型会把内容和出处整理成一份总结保存到这里。"
+                    message: "在会话标题菜单或回答下方点\"整理成资料\"。"
                 )
             } else if filtered.isEmpty {
                 ContentUnavailableView.search(text: searchText)

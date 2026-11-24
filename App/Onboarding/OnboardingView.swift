@@ -172,16 +172,12 @@ struct OnboardingView: View {
             VStack(spacing: Theme.Spacing.xl) {
                 ActivityOrb(activity: .idle, size: 120)
                     .padding(.top, Theme.Spacing.xl)
-                VStack(spacing: Theme.Spacing.s) {
-                    Text("欢迎使用格物")
-                        .font(.title.bold())
-                    Text("为学习做的大模型聊天 App。接下来花一分钟，连上你自己的模型服务商。")
-                        .foregroundStyle(.secondary)
-                }
-                .multilineTextAlignment(.center)
+                Text("欢迎使用格物")
+                    .font(.title.bold())
+                    .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Spacing.xl)
                 featureCards
-                Label("用你自己的 API Key，App 直接连服务商，不经过任何服务器", systemImage: "lock.shield")
+                Label("App 直接连服务商，不经过任何服务器", systemImage: "lock.shield")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Theme.Spacing.xl)
@@ -198,9 +194,9 @@ struct OnboardingView: View {
     }
 
     private static let features = [
-        Feature(icon: "function", title: "会画图和出题的回答", text: "坐标图、几何图、测验和模拟直接显示在回答里，可以拖、可以答、可以播放。"),
-        Feature(icon: "arrow.counterclockwise.circle", title: "错题和复习", text: "测验里答错的题自动进错题本，按 1、3、7、14、30 天的间隔安排复习。"),
-        Feature(icon: "books.vertical", title: "汇编原题", text: "一句话说要什么题，从真实试卷里取下原文和原图，排成一份 PDF。"),
+        Feature(icon: "function", title: "会画图和出题的回答", text: "坐标图、测验和模拟直接在回答里动手。"),
+        Feature(icon: "arrow.counterclockwise.circle", title: "错题和复习", text: "答错的题自动进错题本，按间隔复习。"),
+        Feature(icon: "books.vertical", title: "汇编原题", text: "一句话要题，从真实试卷里取原题排成 PDF。"),
     ]
 
     /// 欢迎页上三张横滑的功能介绍卡片（第八版）。
@@ -223,12 +219,14 @@ struct OnboardingView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(Theme.Spacing.l)
-                    .frame(height: 196, alignment: .topLeading)
+                    // 不固定高度，系统字号调大时不截断；配合下面 HStack 的 fixedSize，几张卡片一样高。
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.78 }
                     .cardBackground()
                     .accessibilityElement(children: .combine)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned)
@@ -238,7 +236,7 @@ struct OnboardingView: View {
     private var presetPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.l) {
-                header("选择服务商", "选一家你有 API Key 的服务商。以后可以在设置里再加别的。")
+                header("选择服务商")
                 PresetList(selectedID: preset?.id, onPick: pick)
             }
             .padding(.horizontal, Theme.Spacing.xl)
@@ -252,7 +250,7 @@ struct OnboardingView: View {
                 ActivityOrb(activity: isChecking ? .working : .idle, size: 44)
                 header(
                     preset?.isCustom == true ? "填写服务商信息" : "填写 \(preset?.name ?? "") 的 API Key",
-                    "只保存在这台设备的钥匙串里。点\"下一步\"时会用它拉一次模型列表，拉到了就说明 Key 能用。"
+                    "只保存在这台设备的钥匙串里。"
                 )
                 if preset?.isCustom == true {
                     labeledField("名称") {
@@ -293,11 +291,11 @@ struct OnboardingView: View {
 
     private var modelPage: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-            header("选择默认模型", "新会话默认用它。这里只添加这一个，其他模型以后在设置里加。")
+            header("选择默认模型")
                 .padding(.horizontal, Theme.Spacing.xl)
             if models.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-                    Text("服务商没有返回模型列表。请按服务商文档填写模型 ID，大小写要一致。")
+                    Text("服务商没有返回模型列表，请按文档填写模型 ID。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     labeledField("模型 ID") {
@@ -493,20 +491,16 @@ struct OnboardingView: View {
             VStack(spacing: Theme.Spacing.xl) {
                 ActivityOrb(activity: .idle, size: 96)
                     .padding(.top, Theme.Spacing.xl)
-                header(
-                    "每天提醒复习",
-                    "测验里答错的题会自动进错题本，按 1、3、7、14、30 天的间隔安排复习。打开提醒后，每天在设定的时间（默认 20:00）提醒一次，只在有到期的题时才提醒。",
-                    centered: true
-                )
+                header("每天提醒复习", "有到期的错题时，每天 20:00 提醒一次。", centered: true)
                 VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                     Toggle("复习提醒", isOn: $reminderEnabled)
                         .padding(Theme.Spacing.m)
                         .cardBackground()
-                    Text(reminderDenied
-                         ? "通知权限被关闭了，可以以后在系统设置 → 通知 → 格物 里打开。"
-                         : "可以先不开，以后在设置里打开或修改时间。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if reminderDenied {
+                        Text("通知权限被关闭了，可以以后在系统设置 → 通知 → 格物 里打开。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, Theme.Spacing.xl)

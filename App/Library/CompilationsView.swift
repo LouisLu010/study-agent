@@ -43,10 +43,7 @@ struct CompilationsView: View {
         .listStyle(.insetGrouped)
         .overlay {
             if compilations.isEmpty {
-                OrbEmptyState(
-                    title: "还没有汇编",
-                    message: "用一句话说要什么题，例如\"近 3 年高考有机大题\"。模型联网找到试卷和原题，App 取下原文和原图，排版成 PDF。"
-                ) {
+                OrbEmptyState(title: "还没有汇编") {
                     Button("新建汇编") { showNew = true }
                         .buttonStyle(.borderedProminent)
                 }
@@ -111,12 +108,10 @@ struct NewCompilationSheet: View {
                         .lineLimit(2...5)
                 } header: {
                     Text("要什么题")
-                } footer: {
-                    Text("考试类型不限：高考、中考、各地模拟考都可以。说得越具体，找得越准，例如年份范围、地区、题型。")
                 }
                 Section {
                     if models.isEmpty {
-                        Text("还没有支持联网搜索的模型。请在设置里为模型打开\"支持联网搜索\"（DeepSeek、Claude、Gemini 等）。")
+                        Text("还没有支持联网搜索的模型，请在模型设置里打开\"支持联网搜索\"。")
                             .foregroundStyle(.secondary)
                     } else {
                         Picker("模型", selection: $modelID) {
@@ -126,7 +121,7 @@ struct NewCompilationSheet: View {
                         }
                     }
                 } footer: {
-                    Text("先列出试卷给你确认，确认后模型逐份试卷调用 App 的工具：搜索、读网页、取原题，最后整理顺序并生成 PDF。用 DeepSeek 官方地址时搜索走 DeepSeek 的 Search API。模型要支持工具调用。")
+                    Text("模型要支持工具调用。")
                 }
             }
             .navigationTitle("新建汇编")
@@ -266,7 +261,7 @@ struct CompilationDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(costText(selected: selected))
                 if selected > 30 {
-                    Text("试卷比较多，生成会很久、费用也高，可以先取消勾选一部分，或者缩小范围重新查找。")
+                    Text("试卷较多，会很慢、费用也高。")
                         .foregroundStyle(.orange)
                 }
             }
@@ -395,8 +390,6 @@ struct CompilationDetailView: View {
             } footer: {
                 if let date = compilation.pdfGeneratedAt, compilation.pdfData != nil {
                     Text("生成于 \(date.formatted(date: .abbreviated, time: .shortened))")
-                } else if compilation.pdfPending {
-                    Text("整理完时格物在后台，PDF 会在回到格物时自动生成。")
                 }
             }
         }
