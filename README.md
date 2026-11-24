@@ -1,9 +1,15 @@
 # 格物（Gewu）
 
-一个运行在 iPhone 和 iPad 上的大模型聊天客户端，目标是让学习类对话的显示效果达到 ChatGPT 官方客户端的水平，包括公式、化学式和可交互的坐标图。
+一个运行在 iPhone 和 iPad 上的大模型学习 App，名字取自"格物致知"。回答里可以有公式、化学式，也可以有能动手操作的坐标图、物理和化学模拟、测验；答错的题进错题本，按 1、3、7、14、30 天复习；一句话就能联网汇编高考原题，排成 PDF。
 
+用你自己的 API Key（DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter 或 OpenAI 兼容接口），没有服务器，数据只存在本机。没有上架 App Store，需要自签安装，见下面的[构建与安装](#构建与安装)。
+
+- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.8.0 Beta 2](https://github.com/LouisLu010/study-agent/releases/tag/v0.8.0-beta.2)
 - 术语：[GLOSSARY.md](./GLOSSARY.md)
 - 架构决策：[docs/adr/](./docs/adr/)
+- 宣传片：[docs/promo/](./docs/promo/README.md)
+
+下面按版本记录每一版做了什么、为什么这样做。
 
 ## 第一版范围
 
@@ -229,15 +235,21 @@
 - 渲染器：关键点在 `core.graphKeyPoints`，能量柱和周期在各个模拟的 `energy(t)`、`cycle`；全屏由渲染器把组件原文和状态交给 Swift，`ComponentFullscreenView` 单独显示，关掉后用 `StudyComponents.applyState` 把状态交回正文里的组件。分步讲解新展开的一步不在屏幕里时，渲染器发 `reveal`，Swift 滚动外面的列表。
 - 真机上还要检查：iOS 18 和 26 上的玻璃输入框和阴影、横屏全屏、坐标图按住查看时外层列表是否停住、聊天在后台超过两分钟时系统长任务的表现。
 
+**Beta 2**（真机截图里看到的两处问题）：
+- 错题本的标题，收藏和资料的标题、摘要，以前直接显示 LaTeX 源码。渲染器的 `core.js` 新增 `toPreviewText`，把公式改写成 x²/16 这样能读的文字（分数、根号、上下标、希腊字母、常用符号、`\ce{}` 化学式），Swift 通过 `PlainTextExporter.previewText` 调用。复制和导出不变，仍保留 LaTeX。
+- 聊天里的坐标图不显示 JSXGraph 自带的导航按钮，只在全屏页里显示。
+
 ## 构建与安装
 
-本仓库不包含 `.xcodeproj`。GitHub Actions 会用 XcodeGen 从 `project.yml` 生成工程，然后运行测试、编译 App，并打包一个未签名的 `.ipa`。下载这个 `.ipa` 后，在 Windows 上用 Sideloadly 或 AltStore 配合免费 Apple ID 签名安装，每 7 天需要重签一次。
+App 以未签名的 `.ipa` 发布，要用 Sideloadly 或 AltStore 配合免费 Apple ID 签名安装，每 7 天需要重签一次。需要 iOS / iPadOS 18 及以上。
 
-1. 打开仓库的 Actions 页面，进入最新一次成功的 CI 运行，在页面底部下载 `StudyAgent-unsigned-ipa`，解压得到 `StudyAgent-unsigned.ipa`。
+1. 打开 [Releases](https://github.com/LouisLu010/study-agent/releases)，在最新的版本下面下载 `StudyAgent-<版本>-unsigned.ipa`。下载不需要登录，也不会过期。
 2. 用 Sideloadly 把它装到 iPhone 或 iPad 上，登录你的 Apple ID。
 3. 在设备的"设置 → 通用 → VPN 与设备管理"里信任你的 Apple ID，然后打开 App。
 
-发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的未签名 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上，下载不需要登录，也不会过期。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
+新版本直接覆盖安装，已有的会话、错题和汇编都还在。
+
+**从源码构建**：本仓库不包含 `.xcodeproj`。GitHub Actions 用 XcodeGen 从 `project.yml` 生成工程，运行测试、编译 App，并打包未签名的 `.ipa`。每次 CI 成功后，可以在那次运行的页面底部下载 `StudyAgent-unsigned-ipa`（要登录 GitHub，过一段时间会过期）。发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
 
 ## 第一次使用
 
