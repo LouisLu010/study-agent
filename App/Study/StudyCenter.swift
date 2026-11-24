@@ -25,6 +25,8 @@ final class AppNavigation {
     var showsOnboarding = false
     /// 在设置里点了"重新查看引导"：等设置关掉后再显示引导。
     var onboardingAfterSettings = false
+    /// 从快捷菜单"拍题"新建的会话：打开后直接弹出相机，用一次就清掉。
+    var cameraConversationID: UUID?
 
     func open(conversationID: UUID?, in context: ModelContext) -> Bool {
         guard let id = conversationID else { return false }

@@ -32,6 +32,9 @@ struct ComposerView: View {
     var placement: ComposerPlacement = .bottomBar
     /// 打开页面时自动弹出键盘（第九版：新会话直接打字）。
     var autoFocus = false
+    /// 打开页面时直接弹出相机（快捷菜单"拍题"）。用过之后调用 `onCameraOpened`，不会再弹第二次。
+    var autoOpenCamera = false
+    var onCameraOpened: () -> Void = {}
 
     @FocusState private var isFocused: Bool
     @State private var showPhotoPicker = false
@@ -77,6 +80,14 @@ struct ComposerView: View {
         .padding(Theme.Spacing.s)
         .background { surface }
         .task {
+            if autoOpenCamera {
+                onCameraOpened()
+                if imagesAllowed && CameraPicker.isAvailable {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    showCamera = true
+                    return
+                }
+            }
             guard autoFocus else { return }
             // 等页面推入的动画走完再弹键盘，不然键盘和页面一起动，看着乱。
             try? await Task.sleep(for: .milliseconds(400))

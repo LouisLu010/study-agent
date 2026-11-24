@@ -241,7 +241,9 @@ struct ChatView: View {
                 errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
             },
             model: $conversation.model,
-            autoFocus: conversation.messages?.isEmpty ?? true
+            autoFocus: conversation.messages?.isEmpty ?? true,
+            autoOpenCamera: navigation.cameraConversationID == conversation.id,
+            onCameraOpened: { navigation.cameraConversationID = nil }
         )
         .frame(maxWidth: 820)
         .frame(maxWidth: .infinity)
