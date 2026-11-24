@@ -95,13 +95,14 @@ enum StudyCenter {
     // MARK: - 手动加入
 
     /// 把用户的一条提问和后面那条 AI 解答加入错题本。
+    @discardableResult
     static func addManualMistake(
         question: Message,
         solution: Message,
-        note: String,
+        note: String = "",
         conversation: Conversation,
         context: ModelContext
-    ) {
+    ) -> Mistake {
         let mistake = Mistake(kind: .manual)
         mistake.questionText = question.content
         mistake.solution = solution.content
@@ -123,6 +124,7 @@ enum StudyCenter {
             ? "（题目是一张图片）解答：\n" + solution.content
             : question.content + "\n\n解答：\n" + solution.content
         classify(mistake, content: content, model: conversation.model, context: context)
+        return mistake
     }
 
     // MARK: - 从汇编加入

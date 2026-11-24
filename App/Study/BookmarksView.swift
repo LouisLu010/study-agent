@@ -32,6 +32,7 @@ extension StudyCenter {
 
 struct BookmarksView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \Bookmark.createdAt, order: .reverse) private var bookmarks: [Bookmark]
     @State private var subject: Subject?
     @State private var searchText = ""
@@ -39,6 +40,7 @@ struct BookmarksView: View {
     private var filtered: [Bookmark] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return bookmarks.filter { bookmark in
+            if toasts.isHidden(bookmark) { return false }
             if let subject, bookmark.subject != subject { return false }
             guard !query.isEmpty else { return true }
             return bookmark.title.localizedStandardContains(query)
@@ -81,13 +83,17 @@ struct BookmarksView: View {
                 }
             }
             .onDelete { offsets in
-                offsets.map { filtered[$0] }.forEach(context.delete)
-                try? context.save()
+                let items = offsets.map { filtered[$0] }
+                toasts.delete(items, scope: .bookmarks) { [context] in
+                    items.forEach(context.delete)
+                    try? context.save()
+                }
             }
         }
         .listStyle(.insetGrouped)
+        .toastBar(.bookmarks)
         .overlay {
-            if bookmarks.isEmpty {
+            if bookmarks.allSatisfy({ toasts.isHidden($0) }) {
                 OrbEmptyState(title: "还没有收藏")
             } else if filtered.isEmpty {
                 ContentUnavailableView.search(text: searchText)
@@ -105,6 +111,7 @@ struct BookmarkDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(GenerationCenter.self) private var generation
     @Environment(AppNavigation.self) private var navigation
+    @Environment(ToastCenter.self) private var toasts
     @State private var errorMessage: String?
     @State private var shareItem: ShareItem?
 
@@ -164,8 +171,10 @@ struct BookmarkDetailView: View {
                         }
                     }
                     Button("取消收藏", systemImage: "bookmark.slash", role: .destructive) {
-                        context.delete(bookmark)
-                        try? context.save()
+                        toasts.delete([bookmark], scope: .bookmarks, message: "已取消收藏") { [context] in
+                            context.delete(bookmark)
+                            try? context.save()
+                        }
                         dismiss()
                     }
                 } label: {

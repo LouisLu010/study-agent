@@ -14,7 +14,9 @@ struct ChatView: View {
     @State private var noteDraft: NoteDraftRequest?
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
-    @State private var addingMistake: MistakeDraft?
+    /// 正在写备注的错题。
+    @State private var notingMistake: Mistake?
+    @Environment(ToastCenter.self) private var toasts
     @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
     /// 往上翻超过一屏时显示"回到底部"按钮。
     @State private var showJumpToBottom = false
@@ -59,7 +61,7 @@ struct ChatView: View {
                                 StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
                             },
                             onAddToMistakes: solution(for: message).map { reply in
-                                { addingMistake = MistakeDraft(question: message, solution: reply) }
+                                { addMistake(question: message, solution: reply) }
                             }
                         )
                         .transition(
@@ -91,12 +93,14 @@ struct ChatView: View {
                 }
             }
             .overlay(alignment: .bottom) {
-                if showJumpToBottom && !messages.isEmpty {
+                // 底部有提示条时先不显示，免得叠在一起。
+                if showJumpToBottom && !messages.isEmpty && toasts.current?.scope != .chat {
                     jumpToBottomButton
                         .padding(.bottom, Theme.Spacing.s)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
+            .toastBar(.chat)
             .bottomBar {
                 composer(isGenerating: isGenerating)
             }
@@ -157,13 +161,8 @@ struct ChatView: View {
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)
         }
-        .sheet(item: $addingMistake) { draft in
-            AddMistakeSheet { note in
-                StudyCenter.addManualMistake(
-                    question: draft.question, solution: draft.solution, note: note,
-                    conversation: conversation, context: context
-                )
-            }
+        .sheet(item: $notingMistake) { mistake in
+            MistakeNoteSheet(mistake: mistake)
         }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
@@ -268,6 +267,14 @@ struct ChatView: View {
     }
 
     /// 组件里的"问问 AI"：直接发出，不经过输入框。
+    /// 长按提问选"加入错题本"：直接加入，提示条上可以接着写备注。
+    private func addMistake(question: Message, solution: Message) {
+        let mistake = StudyCenter.addManualMistake(question: question, solution: solution, conversation: conversation, context: context)
+        toasts.show("已加入错题本", scope: .chat, actionTitle: "写备注") {
+            notingMistake = mistake
+        }
+    }
+
     private func ask(_ text: String) {
         if generation.isGenerating(conversation) {
             errorMessage = "请等当前回答生成完再提问。"
@@ -388,16 +395,11 @@ private struct QuizFeedback: Equatable {
     let correct: Bool
 }
 
-struct MistakeDraft: Identifiable {
-    let id = UUID()
-    let question: Message
-    let solution: Message
-}
+/// 给刚加入错题本的题写备注（第九版：加入不再先弹这个面板，提示条上点"写备注"才打开）。
+private struct MistakeNoteSheet: View {
+    @Bindable var mistake: Mistake
 
-/// 把一道自己问过的题加入错题本，可以写一句备注。
-private struct AddMistakeSheet: View {
-    let onSave: (String) -> Void
-
+    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var note = ""
 
@@ -407,23 +409,23 @@ private struct AddMistakeSheet: View {
                 Section {
                     TextField("例如：符号判断错了", text: $note, axis: .vertical)
                         .lineLimit(2...5)
-                } header: {
-                    Text("备注（可选）")
                 }
             }
-            .navigationTitle("加入错题本")
+            .navigationTitle("备注")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("加入") {
-                        onSave(note)
+                    Button("保存") {
+                        mistake.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+                        try? context.save()
                         dismiss()
                     }
                 }
             }
+            .onAppear { note = mistake.note }
         }
         .presentationDetents([.medium])
     }

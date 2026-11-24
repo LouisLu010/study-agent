@@ -183,6 +183,7 @@ struct NoteDraftSheet: View {
 /// 资料列表：按科目分节，节里按知识点排。
 struct ResearchNotesView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \ResearchNote.updatedAt, order: .reverse) private var notes: [ResearchNote]
     @State private var subject: Subject?
     @State private var searchText = ""
@@ -190,6 +191,7 @@ struct ResearchNotesView: View {
     private var filtered: [ResearchNote] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return notes.filter { note in
+            if toasts.isHidden(note) { return false }
             if let subject, note.subject != subject { return false }
             guard !query.isEmpty else { return true }
             return note.title.localizedStandardContains(query)
@@ -250,8 +252,10 @@ struct ResearchNotesView: View {
                             }
                             .swipeActions {
                                 Button("删除", systemImage: "trash", role: .destructive) {
-                                    context.delete(note)
-                                    try? context.save()
+                                    toasts.delete([note], scope: .notes) { [context] in
+                                        context.delete(note)
+                                        try? context.save()
+                                    }
                                 }
                             }
                         }
@@ -260,8 +264,9 @@ struct ResearchNotesView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .toastBar(.notes)
         .overlay {
-            if notes.isEmpty {
+            if notes.allSatisfy({ toasts.isHidden($0) }) {
                 OrbEmptyState(
                     title: "还没有资料",
                     message: "在会话标题菜单或回答下方点\"整理成资料\"。"

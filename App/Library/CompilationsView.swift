@@ -7,6 +7,7 @@ import SwiftUI
 struct CompilationsView: View {
     @Environment(\.modelContext) private var context
     @Environment(CompilationCenter.self) private var center
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \Compilation.updatedAt, order: .reverse) private var compilations: [Compilation]
     @State private var showNew = false
     @State private var opened: Compilation?
@@ -14,7 +15,7 @@ struct CompilationsView: View {
     private var groups: [(subject: Subject?, items: [Compilation])] {
         let order: [Subject?] = [nil] + Subject.allCases
         return order.compactMap { subject in
-            let items = compilations.filter { $0.subject == subject }
+            let items = compilations.filter { $0.subject == subject && !toasts.isHidden($0) }
             return items.isEmpty ? nil : (subject, items)
         }
     }
@@ -32,8 +33,10 @@ struct CompilationsView: View {
                         .swipeActions {
                             Button("删除", systemImage: "trash", role: .destructive) {
                                 center.stop(compilation)
-                                context.delete(compilation)
-                                try? context.save()
+                                toasts.delete([compilation], scope: .compilations) { [context] in
+                                    context.delete(compilation)
+                                    try? context.save()
+                                }
                             }
                         }
                     }
@@ -41,8 +44,9 @@ struct CompilationsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .toastBar(.compilations)
         .overlay {
-            if compilations.isEmpty {
+            if compilations.allSatisfy({ toasts.isHidden($0) }) {
                 OrbEmptyState(title: "还没有汇编") {
                     Button("新建汇编") { showNew = true }
                         .buttonStyle(.borderedProminent)

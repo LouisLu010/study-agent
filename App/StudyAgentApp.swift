@@ -7,6 +7,7 @@ struct StudyAgentApp: App {
     @State private var generation = GenerationCenter()
     @State private var navigation = AppNavigation()
     @State private var compilations = CompilationCenter()
+    @State private var toasts = ToastCenter()
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +15,7 @@ struct StudyAgentApp: App {
                 .environment(generation)
                 .environment(navigation)
                 .environment(compilations)
+                .environment(toasts)
         }
         .modelContainer(AppStore.container)
     }
