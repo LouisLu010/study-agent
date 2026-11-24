@@ -2,7 +2,7 @@ import StudyKit
 import SwiftData
 import SwiftUI
 
-/// 引导（见 GLOSSARY「引导」）：欢迎 → 选服务商预设 → 填 API Key → 选默认模型 → 复习提醒 → 进入新会话。
+/// 引导（见 GLOSSARY「引导」）：欢迎 → 选服务商预设 → 填 API Key → 选默认模型 → 关于你（年级和人格）→ 复习提醒 → 进入新会话。
 /// 本机没有服务商、也没跳过过引导时全屏出现；设置里可以重新查看。
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
@@ -12,9 +12,11 @@ struct OnboardingView: View {
     @AppStorage(AppSettingsKey.onboardingSeen) private var seen = false
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(ReviewReminder.enabledKey) private var reminderEnabled = false
+    @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
+    @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
 
     private enum Step: Int, CaseIterable {
-        case welcome, preset, apiKey, model, reminder
+        case welcome, preset, apiKey, model, about, reminder
     }
 
     @State private var step = Step.welcome
@@ -33,6 +35,8 @@ struct OnboardingView: View {
     /// 引导里建好的服务商。返回上一步重新选过时，先删掉它再建新的。
     @State private var createdProvider: Provider?
     @State private var reminderDenied = false
+    /// "关于你"里选的年级，nil 表示没选。
+    @State private var grade: Grade?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -117,14 +121,14 @@ struct OnboardingView: View {
         case .welcome: "开始设置"
         case .preset: nil
         case .apiKey: isChecking ? "正在验证…" : "下一步"
-        case .model: "下一步"
+        case .model, .about: "下一步"
         case .reminder: "开始提问"
         }
     }
 
     private var canContinue: Bool {
         switch step {
-        case .welcome, .preset, .reminder:
+        case .welcome, .preset, .about, .reminder:
             return true
         case .apiKey:
             guard let preset, !isChecking, !trimmed(apiKey).isEmpty else { return false }
@@ -141,6 +145,9 @@ struct OnboardingView: View {
         case .apiKey: checkKey()
         case .model:
             saveProvider()
+            go(.about)
+        case .about:
+            applyGrade()
             go(.reminder)
         case .reminder: finish()
         }
@@ -155,6 +162,7 @@ struct OnboardingView: View {
         case .preset: presetPage
         case .apiKey: apiKeyPage
         case .model: modelPage
+        case .about: aboutPage
         case .reminder: reminderPage
         }
     }
@@ -382,6 +390,104 @@ struct OnboardingView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// 年级：只用来预填用户提示词，不单独保存。
+    private enum Grade: String, CaseIterable, Identifiable {
+        case middle = "初中", high = "高中", college = "大学", other = "其他"
+        var id: String { rawValue }
+
+        var instructions: String? {
+            switch self {
+            case .middle: "我是初中生。"
+            case .high: "我是高中生。"
+            case .college: "我是大学生。"
+            case .other: nil
+            }
+        }
+    }
+
+    private var aboutPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.l) {
+                header("关于你")
+                VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+                    Text("年级")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: Theme.Spacing.s) {
+                        ForEach(Grade.allCases) { option in
+                            choiceButton(option.rawValue, isSelected: grade == option) {
+                                grade = grade == option ? nil : option
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+                    Text("讲解人格")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ForEach(Persona.all) { persona in
+                        personaRow(persona)
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.xl)
+            .padding(.bottom, Theme.Spacing.xl)
+        }
+    }
+
+    private func choiceButton(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Spacing.m)
+                .cardBackground()
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func personaRow(_ persona: Persona) -> some View {
+        let isSelected = persona.id == defaultPersonaID
+        return Button {
+            defaultPersonaID = persona.id
+        } label: {
+            HStack(spacing: Theme.Spacing.m) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .contentTransition(.symbolEffect(.replace))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(persona.name)
+                        .foregroundStyle(.primary)
+                    if !persona.summary.isEmpty {
+                        Text(persona.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(Theme.Spacing.m)
+            .contentShape(Rectangle())
+            .cardBackground()
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 选了年级、用户提示词还空着时，预填一句"我是高中生。"；已经写过的不覆盖。
+    private func applyGrade() {
+        guard let text = grade?.instructions,
+              trimmed(customInstructions).isEmpty
+        else { return }
+        customInstructions = text
+    }
+
     private var reminderPage: some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.xl) {
@@ -421,13 +527,15 @@ struct OnboardingView: View {
         }
     }
 
-    private func header(_ title: String, _ message: String, centered: Bool = false) -> some View {
+    private func header(_ title: String, _ message: String? = nil, centered: Bool = false) -> some View {
         VStack(alignment: centered ? .center : .leading, spacing: Theme.Spacing.s) {
             Text(title)
                 .font(.title2.bold())
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            if let message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .multilineTextAlignment(centered ? .center : .leading)
         .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
