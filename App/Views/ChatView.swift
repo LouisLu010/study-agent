@@ -15,6 +15,7 @@ struct ChatView: View {
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
     @State private var addingMistake: MistakeDraft?
+    @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
     /// 往上翻超过一屏时显示"回到底部"按钮。
     @State private var showJumpToBottom = false
     /// 每发一条消息加一，用来触发震动。
@@ -113,6 +114,13 @@ struct ChatView: View {
         // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
         .toolbarTitleMenu {
+            ConversationPersonaMenu(
+                personaID: Binding(
+                    get: { conversation.personaID },
+                    set: { conversation.personaID = $0; try? context.save() }
+                ),
+                defaultPersona: Persona.resolve(conversationID: "", defaultID: defaultPersonaID)
+            )
             Button(
                 conversation.instructions.isEmpty ? "添加会话提示词" : "编辑会话提示词",
                 systemImage: "text.badge.star"

@@ -168,7 +168,8 @@ final class GenerationCenter {
             systemPrompt: SystemPrompt.compose(
                 customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? "",
                 conversationInstructions: conversation.instructions,
-                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
+                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode),
+                persona: AppSettingsKey.persona(for: conversation)
             ),
             messages: history,
             reasoningEffort: model.reasoningEffort,

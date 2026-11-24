@@ -11,6 +11,7 @@ struct SettingsView: View {
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
     @AppStorage(AppSettingsKey.simpleMode) private var simpleMode = false
+    @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
     @AppStorage(AppSettingsKey.strongKeepAlive) private var strongKeepAlive = false
     @AppStorage(ReviewReminder.enabledKey) private var reminderEnabled = false
     @AppStorage(ReviewReminder.minutesKey) private var reminderMinutes = ReviewReminder.defaultMinutes
@@ -54,6 +55,7 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    PersonaPicker(title: "默认人格", selection: $defaultPersonaID)
                     VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                         Text("用户提示词")
                         TextEditor(text: $customInstructions)

@@ -17,9 +17,20 @@ enum AppSettingsKey {
     /// 用户已经看完或跳过了引导。本机没有服务商、这一项也没有时，打开 App 会显示引导。
     static let onboardingSeen = "onboardingSeen"
 
+    /// 默认人格的 ID（`Persona.id`）。没有设置时是"标准"。
+    static let defaultPersonaID = "defaultPersonaID"
+
     static var usdToCNYRate: Double {
         let value = UserDefaults.standard.double(forKey: usdToCNY)
         return value > 0 ? value : defaultUSDToCNY
+    }
+
+    /// 这个会话实际使用的人格：会话自己选过就用会话的，否则用默认人格。
+    static func persona(for conversation: Conversation) -> Persona {
+        Persona.resolve(
+            conversationID: conversation.personaID,
+            defaultID: UserDefaults.standard.string(forKey: defaultPersonaID) ?? ""
+        )
     }
 }
 

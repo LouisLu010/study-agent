@@ -4,7 +4,11 @@
  *
  *   STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
  *     node tools/eval/run.js --model deepseek-flash [--model grok-4.7] [--only graph-] [--simple] [--web]
+ *       [--persona socratic] [--personas]
  *
+ * --persona 给所有题加上这个人格（Prompts/personas.json 里的 id），检查换了人格后组件是否照常使用。
+ * --personas 只跑人格的题（cases.json 里带 persona 的题），检查讲解方式：forbid 里的正则不能出现，
+ * require 里的正则必须出现，maxChars 是正文（不含代码块）的字数上限。
  * --web 只跑联网搜索的题（cases.json 里 web 为 true 的题），检查该搜时搜了、不该搜时没搜、回答带出处。
  * 搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 deepseek_web_search 工具，其余用 web_search_options。
  *
@@ -23,13 +27,15 @@ const PROMPTS = path.join(ROOT, 'StudyKit', 'Sources', 'StudyKit', 'Prompts');
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { models: [], only: null, simple: false, web: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
+  const args = { models: [], only: null, simple: false, web: false, persona: null, personas: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--model') args.models.push(argv[++i]);
     else if (arg === '--only') args.only = argv[++i];
     else if (arg === '--simple') args.simple = true;
     else if (arg === '--web') args.web = true;
+    else if (arg === '--persona') args.persona = argv[++i];
+    else if (arg === '--personas') args.personas = true;
     else if (arg === '--concurrency') args.concurrency = Number(argv[++i]);
     else if (arg === '--cases') args.cases = argv[++i];
     else throw new Error('不认识的参数：' + arg);
@@ -40,11 +46,32 @@ function parseArgs(argv) {
 
 // ---------- 提示词（与 SystemPrompt.compose 保持一致）----------
 
-function systemPrompt(simple) {
+const PERSONAS = JSON.parse(fs.readFileSync(path.join(PROMPTS, 'personas.json'), 'utf8'));
+
+function systemPrompt(simple, personaID) {
   const read = (name) => fs.readFileSync(path.join(PROMPTS, name + '.md'), 'utf8').trim();
   const parts = [read('base')];
   if (!simple) parts.push(read('components'));
+  if (personaID) {
+    const persona = PERSONAS.find((p) => p.id === personaID);
+    if (!persona) throw new Error('没有这个人格：' + personaID);
+    if (persona.prompt.trim()) parts.push('# 讲解方式\n' + persona.prompt.trim());
+  }
   return parts.join('\n\n');
+}
+
+/** 人格的题：讲解方式是否符合要求。 */
+function checkPersona(testCase, content) {
+  const problems = [];
+  const prose = proseOnly(content);
+  (testCase.forbid || []).forEach((pattern) => {
+    if (new RegExp(pattern).test(content)) problems.push('出现了不该有的 /' + pattern + '/');
+  });
+  (testCase.require || []).forEach((pattern) => {
+    if (!new RegExp(pattern).test(content)) problems.push('缺少 /' + pattern + '/');
+  });
+  if (testCase.maxChars && prose.length > testCase.maxChars) problems.push('正文 ' + prose.length + ' 字，超过 ' + testCase.maxChars);
+  return problems;
 }
 
 // ---------- 请求 ----------
@@ -207,13 +234,14 @@ async function main() {
   const cases = allCases.filter((c) =>
     (c.expect || []).every((type) => available.includes(type)) &&
     !!c.web === args.web &&
+    !!c.persona === args.personas &&
     (!args.only || c.id.includes(args.only)),
   );
-  const system = systemPrompt(args.simple);
+  const systemFor = (testCase) => systemPrompt(args.simple, testCase.persona || args.persona);
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const outDir = path.join(__dirname, 'results', stamp);
 
-  console.log('组件：' + (available.join(', ') || '（简洁模式）') + '；题目：' + cases.length + ' 道\n');
+  console.log('组件：' + (available.join(', ') || '（简洁模式）') + (args.persona ? '；人格：' + args.persona : '') + '；题目：' + cases.length + ' 道\n');
   const summary = {};
 
   for (const model of args.models) {
@@ -222,7 +250,7 @@ async function main() {
 
     const results = await runPool(cases, args.concurrency, async (testCase) => {
       try {
-        const reply = await ask(model, system, testCase.prompt, !!testCase.web);
+        const reply = await ask(model, systemFor(testCase), testCase.prompt, !!testCase.web);
         const { content, ms } = reply;
         fs.writeFileSync(path.join(dir, testCase.id + '.md'), content);
         const result = Object.assign({ id: testCase.id, ms }, check(testCase, content, available));
@@ -230,6 +258,10 @@ async function main() {
           result.searches = reply.searches;
           result.citations = reply.citations.length;
           result.problems = result.problems.concat(checkWebSearch(testCase, reply));
+          result.pass = result.problems.length === 0;
+        }
+        if (testCase.persona) {
+          result.problems = result.problems.concat(checkPersona(testCase, content));
           result.pass = result.problems.length === 0;
         }
         return result;

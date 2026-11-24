@@ -7,15 +7,20 @@ public enum SystemPrompt {
     /// 组件的使用规则和格式说明。简洁模式下不发送。
     public static let componentRules = load("components")
 
-    /// 内置规则加上用户提示词。
+    /// 内置规则、人格、用户提示词、会话提示词，按这个顺序拼接；用户自己写的说明排在后面，优先。
     public static func compose(
         customInstructions: String,
         conversationInstructions: String = "",
-        simpleMode: Bool = false
+        simpleMode: Bool = false,
+        persona: Persona? = nil
     ) -> String {
         var parts = [baseRules]
         if !simpleMode {
             parts.append(componentRules)
+        }
+        let personaPrompt = persona?.prompt.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !personaPrompt.isEmpty {
+            parts.append("# 讲解方式\n" + personaPrompt)
         }
         let custom = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
         if !custom.isEmpty {

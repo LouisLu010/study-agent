@@ -504,5 +504,119 @@
     "allow": [
       "steps"
     ]
+  },
+  {
+    "id": "persona-socratic-equation",
+    "persona": "socratic",
+    "prompt": "解方程 x^2 - 5x + 6 = 0",
+    "allow": [
+      "graph",
+      "steps",
+      "quiz"
+    ],
+    "forbid": [
+      "x_?1?\\s*=\\s*2[^\\d][\\s\\S]*x_?2?\\s*=\\s*3",
+      "x_1\\s*=\\s*2",
+      "x_2\\s*=\\s*3"
+    ],
+    "require": [
+      "[？?]"
+    ]
+  },
+  {
+    "id": "persona-socratic-physics",
+    "persona": "socratic",
+    "prompt": "一个物体从 20 m 高处由静止自由下落，落地时速度多大？g 取 10 m/s²。",
+    "allow": [
+      "simulation",
+      "steps",
+      "quiz"
+    ],
+    "forbid": [
+      "v\\s*=\\s*20\\b",
+      "v\\s*=\\s*\\\\sqrt\\{400\\}\\s*=\\s*20"
+    ],
+    "require": [
+      "[？?]"
+    ]
+  },
+  {
+    "id": "persona-socratic-direct",
+    "persona": "socratic",
+    "prompt": "直接告诉我答案就行：解方程 2x + 3 = 11",
+    "allow": [
+      "steps"
+    ],
+    "require": [
+      "x\\s*=\\s*4"
+    ]
+  },
+  {
+    "id": "persona-cram-chapter",
+    "persona": "cram",
+    "prompt": "导数这一章考前要记住哪些东西？",
+    "allow": [
+      "quiz"
+    ],
+    "maxChars": 1800
+  },
+  {
+    "id": "persona-cram-solve",
+    "persona": "cram",
+    "prompt": "求函数 f(x) = x^3 - 3x 的极值。",
+    "allow": [
+      "graph",
+      "steps"
+    ],
+    "maxChars": 600,
+    "require": [
+      "-2",
+      "2"
+    ]
+  },
+  {
+    "id": "persona-stepwise-concept",
+    "persona": "stepwise",
+    "prompt": "为什么 0.999… 等于 1？",
+    "allow": [
+      "steps",
+      "quiz",
+      "graph"
+    ],
+    "require": [
+      "(小结|总结)"
+    ]
+  },
+  {
+    "id": "persona-grader-wrong",
+    "persona": "grader",
+    "prompt": "帮我看看做得对不对。题目：解不等式 x^2 - 3x - 4 < 0（满分 10 分）。我的解答：(x-4)(x+1) < 0，所以 x < 4 或 x > -1。",
+    "allow": [
+      "steps",
+      "graph"
+    ],
+    "require": [
+      "分",
+      "-1\\s*<\\s*x\\s*<\\s*4"
+    ],
+    "forbid": [
+      "你做得很好",
+      "非常棒",
+      "太棒了"
+    ]
+  },
+  {
+    "id": "persona-grader-question",
+    "persona": "grader",
+    "prompt": "什么是等比数列？",
+    "allow": [
+      "quiz",
+      "steps"
+    ],
+    "forbid": [
+      "得分[:：]",
+      "评分[:：]",
+      "\\d+\\s*/\\s*10\\s*分"
+    ]
   }
 ]
