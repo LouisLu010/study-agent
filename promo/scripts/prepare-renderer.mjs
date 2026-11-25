@@ -4,6 +4,7 @@
 //    - 深色模式写死：把 prefers-color-scheme 的媒体查询改成恒真或恒假；
 //    - 字体改成苹果系统字体（Chrome 不认 -apple-system-body）。
 // 2. 把 Thinking Orbs 的 orb-core.js 复制到 src/vendor/，加一个按毫秒绘制的入口，让小球跟着帧走。
+// 3. 把 App 的图标复制成 public/icon.png。
 // 生成的文件都不进仓库（见 .gitignore）。
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -65,4 +66,7 @@ writeFileSync(join(promo, 'src', 'vendor', 'orb-core.d.ts'),
   "export type OrbState = 'idle' | 'working' | 'reasoning' | 'searching' | 'background' | 'retrying';\n" +
   'export declare function mountOrb(svg: SVGSVGElement, options?: { state?: OrbState; size?: number; speed?: number; label?: string }): { pause(): void; play(): void; destroy(): void };\n');
 
-console.log('renderer → public/renderer/promo.html；orb → src/vendor/orb-core.js');
+// 3. App 的图标（1.0 版的开场、片尾和左上角的标志）。
+cpSync(join(promo, '..', 'App', 'Assets.xcassets', 'AppIcon.appiconset', 'AppIcon.png'), join(promo, 'public', 'icon.png'));
+
+console.log('renderer → public/renderer/promo.html；orb → src/vendor/orb-core.js；icon → public/icon.png');

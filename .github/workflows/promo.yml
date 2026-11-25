@@ -9,9 +9,12 @@ on:
       stills:
         description: 只出几张截图检查（帧号，逗号分开；留空就渲染整部片子）
         default: ""
+      release:
+        description: 渲染完把成片传到这个 Release 上（标签，例如 v1.0.0；留空就只放在 artifact 里）
+        default: ""
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   render:
@@ -41,6 +44,7 @@ jobs:
           STILLS: ${{ inputs.stills }}
         run: |
           npm run prepare-renderer
+          node scripts/make-music.mjs
           mkdir -p out
           if [ -n "$STILLS" ]; then
             if [[ ! "$STILLS" =~ ^[0-9,]+$ ]]; then echo "stills 只能是帧号和逗号" >&2; exit 1; fi
@@ -52,6 +56,17 @@ jobs:
             npx remotion render src/index.ts Promo out/gewu-promo.mp4 --concurrency=100%
           fi
           node scripts/cues.mjs > out/cues.md
+
+      - name: Upload to release
+        if: inputs.release != '' && inputs.stills == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9A-Za-z.-]+$ ]]; then echo "标签格式不对：$TAG" >&2; exit 1; fi
+          name="gewu-promo-${TAG#v}.mp4"
+          cp out/gewu-promo.mp4 "out/$name"
+          gh release upload "$TAG" "out/$name" --clobber --repo "$GITHUB_REPOSITORY"
 
       - uses: actions/upload-artifact@v4
         with:

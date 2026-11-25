@@ -5,3 +5,7 @@ public/renderer/
 src/vendor/
 # 由 scripts/export-symbols.swift 在 macOS 上生成（SF Symbols 只能在 Apple 平台上用）
 public/symbols/
+# 由 scripts/prepare-renderer.mjs 复制
+public/icon.png
+# 由 scripts/make-music.mjs 生成
+public/music.wav

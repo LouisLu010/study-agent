@@ -1,10 +1,12 @@
 import React from 'react';
-import { AbsoluteFill, Easing, Sequence, interpolate, useCurrentFrame } from 'remotion';
+import { AbsoluteFill, Audio, Easing, Sequence, interpolate, staticFile, useCurrentFrame } from 'remotion';
 import timeline from './timeline.json';
 import { equilibrium, graph, pendulum, quiz } from './content';
 import { ChatScene, drag } from './scenes/ChatScene';
-import { CompilationScene, Ending, Opening, ReviewScene } from './scenes/Scenes';
-import { Caption } from './ui/Caption';
+import { CompilationScene, Ending, Features, Opening, ReviewScene } from './scenes/Scenes';
+import { PersonaScene } from './scenes/PersonaScene';
+import { Caption, type CaptionData } from './ui/Caption';
+import { BrandMark } from './ui/Brand';
 
 // 整部片子：每段的起点、长度和字幕在 timeline.json 里，音效时间点也在那里（npm run cues 打印成表）。
 // 转场：每段往后多演 transition 帧，和下一段交叠；下一段在上面从透明淡到不透明，所以中间不会闪黑。
@@ -44,8 +46,10 @@ const scenes: Record<string, React.ReactNode> = {
       ]}
     />
   ),
+  persona: <PersonaScene />,
   review: <ReviewScene />,
   compilation: <CompilationScene />,
+  features: <Features />,
   ending: <Ending />,
 };
 
@@ -57,20 +61,41 @@ const FadeIn: React.FC<{ enabled: boolean; children: React.ReactNode }> = ({ ena
   return <AbsoluteFill style={{ opacity, background: enabled ? '#000' : undefined }}>{children}</AbsoluteFill>;
 };
 
+const captioned = timeline.scenes.filter((s) => s.caption).map((s) => s.id);
+const first = timeline.scenes[1]!;
+const ending = timeline.scenes[timeline.scenes.length - 1]!;
+
+/** 左上角的标志：开场以后淡入，片尾开始时淡出（片尾自己有大图标）。 */
+const Brand: React.FC = () => {
+  const frame = useCurrentFrame();
+  const opacity = interpolate(frame, [first.from + 4, first.from + T + 6, ending.from, ending.from + T], [0, 1, 1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  return opacity > 0 ? <BrandMark opacity={opacity} /> : null;
+};
+
 export const Promo: React.FC = () => (
   <AbsoluteFill style={{ background: '#000' }}>
+    {/* 配乐和音效由 scripts/make-music.mjs 按 timeline.json 合成。 */}
+    <Audio src={staticFile('music.wav')} />
     {timeline.scenes.map((scene, i) => {
       const last = i === timeline.scenes.length - 1;
+      const caption = scene.caption as CaptionData | null;
       return (
         <Sequence key={scene.id} from={scene.from} durationInFrames={scene.duration + (last ? 0 : T)} name={scene.id}>
           <FadeIn enabled={i > 0}>
             {scenes[scene.id]}
-            {scene.caption && (
-              <Caption title={scene.caption[0]!} detail={scene.caption[1]} enter={i > 0 && timeline.scenes[i - 1].caption ? T - 2 : 6} exit={last ? undefined : scene.duration} />
+            {caption && (
+              <Caption
+                {...caption}
+                enter={i > 0 && timeline.scenes[i - 1].caption ? T - 2 : 6}
+                exit={last ? undefined : scene.duration}
+                index={captioned.indexOf(scene.id) + 1}
+                total={captioned.length}
+              />
             )}
           </FadeIn>
         </Sequence>
       );
     })}
+    <Brand />
   </AbsoluteFill>
 );
