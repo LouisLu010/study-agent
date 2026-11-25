@@ -16,10 +16,17 @@
 
 用你自己的 API Key，没有服务器，数据只存在本机。没有上架 App Store，需要自签安装，见[构建与安装](#构建与安装)。
 
-- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.9.0 Beta 2](https://github.com/LouisLu010/study-agent/releases/tag/v0.9.0-beta.2)
+- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [1.0](https://github.com/LouisLu010/study-agent/releases/tag/v1.0.0)（第一次用请先看[发布说明](./docs/releases/1.0.0.md)）
 - 术语：[GLOSSARY.md](./GLOSSARY.md)
 - 架构决策：[docs/adr/](./docs/adr/)
-- 宣传片：[docs/promo/](./docs/promo/README.md)
+- 宣传片：在 [1.0 的发布页](https://github.com/LouisLu010/study-agent/releases/tag/v1.0.0)下载 `gewu-promo-1.0.mp4`，制作过程见 [docs/promo/](./docs/promo/README.md)
+
+## 1.0 说明
+
+1.0 是第一个正式版，等于第九版加上两轮测试版的修复。之后的迭代继续叫"第十版"，下面"版本记录"里的章节名不变。
+
+- **已知限制**：没有上架 App Store，要用 Sideloadly 自签安装，免费 Apple ID 每 7 天要重装一次（数据不丢）；数据只在本机，不同步 iCloud；只有中文界面；不支持 Mac。
+- **从测试版升级**：直接覆盖安装，会话、错题、资料和汇编都还在。
 
 ## 截图
 
