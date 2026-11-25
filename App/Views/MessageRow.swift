@@ -106,6 +106,7 @@ private struct AssistantMessageView: View {
     let onQuizResult: ([String: Any]) -> Void
 
     @Environment(\.modelContext) private var context
+    @Environment(GenerationCenter.self) private var generation
     @State private var keeper = BackgroundKeeper.shared
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
@@ -193,6 +194,15 @@ private struct AssistantMessageView: View {
                     onFullscreen: { key, markdown, state in
                         fullscreenKey = key
                         fullscreen = FullscreenComponent(key: key, markdown: markdown, stateJSON: state)
+                    },
+                    repairState: message.conversation.map { generation.repairState(for: message, in: $0) } ?? ComponentRepairState(),
+                    onComponentError: { report in
+                        guard let conversation = message.conversation else { return }
+                        generation.componentErrorReported(report, in: message, conversation: conversation, context: context)
+                    },
+                    onRepairComponent: { report in
+                        guard let conversation = message.conversation else { return }
+                        generation.repairComponent(report, in: message, conversation: conversation, context: context)
                     }
                 )
                 .frame(height: webHeight)

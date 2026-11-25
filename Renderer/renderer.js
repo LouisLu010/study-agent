@@ -103,7 +103,8 @@
     const language = (token.info || '').trim().split(/\s+/)[0].toLowerCase();
     const handler = fenceHandlers[language];
     if (handler) {
-      const html = handler(token.content, env);
+      // token.map 是这个代码块在原文里的行号 [开头, 结尾)，组件出错时用来只替换这一块（第九版）。
+      const html = handler(token.content, env, token.map);
       if (html !== null) return html;
     }
     return renderCodeBlock(token.content, language);
@@ -122,6 +123,9 @@
    *   grouped       放在浅灰底的分组页面上（学习记录）：组件卡片改成白色
    *   canFullscreen 模拟、坐标图、几何图的卡片右上角显示全屏按钮（聊天里的回答）
    *   fullscreen    这是全屏页：画面更大，横屏时参数面板在侧边
+   *   canRepair     组件格式有误时，提示卡片上显示"重新生成这个组件"（第九版）
+   *   repairing     { 组件键: true }，正在重新生成的组件
+   *   repairFailed  { 组件键: 原因 }，重新生成失败的组件
    */
   let options = { state: {}, canRegenerate: false };
 
@@ -130,6 +134,8 @@
     document.body.classList.toggle('can-regenerate', !!options.canRegenerate);
     document.body.classList.toggle('on-grouped', !!options.grouped);
     document.body.classList.toggle('is-fullscreen', !!options.fullscreen);
+    document.body.classList.toggle('can-repair', !!options.canRepair);
+    document.dispatchEvent(new CustomEvent('sa-options'));
   }
 
   function render(text, streaming, nextOptions) {

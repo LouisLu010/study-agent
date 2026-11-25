@@ -105,9 +105,13 @@
   // ---------- 代码块 → HTML ----------
 
   // 占位框按组件种类给出接近最终大小的高度（见 renderer.css），带淡淡的闪光，组件出现时正文不跳。
-  function placeholderHTML(type, key, hash) {
+  function linesAttribute(lines) {
+    return Array.isArray(lines) && lines.length === 2 ? ' data-lines="' + lines[0] + ',' + lines[1] + '"' : '';
+  }
+
+  function placeholderHTML(type, key, hash, lines) {
     return '<div class="sa-component sa-component-loading" data-type="' + type + '" data-key="' + key +
-      '" data-hash="' + hash + '">' + kindHeaderHTML(type) + '<div class="sa-loading-text">正在加载…</div></div>\n';
+      '" data-hash="' + hash + '"' + linesAttribute(lines) + '>' + kindHeaderHTML(type) + '<div class="sa-loading-text">正在加载…</div></div>\n';
   }
 
   function pendingHTML(type) {
@@ -115,21 +119,56 @@
       '<div class="sa-loading-text">正在生成' + escapeHTML(core.componentLabel(type)) + '…</div></div>\n';
   }
 
-  function errorHTML(type, source, error) {
+  // 提示卡片带上组件键、种类和行号，"重新生成这个组件"只替换这一块（第九版）。
+  function errorHTML(type, source, error, key, lines) {
     const label = escapeHTML(core.componentLabel(type));
     return (
-      '<div class="sa-component-error">' +
+      '<div class="sa-component-error" data-type="' + escapeHTML(type) + '" data-key="' + escapeHTML(key || '') + '"' +
+      linesAttribute(lines) + ' data-error="' + escapeHTML(error || '') + '">' +
       '<div class="sa-error-title">这个' + label + '的格式有误，无法显示</div>' +
       '<div class="sa-error-detail">' + escapeHTML(error || '') + '</div>' +
-      '<details><summary>查看原文</summary><pre>' + escapeHTML(source) + '</pre></details>' +
-      '<button class="sa-regenerate">重新生成</button>' +
+      (source ? '<details><summary>查看原文</summary><pre>' + escapeHTML(source) + '</pre></details>' : '') +
+      '<div class="sa-repair-status"></div>' +
+      '<button class="sa-repair">重新生成这个组件</button>' +
       '</div>\n'
     );
   }
 
+  /** 提示卡片的内容，交给 Swift。行号不知道时为 null。 */
+  function errorReport(card) {
+    const lines = (card.dataset.lines || '').split(',').map(Number);
+    const known = lines.length === 2 && lines.every(Number.isFinite);
+    return {
+      key: card.dataset.key || '',
+      type: card.dataset.type || '',
+      error: card.dataset.error || '',
+      start: known ? lines[0] : null,
+      end: known ? lines[1] : null,
+    };
+  }
+
+  /** 按 repairing / repairFailed 更新提示卡片：正在重新生成时藏起按钮，失败时写原因。 */
+  function updateRepairCards(root) {
+    const options = renderer.getOptions();
+    const repairing = options.repairing || {};
+    const failed = options.repairFailed || {};
+    (root || document).querySelectorAll('.sa-component-error[data-key]').forEach((card) => {
+      const key = card.dataset.key;
+      const busy = !!repairing[key];
+      card.classList.toggle('is-repairing', busy);
+      const status = card.querySelector('.sa-repair-status');
+      if (!status) return;
+      status.textContent = busy ? '正在重新生成这个组件…' : failed[key] ? '没能修好：' + failed[key] : '';
+      const button = card.querySelector('.sa-repair');
+      if (button) button.textContent = failed[key] ? '再试一次' : '重新生成这个组件';
+    });
+  }
+
+  document.addEventListener('sa-options', () => updateRepairCards());
+
   function register(type, definition) {
     definitions[type] = definition;
-    renderer.fenceHandlers[type] = (content, env) => {
+    renderer.fenceHandlers[type] = (content, env, lines) => {
       if (env.noComponents) return null;
       // 组件键按出现顺序编号，用来对应保存的组件状态。
       const key = 'c' + env.componentIndex++;
@@ -138,9 +177,9 @@
         const hash = type + '-' + hashKey(content.trim());
         specs.set(hash, result.value);
         sources.set(hash, content);
-        return placeholderHTML(type, key, hash);
+        return placeholderHTML(type, key, hash, env.streaming ? null : lines);
       }
-      return env.streaming ? pendingHTML(type) : errorHTML(type, content, result.error);
+      return env.streaming ? pendingHTML(type) : errorHTML(type, content, result.error, key, lines);
     };
   }
 
@@ -194,7 +233,11 @@
       element.prepend(header);
       element.drawn = true;
     } catch (error) {
-      element.innerHTML = errorHTML(element.dataset.type, '', error.message);
+      element.innerHTML = errorHTML(element.dataset.type, '', error.message, element.dataset.key,
+        element.dataset.lines ? element.dataset.lines.split(',').map(Number) : null);
+      const card = element.querySelector('.sa-component-error');
+      updateRepairCards(element);
+      if (card) renderer.post('componentError', errorReport(card));
     }
   }
 
@@ -236,7 +279,14 @@
       return kept;
     },
     // 替换之后，内容没变的组件放回原处，新的组件开始绘制，消失的组件释放。
-    afterReplace(root, kept) {
+    afterReplace(root, kept, env) {
+      // 生成完的完整渲染：把格式有误的组件告诉 Swift，刚生成完的回答会自动重新生成一次这个组件。
+      if (env && !env.streaming) {
+        updateRepairCards(root);
+        root.querySelectorAll('.sa-component-error[data-key]').forEach((card) => {
+          renderer.post('componentError', errorReport(card));
+        });
+      }
       root.querySelectorAll('.sa-component[data-hash]').forEach((placeholder) => {
         const id = placeholder.dataset.key + '|' + placeholder.dataset.hash;
         const element = kept.get(id);
@@ -324,9 +374,18 @@
   document.addEventListener('touchend', release, { capture: true });
   document.addEventListener('touchcancel', release, { capture: true });
 
-  // 提示卡片上的"重新生成"按钮。
+  // 提示卡片上的"重新生成"按钮（旧的写法，重新生成整条回答）。
   document.addEventListener('click', (event) => {
     if (event.target.closest('.sa-regenerate')) renderer.post('regenerate', true);
+  });
+
+  // "重新生成这个组件"：只让模型重写这一块。
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('.sa-repair');
+    const card = button && button.closest('.sa-component-error');
+    if (!card) return;
+    renderer.setOptions({ repairing: Object.assign({}, renderer.getOptions().repairing, { [card.dataset.key]: true }) });
+    renderer.post('repairComponent', errorReport(card));
   });
 
   window.StudyComponents = {
