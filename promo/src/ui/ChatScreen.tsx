@@ -35,10 +35,14 @@ type Props = {
   /** 回答刚出来时淡入。 */
   answerOpacity?: number;
   composer?: { value?: string; caret?: boolean; pressing?: boolean };
+  /** 画在导航栏下面、浮在内容上的东西（标题菜单）。 */
+  overlay?: React.ReactNode;
+  /** 回答下面、用量那行之后的东西（快捷追问）。 */
+  footer?: React.ReactNode;
   onLayout?: (layout: { height: number; rects: Rect[] }) => void;
 };
 
-export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, scroll = 0, thinking, answerOpacity = 1, composer, onLayout }) => (
+export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, scroll = 0, thinking, answerOpacity = 1, composer, overlay, footer, onLayout }) => (
   <div style={{ position: 'absolute', left: chat.left, top: 0, width: chat.width, bottom: 0, background: color.background, overflow: 'hidden' }}>
     <div style={{ position: 'absolute', left: chat.contentLeft - chat.left, width: chat.contentWidth, top: chat.navHeight + 16 - scroll }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', paddingLeft: 48 }}>
@@ -61,6 +65,7 @@ export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, 
             ))}
           </div>
           <div style={{ ...text.caption2, color: color.tertiary, marginTop: 8 }}>输入 2,310（缓存 1,840） · 输出 640 tokens · 约 ¥0.003</div>
+          {footer}
         </div>
       )}
     </div>
@@ -71,6 +76,8 @@ export const ChatScreen: React.FC<Props> = ({ title, question, answer, actions, 
       <span style={{ ...text.headline }}>{title}</span>
       <GlassCircle size={20}><Symbol name="chevron.down" size={9} /></GlassCircle>
     </div>
+
+    {overlay}
 
     {/* 底部：safeAreaBar 的渐变模糊，上面浮着输入框。 */}
     <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 150, background: 'linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.85) 60%)', backdropFilter: 'blur(4px)', WebkitMaskImage: 'linear-gradient(transparent, #000 45%)' }} />

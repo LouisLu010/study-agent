@@ -41,6 +41,7 @@ jobs:
           STILLS: ${{ inputs.stills }}
         run: |
           npm run prepare-renderer
+          node scripts/make-music.mjs
           mkdir -p out
           if [ -n "$STILLS" ]; then
             if [[ ! "$STILLS" =~ ^[0-9,]+$ ]]; then echo "stills 只能是帧号和逗号" >&2; exit 1; fi

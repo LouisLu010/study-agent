@@ -49,6 +49,27 @@ export const equilibrium = {
   ].join('\n'),
 };
 
+// 人格（1.0 新增）：启发式的回答，按 deepseek-flash 在"启发式"人格下的真实回答缩短（tools/eval 的 persona-socratic-equation）。
+export const persona = {
+  question: '解方程 x² − 5x + 6 = 0',
+  answer: [
+    '先别急着套公式，观察一下这个方程的结构：',
+    '',
+    '$$x^2 - 5x + 6 = 0$$',
+    '',
+    '二次项系数是 1，常数项是 6。想一想：**能不能把它拆成两个一次因式相乘**，写成 $(x-a)(x-b)=0$？',
+    '',
+    '展开 $(x-a)(x-b)$ 得到 $x^2-(a+b)x+ab$。和原方程对比，你需要找两个数 $a$、$b$，满足：',
+    '',
+    '- 两数之积 $ab = 6$',
+    '- 两数之和 $a+b = 5$',
+    '',
+    '你能找到这两个数吗？告诉我 $a$、$b$ 分别是多少，我们再看下一步。',
+  ].join('\n'),
+  personas: ['标准', '循序渐进', '启发式', '考前速记', '严格批改'],
+  followUps: ['讲简单点', '换个思路', '出道练习题'],
+};
+
 export const quizQuestions = [
   {
     question: '质量为 2 kg 的物体受到 10 N 的合力，它的加速度是多少？',
@@ -109,6 +130,7 @@ export const mistakes: MistakeRowData[] = [
 
 export const conversations = [
   { id: 'quiz', title: '牛顿第二定律小测', time: '现在' },
+  { id: 'persona', title: '一元二次方程', time: '1分钟前' },
   { id: 'equilibrium', title: '勒夏特列原理', time: '2分钟前' },
   { id: 'graph', title: '二次函数的对称轴', time: '5分钟前' },
   { id: 'pendulum', title: '单摆的周期和摆长', time: '8分钟前' },
