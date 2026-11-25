@@ -16,7 +16,7 @@
 
 用你自己的 API Key，没有服务器，数据只存在本机。没有上架 App Store，需要自签安装，见[构建与安装](#构建与安装)。
 
-- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.9.0 Beta 1](https://github.com/LouisLu010/study-agent/releases/tag/v0.9.0-beta.1)
+- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.9.0 Beta 2](https://github.com/LouisLu010/study-agent/releases/tag/v0.9.0-beta.2)
 - 术语：[GLOSSARY.md](./GLOSSARY.md)
 - 架构决策：[docs/adr/](./docs/adr/)
 - 宣传片：[docs/promo/](./docs/promo/README.md)
