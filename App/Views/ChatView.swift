@@ -128,7 +128,6 @@ struct ChatView: View {
         }
         .navigationTitle(conversation.title)
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear(perform: discardIfEmpty)
         // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
         .toolbarTitleMenu {
@@ -284,22 +283,6 @@ struct ChatView: View {
     }
 
     /// 组件里的"问问 AI"：直接发出，不经过输入框。
-    /// 离开一个什么都没写的会话时删掉它，列表里不留一串空的"新会话"（第九版）。
-    /// 写过会话提示词或换过人格的留着，那是用户特意设置的。
-    private func discardIfEmpty() {
-        guard !conversation.isDeleted,
-              !toasts.isHidden(conversation),
-              (conversation.messages ?? []).isEmpty,
-              conversation.instructions.isEmpty,
-              conversation.personaID.isEmpty
-        else { return }
-        if navigation.selection == .conversation(conversation) {
-            navigation.selection = nil
-        }
-        context.delete(conversation)
-        try? context.save()
-    }
-
     /// 长按提问选"加入错题本"：直接加入，提示条上可以接着写备注。
     private func addMistake(question: Message, solution: Message) {
         let mistake = StudyCenter.addManualMistake(question: question, solution: solution, conversation: conversation, context: context)

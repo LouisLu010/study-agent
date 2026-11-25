@@ -408,6 +408,7 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
   - 快捷追问另外手动试了两轮对话：两道题各点三个按钮，"讲简单点"把回答缩到原来的三分之一左右，"出道练习题"都用测验组件出题，"换个思路"换了解法，组件格式都正确。
 - 底部提示条是 `App/Design/ToastBar.swift` 的 `ToastCenter`：删除时先把对象的 `persistentModelID` 记进 `hiddenIDs`，列表把它们过滤掉，5 秒后或者下一次提示出现时才真正删除。每个页面用 `.toastBar(范围)` 只显示自己的提示条，iPad 上侧栏和右边不会同时出现。
 - 历史里的图片：`ChatMessage.replacingImagesWithPlaceholders()`，模型不支持图片时 `startReply` 把整段历史都换掉。顺带修了一个原来就有的问题：以前只拦了"重新生成"和"继续生成"，换模型后直接发新消息，历史里的图片也会原样发给纯文字模型。
+- 空会话的清理放在 `RootView`：侧栏的选择从一个会话换走时检查它。最早挂在聊天页的 `onDisappear` 上，但弹出相机这类全屏页面时聊天页也会触发 `onDisappear`，新会话里点拍照、快捷菜单"拍题"都会把会话删掉（Beta 2 修复）。
 - 只重新生成一个组件：渲染器的提示卡片带上组件键、种类、报错和它在原文里的行号（markdown-it 的 `token.map`），生成完的完整渲染里发 `componentError`，按钮发 `repairComponent`。`GenerationCenter.repairComponent` 用 `ComponentRepair`（StudyKit）取出这几行原文，请求里只带这种组件那一节格式说明、出错的代码块、报错和前后的回答，拿回的代码块按原文替换回去（列表里的缩进照旧），再 `finishVersion` 同步到当前版本。期间重新生成过、原文已经不在了就不改。用 `deepseek-flash` 手动试了 5 种组件各一个坏掉的代码块，都修好了，每次约 1 到 2.5 秒、2 千 token 左右。
 - 长按图标的快捷菜单：`App/QuickActions.swift`。SwiftUI 没有直接的入口，所以用 `UIApplicationDelegateAdaptor` 换上场景代理来接收，交给 `QuickActionInbox`，再由 `RootView` 处理。菜单项在启动时和退到后台时按当前状态重新设置。"拍题"用默认模型新建会话；模型支持图片时直接弹出相机，拍完的图在输入框里，不会自动发出。
 - 真机上还要检查：
