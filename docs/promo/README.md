@@ -91,6 +91,7 @@ Remotion 每帧截一张图，真实时间和画面时间对不上，所以 `pro
 在 Actions 页面手动运行 **Promo video**：
 
 - `stills` 留空：渲染整部片子，artifact `gewu-promo` 里有 `gewu-promo.mp4` 和 `cues.md`（音效时间表）。
+- `release` 填 Release 的标签（例如 `v1.0.0`）：渲染完把成片以 `gewu-promo-1.0.0.mp4` 传到那个 Release 上。
 - `stills` 填帧号（例如 `250,420,940`）：只出这几帧的截图，用来检查。
 
 本地预览（需要 Node 22）：
