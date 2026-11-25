@@ -22,6 +22,12 @@ type Props = CaptionData & {
   total?: number;
 };
 
+/** 大标题按最长一行缩小字号，保证一行放得下 600 宽（汉字和全角标点按 1 个字宽，其余按半个多一点）。 */
+function titleSize(title: string) {
+  const units = Math.max(...title.split('\n').map((line) => Array.from(line).reduce((sum, ch) => sum + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 1.02 : ch === ' ' ? 0.3 : 0.58), 0)));
+  return Math.min(60, Math.floor(590 / units));
+}
+
 const ease = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: Easing.out(Easing.cubic) } as const;
 
 export const Caption: React.FC<Props> = ({ kicker, title, detail, points = [], enter, exit, index, total }) => {
@@ -53,7 +59,7 @@ export const Caption: React.FC<Props> = ({ kicker, title, detail, points = [], e
             {kicker}
           </div>
         )}
-        <div style={{ ...piece(2), fontSize: 60, lineHeight: 1.22, fontWeight: 700, color: color.label, letterSpacing: 1, whiteSpace: 'pre-line' }}>{title}</div>
+        <div style={{ ...piece(2), fontSize: titleSize(title), lineHeight: 1.22, fontWeight: 700, color: color.label, letterSpacing: 1, whiteSpace: 'pre' }}>{title}</div>
         {detail && <div style={{ ...piece(8), fontSize: 29, lineHeight: 1.45, color: color.secondary, maxWidth: 560 }}>{detail}</div>}
         {points.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 14 }}>

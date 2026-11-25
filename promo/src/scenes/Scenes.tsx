@@ -181,14 +181,14 @@ export const Features: React.FC = () => {
         </div>
         <div style={{ fontSize: 60, fontWeight: 700, color: color.label, marginTop: 18 }}>学习要用的，基本都在一个 App 里</div>
       </div>
-      <div style={{ position: 'absolute', left: 96, right: 96, top: 360, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24 }}>
+      <div style={{ position: 'absolute', left: 96, right: 96, top: 330, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24 }}>
         {features.map((item, i) => {
           const p = smooth(frame, [30 + i * 5, 44 + i * 5]);
           return (
             <div
               key={item.title}
               style={{
-                height: 230,
+                height: 262,
                 padding: '28px 28px',
                 borderRadius: 24,
                 background: color.secondaryBackground,
@@ -209,7 +209,7 @@ export const Features: React.FC = () => {
           );
         })}
       </div>
-      <div style={{ position: 'absolute', left: 96, right: 96, top: 900, display: 'flex', alignItems: 'center', gap: 18, fontSize: 24, color: color.secondary, opacity: providers }}>
+      <div style={{ position: 'absolute', left: 96, right: 96, top: 922, display: 'flex', alignItems: 'center', gap: 18, fontSize: 24, color: color.secondary, opacity: providers }}>
         <span style={{ color: color.tertiary }}>支持</span>
         {['DeepSeek', 'OpenAI', 'Claude', 'Gemini', 'OpenRouter', '通义千问、Kimi 等兼容 OpenAI 接口的服务商'].map((name) => (
           <span key={name} style={{ padding: '8px 18px', borderRadius: 999, background: color.tertiaryFill, color: 'rgba(255,255,255,0.85)' }}>{name}</span>
