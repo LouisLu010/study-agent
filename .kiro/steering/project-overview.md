@@ -31,7 +31,7 @@ iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。�
 
 ## 关键机制
 
-- **系统提示词**：`StudyKit/Sources/StudyKit/Chat/SystemPrompt.swift` 的 `compose`，按顺序拼接 `Prompts/base.md`（格式规则）、`Prompts/components.md`（组件规则，简洁模式下不加）、用户提示词、会话提示词。聊天在 `GenerationCenter.startReply` 里每次请求重新拼。资料和汇编用自己的提示词，不带用户提示词。顺序有测试：`ReplyVersionsTests`。
+- **系统提示词**：`StudyKit/Sources/StudyKit/Chat/SystemPrompt.swift` 的 `compose`，按顺序拼接 `Prompts/base.md`（格式规则）、`Prompts/components.md`（组件规则，简洁模式下不加）、人格（`Prompts/personas.json`，第九版）、用户提示词、会话提示词。聊天在 `GenerationCenter.startReply` 里每次请求重新拼。资料和汇编用自己的提示词，不带用户提示词。顺序有测试：`ReplyVersionsTests`。
 - **组件**：模型输出一个代码块，语言名是组件种类（`graph`、`geometry`、`chart`、`quiz`、`steps`、模拟），内容是 JSON，由 `Renderer/` 绘制（ADR-0002、0003、0006、0010）。组件状态存在消息里，不发给模型。
 - **数据**：SwiftData，没有 `VersionedSchema`，靠轻量迁移。规则：每个属性可选或有默认值，不加唯一约束，关系都是可选的（`Models.swift` 开头）。API Key 存钥匙串（`KeychainStore`）。设置存 UserDefaults，界面里用 `@AppStorage`。
 - **错题、收藏、资料都是独立副本**，删会话不影响它们（ADR-0009）。
@@ -41,7 +41,7 @@ iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。�
 ## 构建和测试
 
 - CI（`.github/workflows/ci.yml`，macOS）：`swift test --package-path StudyKit`、`node --test RendererTests/*.test.js`、`xcodegen generate` 后编译模拟器和真机版，打包未签名 ipa。
-- 这个沙箱是 Linux：可以跑 `node --test RendererTests/*.test.js`；StudyKit 依赖 SwiftData，在 Linux 上编译不了，Swift 改动只能靠 CI 验证。推送后用 `gh run list` / `gh run view <id> --log-failed` 看结果。
+- 这个沙箱是 Linux：可以跑 `node --test RendererTests/*.test.js`；StudyKit 依赖 SwiftData 和 URLSession，整个包在 Linux 上编译不了。只依赖 Foundation 的几个文件（例如 `Persona.swift`、`SystemPrompt.swift`）可以复制到一个临时 Swift 包里跑测试，其余 Swift 改动只能靠 CI 验证。推送后用 `gh run list` / `gh run view <id> --log-failed` 看结果。
 - 改了 `Prompts/` 或组件格式：用 `tools/eval/run.js` 跑真实模型（Key 只从环境变量 `STUDY_TEST_API_KEY` 读，绝不写进仓库），用法见 README"用真实模型测试组件"。
 - 版本号在 `project.yml` 的 `MARKETING_VERSION`。
 

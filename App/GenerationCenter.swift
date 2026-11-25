@@ -56,8 +56,8 @@ final class GenerationCenter {
     /// 重新生成最后一条模型回答（也用于失败后重试）。旧的回答作为另一个版本保留。
     func regenerate(_ reply: Message, in conversation: Conversation, context: ModelContext) throws {
         guard tasks[conversation.id] == nil, reply.role == .assistant else { return }
-        let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
-        let service = try prepareService(for: conversation, hasImages: hasImages)
+        // 第九版：只看这次要新发的内容。历史里的图片在换成纯文字模型时改成"[图片]"发送（见 startReply）。
+        let service = try prepareService(for: conversation, hasImages: false)
 
         if conversation.sortedMessages.last?.id == reply.id {
             reply.beginNewVersion()
@@ -95,8 +95,7 @@ final class GenerationCenter {
         guard tasks[conversation.id] == nil, reply.role == .assistant, reply.status == .interrupted,
               conversation.sortedMessages.last?.id == reply.id
         else { return }
-        let hasImages = conversation.sortedMessages.contains { !$0.imageData.isEmpty }
-        let service = try prepareService(for: conversation, hasImages: hasImages)
+        let service = try prepareService(for: conversation, hasImages: false)
         startReply(in: conversation, service: service, context: context, into: reply, continuing: true)
     }
 
@@ -117,6 +116,126 @@ final class GenerationCenter {
         guard let task = tasks[conversationID] else { return }
         interruptedBySystem.insert(conversationID)
         task.cancel()
+    }
+
+    // MARK: - 只重新生成一个组件（第九版）
+
+    /// 正在重新生成的组件键，按消息记。
+    private(set) var repairing: [UUID: Set<String>] = [:]
+    /// 重新生成失败的组件和原因，按消息记。
+    private(set) var repairFailures: [UUID: [String: String]] = [:]
+    /// 这次运行里刚生成完的回答。只有它们格式有误的组件会自动重新生成，翻看旧会话时不会悄悄花钱。
+    @ObservationIgnored private var autoRepairReplies: Set<UUID> = []
+    /// 已经自动重新生成过的"消息|组件键"。每个组件只自动试一次，还不行就留给用户点按钮。
+    @ObservationIgnored private var autoRepairAttempts: Set<String> = []
+
+    func repairState(for message: Message, in conversation: Conversation) -> ComponentRepairState {
+        ComponentRepairState(
+            canRepair: !isGenerating(conversation),
+            repairing: repairing[message.id] ?? [],
+            failures: repairFailures[message.id] ?? [:]
+        )
+    }
+
+    /// 渲染器报告一个格式有误的组件。刚生成完的回答自动重新生成一次。
+    func componentErrorReported(_ report: ComponentErrorReport, in message: Message, conversation: Conversation, context: ModelContext) {
+        guard autoRepairReplies.contains(message.id) else { return }
+        let attempt = "\(message.id)|\(report.key)"
+        guard !autoRepairAttempts.contains(attempt) else { return }
+        autoRepairAttempts.insert(attempt)
+        repairComponent(report, in: message, conversation: conversation, context: context)
+    }
+
+    /// 只让模型重写这一个组件，替换回答里原来的代码块。回答的其他部分不动，也不新增版本；用量和费用加在这条回答上。
+    func repairComponent(_ report: ComponentErrorReport, in message: Message, conversation: Conversation, context: ModelContext) {
+        let messageID = message.id
+        let key = report.key
+        guard tasks[conversation.id] == nil, repairing[messageID]?.contains(key) != true else { return }
+        func fail(_ reason: String) {
+            repairing[messageID]?.remove(key)
+            repairFailures[messageID, default: [:]][key] = reason
+        }
+        guard let lines = report.lines, let original = ComponentRepair.block(in: message.content, lines: lines) else {
+            fail("找不到这个组件的原文")
+            return
+        }
+        let service: any ChatService
+        do {
+            service = try prepareService(for: conversation, hasImages: false)
+        } catch {
+            fail(error.localizedDescription)
+            return
+        }
+        guard let model = conversation.model else { return }
+        let question = conversation.sortedMessages.last { $0.role == .user && $0.index < message.index }?.content ?? ""
+        let request = ComponentRepair.request(
+            model: model.modelID, type: report.type, brokenBlock: original, error: report.error,
+            reply: message.content, question: question
+        )
+        repairing[messageID, default: []].insert(key)
+        repairFailures[messageID]?[key] = nil
+        let price = model.price()
+        let started = Date.now
+
+        Task { [weak self] in
+            var raw = ""
+            var input: Int?
+            var cached: Int?
+            var output: Int?
+            do {
+                for try await event in service.streamChat(request) {
+                    switch event {
+                    case let .text(delta): raw += delta
+                    case let .usage(i, o):
+                        if let i { input = i }
+                        if let o { output = o }
+                    case let .cachedInput(c): cached = c
+                    default: break
+                    }
+                }
+            } catch {
+                self?.repairFinished(messageID, key: key, failure: ChatErrorDescription.describe(error))
+                return
+            }
+            // 这次也花了钱，不管修没修好都记在这条回答上。
+            if input != nil || output != nil {
+                message.inputTokens = (message.inputTokens ?? 0) + (input ?? 0)
+                message.cachedInputTokens = (message.cachedInputTokens ?? 0) + (cached ?? 0)
+                message.outputTokens = (message.outputTokens ?? 0) + (output ?? 0)
+                if let price {
+                    let cost = price.costCNY(
+                        inputTokens: input ?? 0, cachedInputTokens: cached ?? 0, outputTokens: output ?? 0,
+                        webSearches: 0, usdToCNY: AppSettingsKey.usdToCNYRate, at: started
+                    )
+                    message.costCNY = (message.costCNY ?? 0) + cost
+                }
+            }
+            guard let block = ComponentRepair.extractBlock(from: raw, type: report.type) else {
+                message.finishVersion()
+                try? context.save()
+                self?.repairFinished(messageID, key: key, failure: "模型没有给出新的组件")
+                return
+            }
+            // 期间重新生成过或切换了版本，原来的代码块已经不在了：不改。
+            guard let spliced = ComponentRepair.splice(content: message.content, original: original, replacement: block) else {
+                self?.repairFinished(messageID, key: key, failure: "回答已经变了")
+                return
+            }
+            message.content = spliced
+            message.componentStateJSON = ComponentStateStore.updating(message.componentStateJSON, key: key, state: nil)
+            message.finishVersion()
+            try? context.save()
+            self?.repairFinished(messageID, key: key, failure: nil)
+        }
+    }
+
+    private func repairFinished(_ messageID: UUID, key: String, failure: String?) {
+        repairing[messageID]?.remove(key)
+        if let failure {
+            repairFailures[messageID, default: [:]][key] = failure
+        } else {
+            repairFailures[messageID]?[key] = nil
+        }
     }
 
     // MARK: - 内部
@@ -158,6 +277,10 @@ final class GenerationCenter {
         let webSearch = !continuing && conversation.webSearchEnabled && model.supportsWebSearch
         // 历史里带着被中断的这条回答（已经写出的部分），后面加一句固定的说明。
         var history = conversation.chatHistory()
+        // 会话中途换成了不支持图片的模型：以前发过的图片换成文字"[图片]"，不然服务商会拒绝整个请求。
+        if !model.supportsImages {
+            history = history.map { $0.replacingImagesWithPlaceholders() }
+        }
         if continuing {
             history.append(ChatMessage(role: .user, text: Self.continuePrompt))
             existing?.status = .streaming
@@ -168,7 +291,8 @@ final class GenerationCenter {
             systemPrompt: SystemPrompt.compose(
                 customInstructions: UserDefaults.standard.string(forKey: AppSettingsKey.customInstructions) ?? "",
                 conversationInstructions: conversation.instructions,
-                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
+                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode),
+                persona: AppSettingsKey.persona(for: conversation)
             ),
             messages: history,
             reasoningEffort: model.reasoningEffort,
@@ -294,6 +418,8 @@ final class GenerationCenter {
             keeper.end(id: jobID, success: reply.status == .complete)
 
             if reply.status == .complete {
+                // 刚生成完的回答里有格式有误的组件时，自动只重新生成那一个（第九版）。
+                self?.autoRepairReplies.insert(reply.id)
                 await Self.generateTitleIfNeeded(for: conversation, service: service, modelID: modelID, context: context)
             }
         }

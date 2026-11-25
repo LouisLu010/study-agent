@@ -107,4 +107,38 @@ import Testing
         #expect(prompt == SystemPrompt.baseRules + "\n\n# 用户的说明\n我是高二学生\n\n# 这个会话的说明\n只讲物理")
         #expect(SystemPrompt.compose(customInstructions: "", conversationInstructions: "  ", simpleMode: true) == SystemPrompt.baseRules)
     }
+
+    @Test func personaGoesBeforeUserInstructions() throws {
+        let persona = try #require(Persona.find("socratic"))
+        let prompt = SystemPrompt.compose(customInstructions: "我是高二学生", conversationInstructions: "只讲物理", simpleMode: true, persona: persona)
+        #expect(prompt == SystemPrompt.baseRules + "\n\n# 讲解方式\n" + persona.prompt + "\n\n# 用户的说明\n我是高二学生\n\n# 这个会话的说明\n只讲物理")
+        // "标准"人格不加任何内容。
+        #expect(SystemPrompt.compose(customInstructions: "", simpleMode: true, persona: .standard) == SystemPrompt.baseRules)
+    }
+}
+
+@Suite struct PersonaTests {
+    @Test func builtInPersonasLoad() {
+        #expect(Persona.all.first?.id == Persona.standardID)
+        #expect(Persona.all.map(\.id) == ["standard", "stepwise", "socratic", "cram", "grader"])
+        #expect(Persona.all.dropFirst().allSatisfy { !$0.prompt.isEmpty && !$0.name.isEmpty })
+        #expect(Persona.standard.prompt.isEmpty)
+    }
+
+    @Test func conversationChoiceWinsOverDefault() {
+        #expect(Persona.resolve(conversationID: "cram", defaultID: "socratic").id == "cram")
+        #expect(Persona.resolve(conversationID: "", defaultID: "socratic").id == "socratic")
+        #expect(Persona.resolve(conversationID: "gone", defaultID: "").id == Persona.standardID)
+    }
+}
+
+@Suite struct ImagePlaceholderTests {
+    @Test func imagesBecomeTextMarks() {
+        let message = ChatMessage(role: .user, text: "这道题怎么做", images: [Data([1]), Data([2])])
+        let stripped = message.replacingImagesWithPlaceholders()
+        #expect(stripped.images.isEmpty)
+        #expect(stripped.text == "[图片] [图片]\n这道题怎么做")
+        #expect(ChatMessage(role: .user, text: "", images: [Data([1])]).replacingImagesWithPlaceholders().text == "[图片]")
+        #expect(ChatMessage(role: .user, text: "hi").replacingImagesWithPlaceholders() == ChatMessage(role: .user, text: "hi"))
+    }
 }

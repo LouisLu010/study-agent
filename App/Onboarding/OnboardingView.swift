@@ -2,7 +2,7 @@ import StudyKit
 import SwiftData
 import SwiftUI
 
-/// 引导（见 GLOSSARY「引导」）：欢迎 → 选服务商预设 → 填 API Key → 选默认模型 → 复习提醒 → 进入新会话。
+/// 引导（见 GLOSSARY「引导」）：欢迎 → 选服务商预设 → 填 API Key → 选默认模型 → 关于你（年级和人格）→ 复习提醒 → 进入新会话。
 /// 本机没有服务商、也没跳过过引导时全屏出现；设置里可以重新查看。
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
@@ -12,9 +12,11 @@ struct OnboardingView: View {
     @AppStorage(AppSettingsKey.onboardingSeen) private var seen = false
     @AppStorage(AppSettingsKey.defaultModelID) private var defaultModelID = ""
     @AppStorage(ReviewReminder.enabledKey) private var reminderEnabled = false
+    @AppStorage(AppSettingsKey.customInstructions) private var customInstructions = ""
+    @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
 
     private enum Step: Int, CaseIterable {
-        case welcome, preset, apiKey, model, reminder
+        case welcome, preset, apiKey, model, about, reminder
     }
 
     @State private var step = Step.welcome
@@ -33,6 +35,8 @@ struct OnboardingView: View {
     /// 引导里建好的服务商。返回上一步重新选过时，先删掉它再建新的。
     @State private var createdProvider: Provider?
     @State private var reminderDenied = false
+    /// "关于你"里选的年级，nil 表示没选。
+    @State private var grade: Grade?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -117,14 +121,14 @@ struct OnboardingView: View {
         case .welcome: "开始设置"
         case .preset: nil
         case .apiKey: isChecking ? "正在验证…" : "下一步"
-        case .model: "下一步"
+        case .model, .about: "下一步"
         case .reminder: "开始提问"
         }
     }
 
     private var canContinue: Bool {
         switch step {
-        case .welcome, .preset, .reminder:
+        case .welcome, .preset, .about, .reminder:
             return true
         case .apiKey:
             guard let preset, !isChecking, !trimmed(apiKey).isEmpty else { return false }
@@ -141,6 +145,9 @@ struct OnboardingView: View {
         case .apiKey: checkKey()
         case .model:
             saveProvider()
+            go(.about)
+        case .about:
+            applyGrade()
             go(.reminder)
         case .reminder: finish()
         }
@@ -155,6 +162,7 @@ struct OnboardingView: View {
         case .preset: presetPage
         case .apiKey: apiKeyPage
         case .model: modelPage
+        case .about: aboutPage
         case .reminder: reminderPage
         }
     }
@@ -164,16 +172,12 @@ struct OnboardingView: View {
             VStack(spacing: Theme.Spacing.xl) {
                 ActivityOrb(activity: .idle, size: 120)
                     .padding(.top, Theme.Spacing.xl)
-                VStack(spacing: Theme.Spacing.s) {
-                    Text("欢迎使用格物")
-                        .font(.title.bold())
-                    Text("为学习做的大模型聊天 App。接下来花一分钟，连上你自己的模型服务商。")
-                        .foregroundStyle(.secondary)
-                }
-                .multilineTextAlignment(.center)
+                Text("欢迎使用格物")
+                    .font(.title.bold())
+                    .multilineTextAlignment(.center)
                 .padding(.horizontal, Theme.Spacing.xl)
                 featureCards
-                Label("用你自己的 API Key，App 直接连服务商，不经过任何服务器", systemImage: "lock.shield")
+                Label("App 直接连服务商，不经过任何服务器", systemImage: "lock.shield")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, Theme.Spacing.xl)
@@ -190,9 +194,9 @@ struct OnboardingView: View {
     }
 
     private static let features = [
-        Feature(icon: "function", title: "会画图和出题的回答", text: "坐标图、几何图、测验和模拟直接显示在回答里，可以拖、可以答、可以播放。"),
-        Feature(icon: "arrow.counterclockwise.circle", title: "错题和复习", text: "测验里答错的题自动进错题本，按 1、3、7、14、30 天的间隔安排复习。"),
-        Feature(icon: "books.vertical", title: "汇编原题", text: "一句话说要什么题，从真实试卷里取下原文和原图，排成一份 PDF。"),
+        Feature(icon: "function", title: "会画图和出题的回答", text: "坐标图、测验和模拟直接在回答里动手。"),
+        Feature(icon: "arrow.counterclockwise.circle", title: "错题和复习", text: "答错的题自动进错题本，按间隔复习。"),
+        Feature(icon: "books.vertical", title: "汇编原题", text: "一句话要题，从真实试卷里取原题排成 PDF。"),
     ]
 
     /// 欢迎页上三张横滑的功能介绍卡片（第八版）。
@@ -215,12 +219,14 @@ struct OnboardingView: View {
                         Spacer(minLength: 0)
                     }
                     .padding(Theme.Spacing.l)
-                    .frame(height: 196, alignment: .topLeading)
+                    // 不固定高度，系统字号调大时不截断；配合下面 HStack 的 fixedSize，几张卡片一样高。
+                    .frame(maxHeight: .infinity, alignment: .topLeading)
                     .containerRelativeFrame(.horizontal) { width, _ in width * 0.78 }
                     .cardBackground()
                     .accessibilityElement(children: .combine)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .scrollTargetLayout()
         }
         .scrollTargetBehavior(.viewAligned)
@@ -230,7 +236,7 @@ struct OnboardingView: View {
     private var presetPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.l) {
-                header("选择服务商", "选一家你有 API Key 的服务商。以后可以在设置里再加别的。")
+                header("选择服务商")
                 PresetList(selectedID: preset?.id, onPick: pick)
             }
             .padding(.horizontal, Theme.Spacing.xl)
@@ -244,7 +250,7 @@ struct OnboardingView: View {
                 ActivityOrb(activity: isChecking ? .working : .idle, size: 44)
                 header(
                     preset?.isCustom == true ? "填写服务商信息" : "填写 \(preset?.name ?? "") 的 API Key",
-                    "只保存在这台设备的钥匙串里。点\"下一步\"时会用它拉一次模型列表，拉到了就说明 Key 能用。"
+                    "只保存在这台设备的钥匙串里。"
                 )
                 if preset?.isCustom == true {
                     labeledField("名称") {
@@ -285,11 +291,11 @@ struct OnboardingView: View {
 
     private var modelPage: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-            header("选择默认模型", "新会话默认用它。这里只添加这一个，其他模型以后在设置里加。")
+            header("选择默认模型")
                 .padding(.horizontal, Theme.Spacing.xl)
             if models.isEmpty {
                 VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-                    Text("服务商没有返回模型列表。请按服务商文档填写模型 ID，大小写要一致。")
+                    Text("服务商没有返回模型列表，请按文档填写模型 ID。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     labeledField("模型 ID") {
@@ -382,25 +388,119 @@ struct OnboardingView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
+    /// 年级：只用来预填用户提示词，不单独保存。
+    private enum Grade: String, CaseIterable, Identifiable {
+        case middle = "初中", high = "高中", college = "大学", other = "其他"
+        var id: String { rawValue }
+
+        var instructions: String? {
+            switch self {
+            case .middle: "我是初中生。"
+            case .high: "我是高中生。"
+            case .college: "我是大学生。"
+            case .other: nil
+            }
+        }
+    }
+
+    private var aboutPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.l) {
+                header("关于你")
+                VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+                    Text("年级")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: Theme.Spacing.s) {
+                        ForEach(Grade.allCases) { option in
+                            choiceButton(option.rawValue, isSelected: grade == option) {
+                                grade = grade == option ? nil : option
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+                    Text("讲解人格")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    ForEach(Persona.all) { persona in
+                        personaRow(persona)
+                    }
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.xl)
+            .padding(.bottom, Theme.Spacing.xl)
+        }
+    }
+
+    private func choiceButton(_ title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.callout.weight(isSelected ? .semibold : .regular))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Spacing.m)
+                .cardBackground()
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 2)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func personaRow(_ persona: Persona) -> some View {
+        let isSelected = persona.id == defaultPersonaID
+        return Button {
+            defaultPersonaID = persona.id
+        } label: {
+            HStack(spacing: Theme.Spacing.m) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .contentTransition(.symbolEffect(.replace))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(persona.name)
+                        .foregroundStyle(.primary)
+                    if !persona.summary.isEmpty {
+                        Text(persona.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(Theme.Spacing.m)
+            .contentShape(Rectangle())
+            .cardBackground()
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 选了年级、用户提示词还空着时，预填一句"我是高中生。"；已经写过的不覆盖。
+    private func applyGrade() {
+        guard let text = grade?.instructions,
+              trimmed(customInstructions).isEmpty
+        else { return }
+        customInstructions = text
+    }
+
     private var reminderPage: some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.xl) {
                 ActivityOrb(activity: .idle, size: 96)
                     .padding(.top, Theme.Spacing.xl)
-                header(
-                    "每天提醒复习",
-                    "测验里答错的题会自动进错题本，按 1、3、7、14、30 天的间隔安排复习。打开提醒后，每天在设定的时间（默认 20:00）提醒一次，只在有到期的题时才提醒。",
-                    centered: true
-                )
+                header("每天提醒复习", "有到期的错题时，每天 20:00 提醒一次。", centered: true)
                 VStack(alignment: .leading, spacing: Theme.Spacing.s) {
                     Toggle("复习提醒", isOn: $reminderEnabled)
                         .padding(Theme.Spacing.m)
                         .cardBackground()
-                    Text(reminderDenied
-                         ? "通知权限被关闭了，可以以后在系统设置 → 通知 → 格物 里打开。"
-                         : "可以先不开，以后在设置里打开或修改时间。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if reminderDenied {
+                        Text("通知权限被关闭了，可以以后在系统设置 → 通知 → 格物 里打开。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.horizontal, Theme.Spacing.xl)
@@ -421,13 +521,15 @@ struct OnboardingView: View {
         }
     }
 
-    private func header(_ title: String, _ message: String, centered: Bool = false) -> some View {
+    private func header(_ title: String, _ message: String? = nil, centered: Bool = false) -> some View {
         VStack(alignment: centered ? .center : .leading, spacing: Theme.Spacing.s) {
             Text(title)
                 .font(.title2.bold())
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            if let message {
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
         .multilineTextAlignment(centered ? .center : .leading)
         .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)

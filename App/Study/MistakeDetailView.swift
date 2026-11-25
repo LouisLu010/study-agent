@@ -9,9 +9,9 @@ struct MistakeDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(GenerationCenter.self) private var generation
     @Environment(AppNavigation.self) private var navigation
+    @Environment(ToastCenter.self) private var toasts
     @State private var showSolution = false
     @State private var errorMessage: String?
-    @State private var confirmDelete = false
 
     var body: some View {
         Form {
@@ -79,19 +79,19 @@ struct MistakeDetailView: View {
             }
 
             Section {
-                Button("从错题本删除", role: .destructive) { confirmDelete = true }
+                // 第九版：不再弹确认，回到错题本后可以撤销。
+                Button("从错题本删除", role: .destructive) {
+                    toasts.delete([mistake], scope: .mistakes) { [context, mistake] in
+                        context.delete(mistake)
+                        try? context.save()
+                    }
+                    dismiss()
+                }
             }
         }
         .navigationTitle(mistake.topic.isEmpty ? "错题" : mistake.topic)
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { try? context.save() }
-        .confirmationDialog("删除这道错题？", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("删除", role: .destructive) {
-                context.delete(mistake)
-                try? context.save()
-                dismiss()
-            }
-        }
         .alert("提示", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) {}
         } message: {

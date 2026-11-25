@@ -105,6 +105,8 @@ public final class Conversation {
     public var titleIsAutomatic: Bool = true
     /// 会话提示词：只对这个会话生效，接在用户提示词后面发送。
     public var instructions: String = ""
+    /// 这个会话单独选的人格 ID。空字符串表示跟着设置里的默认人格。
+    public var personaID: String = ""
     /// 输入框旁的"联网"开关，按会话记住。模型不支持联网搜索时不生效。
     public var webSearchEnabled: Bool = false
     public var createdAt: Date = Date()

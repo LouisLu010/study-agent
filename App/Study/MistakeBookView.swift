@@ -60,6 +60,7 @@ enum MistakeFilter: String, CaseIterable, Identifiable {
 
 struct MistakeBookView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \Mistake.createdAt, order: .reverse) private var mistakes: [Mistake]
     @State private var filter = MistakeFilter.all
     @State private var subject: Subject?
@@ -68,6 +69,7 @@ struct MistakeBookView: View {
     private var filtered: [Mistake] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return mistakes.filter { mistake in
+            if toasts.isHidden(mistake) { return false }
             switch filter {
             case .due: if !ReviewSchedule.isDue(mistake) { return false }
             case .mastered: if !mistake.isMastered { return false }
@@ -82,7 +84,7 @@ struct MistakeBookView: View {
     }
 
     private var dueCount: Int {
-        mistakes.filter { ReviewSchedule.isDue($0) }.count
+        mistakes.filter { !toasts.isHidden($0) && ReviewSchedule.isDue($0) }.count
     }
 
     /// 只列出已经有错题的科目。
@@ -135,17 +137,20 @@ struct MistakeBookView: View {
                 }
                 .onDelete { offsets in
                     let items = offsets.map { filtered[$0] }
-                    items.forEach(context.delete)
-                    try? context.save()
+                    toasts.delete(items, scope: .mistakes) { [context] in
+                        items.forEach(context.delete)
+                        try? context.save()
+                    }
                 }
             }
         }
         .listStyle(.insetGrouped)
+        .toastBar(.mistakes)
         .overlay {
-            if mistakes.isEmpty {
+            if mistakes.allSatisfy({ toasts.isHidden($0) }) {
                 OrbEmptyState(
                     title: "还没有错题",
-                    message: "测验里答错的题会自动加入这里。也可以长按自己问过的题，选\"加入错题本\"。"
+                    message: "测验答错的题会自动加入，也可以长按自己的提问加入。"
                 )
             } else if filtered.isEmpty {
                 ContentUnavailableView("没有符合条件的错题", systemImage: "line.3.horizontal.decrease.circle")

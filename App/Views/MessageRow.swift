@@ -106,6 +106,7 @@ private struct AssistantMessageView: View {
     let onQuizResult: ([String: Any]) -> Void
 
     @Environment(\.modelContext) private var context
+    @Environment(GenerationCenter.self) private var generation
     @State private var keeper = BackgroundKeeper.shared
     @State private var webHeight: CGFloat
     @State private var tappedFormula: String?
@@ -193,6 +194,15 @@ private struct AssistantMessageView: View {
                     onFullscreen: { key, markdown, state in
                         fullscreenKey = key
                         fullscreen = FullscreenComponent(key: key, markdown: markdown, stateJSON: state)
+                    },
+                    repairState: message.conversation.map { generation.repairState(for: message, in: $0) } ?? ComponentRepairState(),
+                    onComponentError: { report in
+                        guard let conversation = message.conversation else { return }
+                        generation.componentErrorReported(report, in: message, conversation: conversation, context: context)
+                    },
+                    onRepairComponent: { report in
+                        guard let conversation = message.conversation else { return }
+                        generation.repairComponent(report, in: message, conversation: conversation, context: context)
                     }
                 )
                 .frame(height: webHeight)
@@ -242,6 +252,10 @@ private struct AssistantMessageView: View {
                 actionBar
             }
 
+            if showsQuickFollowUps {
+                quickFollowUps
+            }
+
             if !isStreaming, let usage = UsageFormatting.summary(
                 input: message.inputTokens, output: message.outputTokens, cost: message.costCNY,
                 searches: search?.effectiveCount ?? 0, cached: message.cachedInputTokens
@@ -286,6 +300,27 @@ private struct AssistantMessageView: View {
         } message: { tex in
             Text(tex)
         }
+    }
+
+    /// 快捷追问只跟在最后一条、正常生成完的回答后面。
+    private var showsQuickFollowUps: Bool {
+        canRegenerate && message.status == .complete && !message.content.isEmpty
+    }
+
+    /// 快捷追问（见 GLOSSARY）：点一下就把这句话作为用户消息发出。
+    private var quickFollowUps: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.s) {
+                ForEach(QuickFollowUp.all, id: \.self) { text in
+                    Button(text) { onAsk(text) }
+                        .buttonStyle(.bordered)
+                        .buttonBorderShape(.capsule)
+                        .controlSize(.small)
+                        .tint(.secondary)
+                }
+            }
+        }
+        .scrollClipDisabled()
     }
 
     private var hasActions: Bool {
@@ -617,4 +652,9 @@ struct SourceListView: View {
         .padding(Theme.Spacing.m)
         .cardBackground()
     }
+}
+
+/// 快捷追问的几句话。按钮上的字就是发出去的消息。
+enum QuickFollowUp {
+    static let all = ["讲简单点", "换个思路", "出道练习题"]
 }

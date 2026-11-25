@@ -25,6 +25,8 @@ final class AppNavigation {
     var showsOnboarding = false
     /// 在设置里点了"重新查看引导"：等设置关掉后再显示引导。
     var onboardingAfterSettings = false
+    /// 从快捷菜单"拍题"新建的会话：打开后直接弹出相机，用一次就清掉。
+    var cameraConversationID: UUID?
 
     func open(conversationID: UUID?, in context: ModelContext) -> Bool {
         guard let id = conversationID else { return false }
@@ -95,13 +97,14 @@ enum StudyCenter {
     // MARK: - 手动加入
 
     /// 把用户的一条提问和后面那条 AI 解答加入错题本。
+    @discardableResult
     static func addManualMistake(
         question: Message,
         solution: Message,
-        note: String,
+        note: String = "",
         conversation: Conversation,
         context: ModelContext
-    ) {
+    ) -> Mistake {
         let mistake = Mistake(kind: .manual)
         mistake.questionText = question.content
         mistake.solution = solution.content
@@ -123,6 +126,7 @@ enum StudyCenter {
             ? "（题目是一张图片）解答：\n" + solution.content
             : question.content + "\n\n解答：\n" + solution.content
         classify(mistake, content: content, model: conversation.model, context: context)
+        return mistake
     }
 
     // MARK: - 从汇编加入

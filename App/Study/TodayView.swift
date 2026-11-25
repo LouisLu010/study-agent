@@ -17,8 +17,9 @@ struct TodayView: View {
 
     @State private var draft = ""
     @State private var draftImages: [PendingImage] = []
-    @State private var webSearchEnabled = false
-    /// 这次提问用的模型，默认是默认模型，可以在输入框里换。
+    @AppStorage(AppSettingsKey.todayWebSearch) private var webSearchEnabled = false
+    @AppStorage(AppSettingsKey.todayModelID) private var savedModelID = ""
+    /// 这次提问用的模型：上次在这里选的，没选过或者被删了就用默认模型。
     @State private var model: ChatModel?
     @State private var errorMessage: String?
     @State private var examples = ExampleQuestions.random(4)
@@ -56,10 +57,17 @@ struct TodayView: View {
         .scrollDismissesKeyboard(.interactively)
         .groupedPageBackground()
         .navigationTitle("今天")
-        .task { if model == nil { model = ModelLookup.defaultModel(in: context) } }
-        .onChange(of: defaultModelID) { model = ModelLookup.defaultModel(in: context) }
+        .task { if model == nil { model = rememberedModel() } }
+        // 在设置里改了默认模型：以新的默认模型为准，忘掉这里上次的选择。
+        .onChange(of: defaultModelID) {
+            savedModelID = ""
+            model = ModelLookup.defaultModel(in: context)
+        }
         .onChange(of: models.count) {
-            if model == nil || model?.modelContext == nil { model = ModelLookup.defaultModel(in: context) }
+            if model == nil || model?.modelContext == nil { model = rememberedModel() }
+        }
+        .onChange(of: model?.id) {
+            if let id = model?.id { savedModelID = id.uuidString }
         }
         .alert("提示", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) {}
@@ -88,6 +96,10 @@ struct TodayView: View {
             model: $model,
             placement: .inline
         )
+    }
+
+    private func rememberedModel() -> ChatModel? {
+        models.first { $0.id.uuidString == savedModelID } ?? ModelLookup.defaultModel(in: context)
     }
 
     private var trimmedDraft: String {
@@ -123,9 +135,6 @@ struct TodayView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.m) {
             Label("还没有模型", systemImage: "sparkles")
                 .font(.headline)
-            Text("先连上一个服务商，就能在这里直接提问。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
             Button("开始设置") { navigation.showsOnboarding = true }
                 .buttonStyle(.borderedProminent)
         }
@@ -301,12 +310,13 @@ private struct WeekBars: View {
                         .fill(day.answered > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(Color(.tertiarySystemFill)))
                         .frame(width: 8, height: max(4, 36 * CGFloat(day.answered) / CGFloat(maxValue)))
                     Text(day.day.formatted(.dateTime.weekday(.narrow)))
-                        .font(.system(size: 9))
+                        .font(.caption2)
                         .foregroundStyle(index == days.count - 1 ? .primary : .tertiary)
                 }
             }
         }
-        .frame(height: 52, alignment: .bottom)
+        // 只给柱子留固定的 36 点，标签的高度随系统字号变化。
+        .frame(minHeight: 52, alignment: .bottom)
         .accessibilityHidden(true)
     }
 }

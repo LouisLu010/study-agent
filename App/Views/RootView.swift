@@ -11,6 +11,8 @@ struct RootView: View {
     @AppStorage(AppSettingsKey.onboardingSeen) private var onboardingSeen = false
     /// iPhone 上分栏合并成一栏：启动时直接显示"今天"，按返回回到侧栏。
     @State private var compactColumn = NavigationSplitViewColumn.detail
+    @State private var quickActions = QuickActionInbox.shared
+    @Environment(ToastCenter.self) private var toasts
 
     var body: some View {
         @Bindable var navigation = navigation
@@ -53,10 +55,21 @@ struct RootView: View {
             if providerCount == 0 && !onboardingSeen {
                 navigation.showsOnboarding = true
             }
+            // 没在运行时从快捷菜单打开：选择已经在收件箱里了。
+            handleQuickAction()
+            QuickAction.updateShortcutItems(in: context)
+        }
+        .onChange(of: quickActions.pending) { handleQuickAction() }
+        // 离开一个什么都没写的会话时删掉它（第九版）。以前挂在聊天页的 onDisappear 上，
+        // 但弹出相机这类全屏页面时聊天页也会触发 onDisappear，会把正在拍题的新会话删掉。
+        .onChange(of: navigation.selection) { old, _ in
+            if case let .conversation(conversation) = old { discardIfEmpty(conversation) }
         }
         .onChange(of: scenePhase) {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。
             if scenePhase != .inactive { ReviewReminder.reschedule(in: context) }
+            // 退到后台时更新快捷菜单：有没有到期的错题决定放不放"开始复习"。
+            if scenePhase == .background { QuickAction.updateShortcutItems(in: context) }
             // 回到前台：继续因为切到别的 App 被系统打断的汇编。
             if scenePhase == .active {
                 compilations.resumeInterrupted(in: context)
@@ -64,5 +77,44 @@ struct RootView: View {
                 compilations.makePendingPDFs(in: context)
             }
         }
+    }
+
+    /// 没有消息、没写会话提示词、也没换过人格的会话。写过或换过的留着，那是用户特意设置的。
+    private func discardIfEmpty(_ conversation: Conversation) {
+        guard conversation.modelContext != nil,
+              !conversation.isDeleted,
+              !toasts.isHidden(conversation),
+              !generation.isGenerating(conversation),
+              (conversation.messages ?? []).isEmpty,
+              conversation.instructions.isEmpty,
+              conversation.personaID.isEmpty
+        else { return }
+        context.delete(conversation)
+        try? context.save()
+    }
+
+    /// 处理长按图标的快捷菜单（第九版）。引导还没走完时不处理。
+    private func handleQuickAction() {
+        guard let action = quickActions.pending else { return }
+        quickActions.pending = nil
+        guard !navigation.showsOnboarding else { return }
+        switch action {
+        case .newChat, .snapQuestion:
+            guard let model = ModelLookup.defaultModel(in: context) else {
+                navigation.selection = .today
+                break
+            }
+            let conversation = Conversation()
+            context.insert(conversation)
+            conversation.model = model
+            try? context.save()
+            if action == .snapQuestion && model.supportsImages {
+                navigation.cameraConversationID = conversation.id
+            }
+            navigation.selection = .conversation(conversation)
+        case .review:
+            navigation.selection = .review
+        }
+        compactColumn = .detail
     }
 }

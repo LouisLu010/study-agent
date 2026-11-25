@@ -11,14 +11,8 @@ struct EmptyChatView: View {
             VStack(spacing: Theme.Spacing.xl) {
                 Spacer(minLength: Theme.Spacing.xl)
                 ActivityOrb(activity: .idle, size: 88)
-                VStack(spacing: Theme.Spacing.s) {
-                    Text("问点什么吧")
-                        .font(.title3.bold())
-                    Text("可以拍题、传 PDF 或手写。回答里的坐标图、测验和模拟都能直接动手试。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
+                Text("问点什么吧")
+                    .font(.title3.bold())
                 VStack(spacing: Theme.Spacing.s) {
                     ForEach(examples) { example in
                         Button {

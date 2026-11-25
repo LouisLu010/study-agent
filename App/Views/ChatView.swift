@@ -14,9 +14,15 @@ struct ChatView: View {
     @State private var noteDraft: NoteDraftRequest?
     @State private var showInstructions = false
     @State private var shareItem: ShareItem?
-    @State private var addingMistake: MistakeDraft?
+    /// 正在写备注的错题。
+    @State private var notingMistake: Mistake?
+    @Environment(ToastCenter.self) private var toasts
+    @Environment(AppNavigation.self) private var navigation
+    @AppStorage(AppSettingsKey.defaultPersonaID) private var defaultPersonaID = Persona.standardID
     /// 往上翻超过一屏时显示"回到底部"按钮。
     @State private var showJumpToBottom = false
+    /// 停在底部附近。只有这时来新内容才跟着滚到底，往上翻着看时不动（第九版）。
+    @State private var isNearBottom = true
     /// 每发一条消息加一，用来触发震动。
     @State private var sendCount = 0
     /// 测验答完一道题，用来触发答对或答错的震动。
@@ -58,7 +64,7 @@ struct ChatView: View {
                                 StudyCenter.recordQuizResult(payload, conversation: conversation, message: message, context: context)
                             },
                             onAddToMistakes: solution(for: message).map { reply in
-                                { addingMistake = MistakeDraft(question: message, solution: reply) }
+                                { addMistake(question: message, solution: reply) }
                             }
                         )
                         .transition(
@@ -75,8 +81,13 @@ struct ChatView: View {
             .scrollPosition($scrollPosition)
             .scrollDismissesKeyboard(.interactively)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(.bottom, for: .sizeChanges)
+            // 内容变高时：停在底部附近就贴着底边，往上翻着看时贴着顶边，看的内容不动。
+            .defaultScrollAnchor(isNearBottom ? .bottom : .top, for: .sizeChanges)
             .onChange(of: messages.count) {
+                if isNearBottom { scrollToBottom() }
+            }
+            // 自己发的消息总是滚到底。
+            .onChange(of: sendCount) {
                 scrollToBottom()
             }
             .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -84,18 +95,25 @@ struct ChatView: View {
             } action: { _, isFar in
                 withAnimation(reduceMotion ? nil : .snappy) { showJumpToBottom = isFar }
             }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentSize.height - geometry.visibleRect.maxY < 120
+            } action: { _, near in
+                isNearBottom = near
+            }
             .overlay {
                 if messages.isEmpty {
                     EmptyChatView { draft = $0 }
                 }
             }
             .overlay(alignment: .bottom) {
-                if showJumpToBottom && !messages.isEmpty {
+                // 底部有提示条时先不显示，免得叠在一起。
+                if showJumpToBottom && !messages.isEmpty && toasts.current?.scope != .chat {
                     jumpToBottomButton
                         .padding(.bottom, Theme.Spacing.s)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
+            .toastBar(.chat)
             .bottomBar {
                 composer(isGenerating: isGenerating)
             }
@@ -113,6 +131,13 @@ struct ChatView: View {
         // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
         .toolbarTitleMenu {
+            ConversationPersonaMenu(
+                personaID: Binding(
+                    get: { conversation.personaID },
+                    set: { conversation.personaID = $0; try? context.save() }
+                ),
+                defaultPersona: Persona.resolve(conversationID: "", defaultID: defaultPersonaID)
+            )
             Button(
                 conversation.instructions.isEmpty ? "添加会话提示词" : "编辑会话提示词",
                 systemImage: "text.badge.star"
@@ -149,13 +174,8 @@ struct ChatView: View {
         .sheet(isPresented: $showInstructions) {
             ConversationInstructionsSheet(conversation: conversation)
         }
-        .sheet(item: $addingMistake) { draft in
-            AddMistakeSheet { note in
-                StudyCenter.addManualMistake(
-                    question: draft.question, solution: draft.solution, note: note,
-                    conversation: conversation, context: context
-                )
-            }
+        .sheet(item: $notingMistake) { mistake in
+            MistakeNoteSheet(mistake: mistake)
         }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
@@ -219,7 +239,10 @@ struct ChatView: View {
             onWebSearchNotAllowed: {
                 errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
             },
-            model: $conversation.model
+            model: $conversation.model,
+            autoFocus: conversation.messages?.isEmpty ?? true,
+            autoOpenCamera: navigation.cameraConversationID == conversation.id,
+            onCameraOpened: { navigation.cameraConversationID = nil }
         )
         .frame(maxWidth: 820)
         .frame(maxWidth: .infinity)
@@ -260,6 +283,14 @@ struct ChatView: View {
     }
 
     /// 组件里的"问问 AI"：直接发出，不经过输入框。
+    /// 长按提问选"加入错题本"：直接加入，提示条上可以接着写备注。
+    private func addMistake(question: Message, solution: Message) {
+        let mistake = StudyCenter.addManualMistake(question: question, solution: solution, conversation: conversation, context: context)
+        toasts.show("已加入错题本", scope: .chat, actionTitle: "写备注") {
+            notingMistake = mistake
+        }
+    }
+
     private func ask(_ text: String) {
         if generation.isGenerating(conversation) {
             errorMessage = "请等当前回答生成完再提问。"
@@ -315,7 +346,7 @@ private struct EditMessageSheet: View {
                         .frame(minHeight: 160)
                         .focused($isFocused)
                 } footer: {
-                    Text("重新发送后，这条消息之后的所有内容都会被删除。" + (hasImages ? "原来的图片会保留。" : ""))
+                    Text("重新发送会删掉这条之后的所有内容" + (hasImages ? "，图片保留。" : "。"))
                 }
             }
             .navigationTitle("编辑消息")
@@ -352,8 +383,6 @@ private struct ConversationInstructionsSheet: View {
                 Section {
                     TextEditor(text: $text)
                         .frame(minHeight: 160)
-                } footer: {
-                    Text("只对这个会话生效，从下一条消息开始使用。例如：这个会话只讲高中物理，讲解时多举生活中的例子。")
                 }
             }
             .navigationTitle("会话提示词")
@@ -382,16 +411,11 @@ private struct QuizFeedback: Equatable {
     let correct: Bool
 }
 
-struct MistakeDraft: Identifiable {
-    let id = UUID()
-    let question: Message
-    let solution: Message
-}
+/// 给刚加入错题本的题写备注（第九版：加入不再先弹这个面板，提示条上点"写备注"才打开）。
+private struct MistakeNoteSheet: View {
+    @Bindable var mistake: Mistake
 
-/// 把一道自己问过的题加入错题本，可以写一句备注。
-private struct AddMistakeSheet: View {
-    let onSave: (String) -> Void
-
+    @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @State private var note = ""
 
@@ -401,25 +425,23 @@ private struct AddMistakeSheet: View {
                 Section {
                     TextField("例如：符号判断错了", text: $note, axis: .vertical)
                         .lineLimit(2...5)
-                } header: {
-                    Text("备注（可选）")
-                } footer: {
-                    Text("会保存这条提问和后面那条 AI 解答。复习时先看题目，自己想好后再看解答。")
                 }
             }
-            .navigationTitle("加入错题本")
+            .navigationTitle("备注")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("加入") {
-                        onSave(note)
+                    Button("保存") {
+                        mistake.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+                        try? context.save()
                         dismiss()
                     }
                 }
             }
+            .onAppear { note = mistake.note }
         }
         .presentationDetents([.medium])
     }

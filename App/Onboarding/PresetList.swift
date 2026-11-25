@@ -72,9 +72,6 @@ struct AddProviderSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.m) {
-                    Text("选了以后会自动填好名称、协议和地址，你只需要填 API Key。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
                     PresetList { preset in
                         onPick(preset)
                         dismiss()

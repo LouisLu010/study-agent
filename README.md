@@ -1,17 +1,145 @@
-# 格物（Gewu）
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="格物的图标">
+</p>
 
-一个运行在 iPhone 和 iPad 上的大模型学习 App，名字取自"格物致知"。回答里可以有公式、化学式，也可以有能动手操作的坐标图、物理和化学模拟、测验；答错的题进错题本，按 1、3、7、14、30 天复习；一句话就能联网汇编高考原题，排成 PDF。
+<h1 align="center">格物（Gewu）</h1>
 
-用你自己的 API Key（DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter 或 OpenAI 兼容接口），没有服务器，数据只存在本机。没有上架 App Store，需要自签安装，见下面的[构建与安装](#构建与安装)。
+<p align="center">为学习做的大模型 App，运行在 iPhone 和 iPad 上。名字取自"格物致知"。</p>
 
-- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.8.0 Beta 2](https://github.com/LouisLu010/study-agent/releases/tag/v0.8.0-beta.2)
+<p align="center">
+  <a href="https://github.com/LouisLu010/study-agent/releases"><img src="https://img.shields.io/github/v/release/LouisLu010/study-agent?include_prereleases&label=%E7%89%88%E6%9C%AC" alt="版本"></a>
+  <img src="https://img.shields.io/badge/iOS%20%2F%20iPadOS-18%2B-blue" alt="iOS / iPadOS 18+">
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/LouisLu010/study-agent" alt="许可证"></a>
+</p>
+
+回答里可以有公式、化学式，也可以有能动手操作的坐标图、几何图、物理和化学模拟、测验；讲解方式可以换成循序渐进、启发式提问、考前速记或严格批改；答错的题进错题本，按 1、3、7、14、30 天复习；一句话就能联网汇编高考原题，排成 PDF。
+
+用你自己的 API Key，没有服务器，数据只存在本机。没有上架 App Store，需要自签安装，见[构建与安装](#构建与安装)。
+
+- 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [0.9.0 Beta 2](https://github.com/LouisLu010/study-agent/releases/tag/v0.9.0-beta.2)
 - 术语：[GLOSSARY.md](./GLOSSARY.md)
 - 架构决策：[docs/adr/](./docs/adr/)
 - 宣传片：[docs/promo/](./docs/promo/README.md)
 
-下面按版本记录每一版做了什么、为什么这样做。
+## 截图
 
-## 第一版范围
+iPad 深色模式，第八版真机截图。
+
+| 今天 | 会动的坐标图 | 汇编原题 |
+|---|---|---|
+| <img src="docs/images/today.jpg" alt="今天：直接提问、复习、连续学习天数、继续上次的会话"> | <img src="docs/images/chat-graph.jpg" alt="回答里可以拖参数的双曲线坐标图"> | <img src="docs/images/compilation.jpg" alt="汇编：逐份试卷搜索原题的调用记录"> |
+
+## 能做什么
+
+**会画图和出题的回答**
+- Markdown、表格、代码高亮、LaTeX 公式、mhchem 化学式。
+- 模型自己决定要不要在回答里放组件，组件只能从 App 内置的几种里选（[ADR-0006](./docs/adr/0006-fixed-component-library.md)）：
+  - **坐标图**：拖参数，曲线实时变化，自动标出极值点、零点和交点。
+  - **几何图**：拖动点，长度、角度、面积跟着变。
+  - **图表**：柱状图、折线图、饼图。
+  - **模拟**：单摆、弹簧振子、匀变速运动、碰撞、带电粒子在电场和磁场里的运动、电磁感应、电路、化学平衡等内置的模拟，可以调参数、拖时间轴。
+  - **测验**：选择题和数值题，答完立刻看到对错和解析。
+  - **分步讲解**：一步一步展开，每一步都可以追问。
+- 模拟、坐标图和几何图可以全屏，横屏时参数在侧边。
+- 简洁模式下只用文字、公式和化学式回答。
+
+**讲解方式**
+- 5 种人格：标准、循序渐进、启发式、考前速记、严格批改。设置里选一个默认的，每个会话可以单独换。
+- 用户提示词对所有会话生效，例如"我是高二学生"；会话提示词只对一个会话生效。
+- 回答下面有"讲简单点""换个思路""出道练习题"，点一下就发出。
+
+**提问**
+- 文字、拍照、相册、PDF（选页，每页作为一张图）、Apple Pencil 手写。
+- 联网搜索用服务商自带的搜索，回答上方显示出处卡片。
+- 某个组件格式有误时只重新生成这一个组件；重新生成整条回答会保留旧版本，可以来回切换；可以编辑提问后重发；回答被系统打断后可以接着写。
+- 长按 App 图标：新会话、拍题、开始复习。
+
+**错题和复习**
+- 测验答错的题自动进错题本，也可以长按自己的提问加入。
+- 按 1、3、7、14、30 天的间隔复习，到期时每天提醒一次（可以关）。
+- "今天"汇总要复习的题、连续学习天数和最近 7 天答题数。
+- 收藏整条回答；错题和收藏都是独立副本，删掉会话也还在。
+
+**资料和汇编**
+- **资料**：让模型联网查一个主题，整理成带出处的总结，可以编辑。
+- **汇编**：一句话说要什么题，例如"近 3 年高考有机大题"。模型先列出试卷给你确认，再调用 App 的工具逐份找原题；原题的文字和图片取自出处网页，不由模型改写。最后排成 PDF，可以附答案和解析。生成期间可以切到别的 App。
+
+**模型接入**
+- 内置 DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter 的预设，也可以填任意 OpenAI 兼容接口。
+- 原生支持 OpenAI 兼容、Anthropic Messages、Gemini 三种协议，支持思考过程和思考强度。
+- 每条回答显示 token 用量和估算费用（人民币）。
+
+## 隐私和费用
+
+- API Key 只存在设备的钥匙串里。App 直接请求服务商的接口，中间没有任何服务器（[ADR-0001](./docs/adr/0001-byok-no-backend.md)）。
+- 会话、错题、资料和汇编只存在本机，不同步到 iCloud（[ADR-0004](./docs/adr/0004-local-only-until-paid-account.md)）。
+- 费用由你的服务商按用量收取。App 里显示的金额是按官网标价折算的估算值。
+- 打开"强力保活"后，生成汇编或长回答时会用后台定位让 App 保持运行，位置不记录、不发送。
+
+## 构建与安装
+
+App 以未签名的 `.ipa` 发布，要用 Sideloadly 或 AltStore 配合免费 Apple ID 签名安装，每 7 天需要重签一次。需要 iOS / iPadOS 18 及以上。
+
+1. 打开 [Releases](https://github.com/LouisLu010/study-agent/releases)，在最新的版本下面下载 `StudyAgent-<版本>-unsigned.ipa`。下载不需要登录，也不会过期。
+2. 用 Sideloadly 把它装到 iPhone 或 iPad 上，登录你的 Apple ID。
+3. 在设备的"设置 → 通用 → VPN 与设备管理"里信任你的 Apple ID，然后打开 App。
+
+新版本直接覆盖安装，已有的会话、错题和汇编都还在。
+
+**从源码构建**：本仓库不包含 `.xcodeproj`。GitHub Actions 用 XcodeGen 从 `project.yml` 生成工程，运行测试、编译 App，并打包未签名的 `.ipa`。每次 CI 成功后，可以在那次运行的页面底部下载 `StudyAgent-unsigned-ipa`（要登录 GitHub，过一段时间会过期）。发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
+
+## 第一次使用
+
+第一次打开 App 会出现引导：选一个服务商预设（DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter，或者"其他"自己填地址），粘贴 API Key，App 拉一次模型列表来确认 Key 能用，然后选一个默认模型，再选年级和讲解人格（可以不选），可选打开复习提醒，最后直接进入一个新会话。引导可以跳过，设置 → 其他 → "重新查看引导"可以再走一遍。
+
+不走引导的话，也可以手动添加：
+
+1. 点左上角的齿轮打开设置，点"添加服务商"，选一个预设或"其他"，填写 API Key（"其他"还要填 API 地址）。
+2. 在服务商页面点"从服务商获取模型"，在列表里勾选要用的模型后添加。如果服务商不提供模型列表接口，就点"手动添加模型"，填写模型 ID（必须和服务商文档里写的一样）。模型能看图的话，打开"支持图片输入"。第一个添加的模型会自动成为默认模型。
+3. 回到会话列表，点右上角新建会话，就可以开始提问了。
+
+API Key 只存在设备的钥匙串里，App 直接请求服务商的接口，中间没有任何服务器。
+
+## 开发
+
+### 目录
+
+- `App/`：SwiftUI 界面、WebView 渲染、图片处理
+- `App/Vendor/`：复制进来的第三方 Swift 源码（第六版起有 Thinking Orbs），各自附许可证
+- `StudyKit/`：不依赖界面的代码（数据模型、三种协议、SSE 解析、内置提示词）和测试
+- `Renderer/`：WebView 里运行的渲染器（Markdown、公式、化学式、代码、坐标图）和第三方库
+- `RendererTests/`：渲染器的 Node 测试，运行方法是 `node --test RendererTests/*.test.js`
+- `tools/eval/`：用真实模型测试组件，见下一节
+- `promo/`：宣传片的 Remotion 工程，见 [docs/promo/](./docs/promo/README.md)
+
+### 用真实模型测试组件
+
+`tools/eval/run.js` 会用 App 的内置提示词（`StudyKit/Sources/StudyKit/Prompts/`）去问 `cases.json` 里的题目，检查每个回答里的组件格式是否正确，以及该用组件时用了、不该用时没用。只支持 OpenAI 兼容接口，Key 只从环境变量读取：
+
+```sh
+STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
+  node tools/eval/run.js --model deepseek-flash --model grok-4.7 [--only geo-] [--simple]
+```
+
+回答原文和汇总保存在 `tools/eval/results/`，这个目录不提交到仓库。改了提示词或组件格式之后，都应该跑一遍。
+
+加 `--web` 只跑联网搜索的题（`cases.json` 里 `"web": true` 的题），检查该搜时搜了、不该搜时没搜、搜了就带出处。搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 `deepseek_web_search` 工具，其余用 `web_search_options`。
+
+#### 第七版 C0：汇编工具试验
+
+`tools/eval/tools-trial.js` 比较三种做法：第五版的流水线（`v5`）、工具循环加"另发一次只开联网搜索的请求"来找寻（`model`）、工具循环加 DeepSeek Search API 来找寻（`api`）。题目在 `tools/eval/tools-cases.json`，每道题是一份试卷里的有机大题。获取工具用简化的提取：只按题干开头的几个字定位、返回文字，不取图。
+
+```sh
+STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [--only gk-] [--fetch-fallback]
+```
+
+也可以在 Actions 页面手动运行 "C0 tools trial"，Key 放在仓库的 Actions secret `STUDY_TEST_API_KEY` 里。加 `--fetch-fallback` 时，网站拒绝直接下载就改用 DeepSeek Fetch API 读正文。每道题每种做法一份 Markdown（调用记录和取到的原文），另有 `summary.json`；命令行最后几行是结论：通过几道、平均每题多少钱、是否达到"至少 4/5、费用不超过第五版 2 倍"。自动判断的"正确"是取到了文字、像有机大题、网页上有这份试卷的年份和地区，最后仍要人工看一遍取到的原文。
+
+## 版本记录
+
+下面按版本记录每一版做了什么、为什么这样做。每一版先写范围，定下来再写代码，做完补"实现"一段。
+
+### 第一版范围
 
 - **平台**：iOS / iPadOS 18+，纯 SwiftUI。iPad 用分栏布局。不适配 Mac。
 - **模型接入**：用户自带 API Key，不建后端。原生支持 OpenAI 兼容协议（Chat Completions）、Anthropic Messages、Google Gemini 三种协议。可以添加多个服务商和模型，设一个默认模型，每个会话可以单独切换模型。
@@ -22,7 +150,7 @@
 - **提示词**：App 内置格式规则，加上一段全局的用户提示词。
 - **数据**：只存在本机，暂不做 iCloud 同步。
 
-## 第二版范围：交互式回答
+### 第二版范围：交互式回答
 
 参照 ChatGPT 的 Intelligent UI：模型根据问题自己决定是否在回答里加入组件，简单问题仍然只用文字回答。组件只能从 App 内置的种类里选（见 [ADR-0006](./docs/adr/0006-fixed-component-library.md)），每个组件在回答里写成一个代码块，内容是 JSON，由 WebView 渲染器显示。
 
@@ -43,7 +171,7 @@
 
 第二版的阶段：V1 组件框架 → V2 带参数的坐标图 → V3 测验和分步讲解 → V4 几何图 → V5 图表。
 
-## 第三版范围：输入方式和基础体验
+### 第三版范围：输入方式和基础体验
 
 - **PDF**：选择 PDF 后勾选页面（默认最多 10 页），在设备上把页面渲染成图片再发送（见 [ADR-0007](./docs/adr/0007-pdf-as-page-images.md)）。
 - **附件上限**：每条消息最多 10 个附件，PDF 页面和照片一起计数；超过 4 个时提示消耗会明显增加。
@@ -59,7 +187,7 @@
 
 第三版的阶段：阶段 1 输入 → 阶段 2 对话 → 阶段 3 用量 → 阶段 4 导出。
 
-## 第四版范围：复习和模拟
+### 第四版范围：复习和模拟
 
 **A. 复习**
 - **错题本**：测验里答错的题立即自动加入，同一道题不重复加入，只把档位重置到第一档；也可以在自己的消息上长按，把这道题和后面那条 AI 解答一起加入，并附备注。错题保存独立副本，可以跳回原会话（见 [ADR-0009](./docs/adr/0009-mistakes-and-bookmarks-are-copies.md)）。
@@ -80,7 +208,7 @@
 
 第四版的阶段：A1 错题本 → A2 复习和提醒 → A3 收藏和学习记录 → B1 模拟框架和力学 → B2 电磁 → B3 电路和化学平衡。每个涉及提示词的阶段都用真实模型测试。
 
-## 第五版范围：查找资料和汇编
+### 第五版范围：查找资料和汇编
 
 **A. 联网搜索和资料**
 - **联网搜索**：只用服务商自带的搜索：Anthropic `web_search`、Gemini Google 搜索接地、DeepSeek `deepseek_web_search`、OpenAI `web_search_options`（见 [ADR-0011](./docs/adr/0011-provider-native-web-search.md)）。模型设置里加"支持联网搜索"开关；输入框旁加"联网"按钮，默认关闭，按会话记住，打开后由模型决定这一轮要不要搜。当前模型不支持时按钮变灰并说明原因。
@@ -102,7 +230,7 @@
 
 第五版的阶段：A1 联网搜索 → A0 取题试验 → A2 资料 → B1 汇编生成和后台运行 → B2 汇编编辑和 PDF。A0 用 `deepseek-flash` 找 3 道高考有机大题和 2 道地方模拟卷的题：第一次只靠模型抄写，结构式全部缺失，不通过；第二次改成从出处网页取原文和原图，4/5 通过（见 ADR-0013）。`tools/eval` 加联网题，以 `deepseek-flash` 为主，`minimax-m3.1-flash` 作参照，检查该搜时搜了、回答带出处。
 
-## 第六版范围：界面和上手体验
+### 第六版范围：界面和上手体验
 
 **A. 界面和动画**
 - **样式**：主题色取自图标的蓝色（约 `#2563EB`，深色模式提亮），App 和渲染器的 `--accent` 用同一个值；绿色表示答对和完成。圆角只用 12（卡片）、20（输入框和消息气泡）和胶囊形，间距只用 4、8、12、16、24，图标大小跟随字号。
@@ -140,7 +268,7 @@
 
 第六版的阶段：A1 样式和小球 → A2 聊天体验 → A3 侧栏、设置和空页面 → B 引导 → C 打磨。没有 Mac，所以界面只能靠 CI 编译，再在真机上检查。版本号是 0.6.0。
 
-## 第七版范围：汇编改用工具
+### 第七版范围：汇编改用工具
 
 原来排在第七版的界面和组件改动（"今天"、浅灰底加白卡片、模拟画面等）移到第八版。
 
@@ -186,7 +314,7 @@
 - **"新课标Ⅰ卷"有歧义**：2025 年新课标卷是理综（化学有机题是第 29 题），而新高考Ⅰ卷没有统一的化学卷，模型两次里有一次找成了河南卷。汇编列试卷时要写清楚卷名，试验题目里已经改成"新课标卷（理综）"。
 - 用满 40 次调用的都是找不到可下载网页的题，后面都在重复搜索。C2 里加一条：连续 8 次调用没有新的进展（没有取到新题、没有读到新网站）就结束这份试卷，标"未能获取原文"。
 
-## 第八版范围：更完整的界面和更丰富的组件
+### 第八版范围：更完整的界面和更丰富的组件
 
 试用第六版之后定的，排在第七版的汇编工具之后。风格仍是克制的原生风，参考了 Brilliant、ChatGPT、Perplexity 和 Photomath。第八版不改组件的 JSON 格式，也不改内置提示词，所以不用重跑 `tools/eval`。
 
@@ -239,64 +367,59 @@
 - 错题本的标题，收藏和资料的标题、摘要，以前直接显示 LaTeX 源码。渲染器的 `core.js` 新增 `toPreviewText`，把公式改写成 x²/16 这样能读的文字（分数、根号、上下标、希腊字母、常用符号、`\ce{}` 化学式），Swift 通过 `PlainTextExporter.previewText` 调用。复制和导出不变，仍保留 LaTeX。
 - 聊天里的坐标图不显示 JSXGraph 自带的导航按钮，只在全屏页里显示。
 
-## 构建与安装
+### 第九版范围：人格和更顺手的细节
 
-App 以未签名的 `.ipa` 发布，要用 Sideloadly 或 AltStore 配合免费 Apple ID 签名安装，每 7 天需要重签一次。需要 iOS / iPadOS 18 及以上。
+用了八版，功能够多了，第九版不加大功能，只让常用的事更顺手：讲解风格可以一键换，界面上的说明文字大幅减少，几处容易误操作或多点几下的地方改掉。第九版改了内置提示词（加人格），A1 和 A3 要用 `tools/eval` 跑 DeepSeek。
 
-1. 打开 [Releases](https://github.com/LouisLu010/study-agent/releases)，在最新的版本下面下载 `StudyAgent-<版本>-unsigned.ipa`。下载不需要登录，也不会过期。
-2. 用 Sideloadly 把它装到 iPhone 或 iPad 上，登录你的 Apple ID。
-3. 在设备的"设置 → 通用 → VPN 与设备管理"里信任你的 Apple ID，然后打开 App。
+**A. 人格和提问**
+- **人格**：内置 5 种。
+  - 标准：不加任何风格，就是现在的回答，是默认值。
+  - 循序渐进：先讲概念再举例，每一步说清为什么，最后小结。
+  - 启发式：不直接给答案，一次问一个引导性的问题，等用户回答再往下走；用户明确说"直接告诉我答案"时才给。
+  - 考前速记：只给要点、公式和易错点，能用列表就不写段落，篇幅短。
+  - 严格批改：用户发来自己的解答时，逐步指出哪里错、错在哪类问题，给出分数和正确做法；没有发解答时按标准回答。
+  - 设置"回答"里选默认人格；会话标题菜单里可以给这个会话换一个，存在会话上，没换过就跟着默认。从"今天"提问、"再来几道类似的"新建的会话用默认人格。
+  - 系统提示词的顺序：格式规则 → 组件规则 → 人格 → 用户提示词 → 会话提示词，用户自己写的说明排在后面、优先。资料和汇编不带人格。
+  - 人格的内容写在 `StudyKit/Sources/StudyKit/Prompts/` 里，`tools/eval` 读同一份。用户不能改人格的文字，也不能自己加人格，要定制就写用户提示词。
+- **引导加一页"关于你"**：选默认模型之后，选年级（初中、高中、大学、其他）和人格。年级用来预填用户提示词（例如"我是高中生"），用户提示词已经有内容时不覆盖。这一页可以跳过。
+- **快捷追问**：最后一条回答生成完、没有出错时，下方一行三个按钮："讲简单点""换个思路""出道练习题"，点一下就作为用户消息发出，和自己打字发的一样。生成中、出错、被中断时不显示。
 
-新版本直接覆盖安装，已有的会话、错题和汇编都还在。
+**B. 少说明、少误操作**
+- **说明文字**：纯介绍性的说明删掉，包括设置各节的脚注、会话提示词的举例、新建汇编的流程介绍、引导各页标题下的段落、大部分空页面的说明。下面几类保留，缩成一句：费用是估算值和汇率、强力保活用定位的隐私说明、API Key 只存在本机、重新发送会删掉后面的内容、权限被关后去哪里打开、报错和恢复办法、不要改 `sa-asset` 图片编号、商标声明。空页面只留标题，错题本（长按加入）和资料（从哪里整理）各留一句，因为入口不好找。引导的三张功能卡片保留，文字缩短。
+- **大字号**：引导功能卡片去掉固定高度，"今天"的每周柱状图标签改用随系统字号变化的字体。
+- **删除可撤销**：会话、收藏、资料、汇编、错题在列表里删除后，底部出现"已删除 · 撤销"，5 秒内点撤销就恢复，过了才真正删掉；5 秒内 App 被关掉的话，这一项留着不删。错题详情页的删除不再弹确认，同样给撤销。删除正在生成的会话仍会先停掉生成。
+- **加入错题本少一步**：长按自己的提问选"加入错题本"后直接加入，底部提示"已加入错题本"，旁边一个"写备注"按钮，点了才弹出备注面板。
+- **新会话直接打字**：新建会话后输入框自动弹出键盘。离开一个没有任何消息、没写会话提示词、也没换过人格的会话时，把它删掉，列表里不再留一串空的"新会话"。
+- **往上翻不被拉回**：生成中或来新消息时，只有本来就在底部附近才跟着滚到底；往上翻着看时不动，"回到底部"按钮照常显示。
+- **"今天"记住选择**：提问框选的模型和联网开关记住，下次回到"今天"还是上次的选择；选的模型被删了就回到默认模型。
+- **换成纯文字模型后重新生成**：现在会话里以前发过图片，换成不支持图片的模型后点"重新生成"或"继续生成"会报错。改成只检查这次新发的消息有没有图片；历史里的图片换成文字"[图片]"发给模型。
+- **只重新生成出错的组件**：回答里某个组件格式有误时，只让模型重写这一个代码块，换回原来的位置，回答的其他部分不动，也不新增版本。刚生成完的回答自动试一次；还不行或者是以前的回答，就点提示卡片上的"重新生成这个组件"。这次的用量和费用加在这条回答上。
+- **长按 App 图标**：快捷菜单里有"新会话""拍题""开始复习"。拍题直接打开相机，拍完进一个带这张图的新会话；没有到期的错题时"开始复习"不出现。
 
-**从源码构建**：本仓库不包含 `.xcodeproj`。GitHub Actions 用 XcodeGen 从 `project.yml` 生成工程，运行测试、编译 App，并打包未签名的 `.ipa`。每次 CI 成功后，可以在那次运行的页面底部下载 `StudyAgent-unsigned-ipa`（要登录 GitHub，过一段时间会过期）。发布 GitHub Release（包括 pre-release）时，`.github/workflows/release.yml` 会按 Release 的标签编译同样的 IPA，命名为 `StudyAgent-<标签>-unsigned.ipa` 传到 Release 上。已经发布过的 Release 可以在 Actions 页面手动运行 "Release IPA"，填上标签来补传。
+不做：主屏小组件和系统分享扩展（都要把数据库搬到 App Group 共享目录，这是一次数据迁移，没有真机调试条件时风险太大）、搜索消息正文、模型选择菜单里标出是否支持图片和联网（第八版定了不加）、自定义人格、长会话的性能优化（消息重复排序、启动时读出全部汇编，单独做）。
 
-## 第一次使用
+第九版的阶段：A1 人格 → A2 引导"关于你" → A3 快捷追问 → B1 说明文字和大字号 → B2 删除可撤销、加入错题本少一步 → B3 新会话、滚动、"今天"记住选择、图片历史 → B4 长按图标的快捷菜单。全部放在一个 PR 里，每个阶段一个提交，版本号改成 0.9.0。
 
-第一次打开 App 会出现引导：选一个服务商预设（DeepSeek、OpenAI、Anthropic、Google Gemini、OpenRouter，或者"其他"自己填地址），粘贴 API Key，App 拉一次模型列表来确认 Key 能用，然后选一个默认模型，可选打开复习提醒，最后直接进入一个新会话。引导可以跳过，设置 → 其他 → "重新查看引导"可以再走一遍。
+**实现**：A1 到 B4 都做完了，放在一个 PR 里，每个阶段一个提交，版本号是 0.9.0。
+- 人格在 `StudyKit/Sources/StudyKit/Prompts/personas.json`（id、名称、一句话、提示词），`Persona.all` 和 `tools/eval/run.js` 读同一份。`SystemPrompt.compose` 多了 `persona` 参数，内容放在"# 讲解方式"下面。默认人格存在 UserDefaults 的 `defaultPersonaID`，会话上新增 `personaID`（空字符串表示跟着默认，新字段有默认值，轻量迁移即可）。设置"回答"里是 `PersonaPicker`，会话标题菜单里是 `ConversationPersonaMenu`。
+- `tools/eval/run.js` 新增 `--persona <id>`（给所有题加上这个人格）和 `--personas`（只跑 `cases.json` 里带 `persona` 的 8 道题，用 `forbid`、`require`、`maxChars` 检查讲解方式）。用 `deepseek-flash` 跑的结果：
+  - 人格的题 8/8 通过。启发式只提问、不给出方程的根和落地速度；用户说"直接告诉我答案"时会给；严格批改给出逐步检查和 3/10 分；考前速记的解题正文在 600 字以内。
+  - 45 道组件题：不加人格 42/45，循序渐进 42/45，考前速记 42/45，严格批改 44/45，组件格式都是 100% 正确。启发式 40/45，少的都是"该用分步讲解"的解题题，因为它按设计不给完整解法。
+  - 快捷追问另外手动试了两轮对话：两道题各点三个按钮，"讲简单点"把回答缩到原来的三分之一左右，"出道练习题"都用测验组件出题，"换个思路"换了解法，组件格式都正确。
+- 底部提示条是 `App/Design/ToastBar.swift` 的 `ToastCenter`：删除时先把对象的 `persistentModelID` 记进 `hiddenIDs`，列表把它们过滤掉，5 秒后或者下一次提示出现时才真正删除。每个页面用 `.toastBar(范围)` 只显示自己的提示条，iPad 上侧栏和右边不会同时出现。
+- 历史里的图片：`ChatMessage.replacingImagesWithPlaceholders()`，模型不支持图片时 `startReply` 把整段历史都换掉。顺带修了一个原来就有的问题：以前只拦了"重新生成"和"继续生成"，换模型后直接发新消息，历史里的图片也会原样发给纯文字模型。
+- 空会话的清理放在 `RootView`：侧栏的选择从一个会话换走时检查它。最早挂在聊天页的 `onDisappear` 上，但弹出相机这类全屏页面时聊天页也会触发 `onDisappear`，新会话里点拍照、快捷菜单"拍题"都会把会话删掉（Beta 2 修复）。
+- 只重新生成一个组件：渲染器的提示卡片带上组件键、种类、报错和它在原文里的行号（markdown-it 的 `token.map`），生成完的完整渲染里发 `componentError`，按钮发 `repairComponent`。`GenerationCenter.repairComponent` 用 `ComponentRepair`（StudyKit）取出这几行原文，请求里只带这种组件那一节格式说明、出错的代码块、报错和前后的回答，拿回的代码块按原文替换回去（列表里的缩进照旧），再 `finishVersion` 同步到当前版本。期间重新生成过、原文已经不在了就不改。用 `deepseek-flash` 手动试了 5 种组件各一个坏掉的代码块，都修好了，每次约 1 到 2.5 秒、2 千 token 左右。
+- 长按图标的快捷菜单：`App/QuickActions.swift`。SwiftUI 没有直接的入口，所以用 `UIApplicationDelegateAdaptor` 换上场景代理来接收，交给 `QuickActionInbox`，再由 `RootView` 处理。菜单项在启动时和退到后台时按当前状态重新设置。"拍题"用默认模型新建会话；模型支持图片时直接弹出相机，拍完的图在输入框里，不会自动发出。
+- 真机上还要检查：
+  - iPhone 上从会话按返回、iPad 上切到别的会话时，空会话有没有被删掉，删掉后侧栏有没有出错。
+  - 往上翻看时，生成中的回答变长会不会把正在看的内容顶走。
+  - 底部提示条在聊天页里有没有被输入框盖住。
+  - 快捷菜单在 App 没运行和在后台时都能用，"拍题"能直接弹出相机。
+  - 大字号下引导的功能卡片是否一样高、没有截断。
+  - 组件出错时提示卡片上的"正在重新生成这个组件…"和修好后组件直接出现。
 
-不走引导的话，也可以手动添加：
-
-1. 点左上角的齿轮打开设置，点"添加服务商"，选一个预设或"其他"，填写 API Key（"其他"还要填 API 地址）。
-2. 在服务商页面点"从服务商获取模型"，在列表里勾选要用的模型后添加。如果服务商不提供模型列表接口，就点"手动添加模型"，填写模型 ID（必须和服务商文档里写的一样）。模型能看图的话，打开"支持图片输入"。第一个添加的模型会自动成为默认模型。
-3. 回到会话列表，点右上角新建会话，就可以开始提问了。
-
-API Key 只存在设备的钥匙串里，App 直接请求服务商的接口，中间没有任何服务器。
-
-## 目录
-
-- `App/`：SwiftUI 界面、WebView 渲染、图片处理
-- `App/Vendor/`：复制进来的第三方 Swift 源码（第六版起有 Thinking Orbs），各自附许可证
-- `StudyKit/`：不依赖界面的代码（数据模型、三种协议、SSE 解析、内置提示词）和测试
-- `Renderer/`：WebView 里运行的渲染器（Markdown、公式、化学式、代码、坐标图）和第三方库
-- `RendererTests/`：渲染器的 Node 测试，运行方法是 `node --test RendererTests/*.test.js`
-- `tools/eval/`：用真实模型测试组件，见下一节
-- `promo/`：宣传片的 Remotion 工程，见 [docs/promo/](./docs/promo/README.md)
-
-## 用真实模型测试组件
-
-`tools/eval/run.js` 会用 App 的内置提示词（`StudyKit/Sources/StudyKit/Prompts/`）去问 `cases.json` 里的题目，检查每个回答里的组件格式是否正确，以及该用组件时用了、不该用时没用。只支持 OpenAI 兼容接口，Key 只从环境变量读取：
-
-```sh
-STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
-  node tools/eval/run.js --model deepseek-flash --model grok-4.7 [--only geo-] [--simple]
-```
-
-回答原文和汇总保存在 `tools/eval/results/`，这个目录不提交到仓库。改了提示词或组件格式之后，都应该跑一遍。
-
-加 `--web` 只跑联网搜索的题（`cases.json` 里 `"web": true` 的题），检查该搜时搜了、不该搜时没搜、搜了就带出处。搜索格式和 App 一样按模型 ID 判断：带 deepseek 的用 `deepseek_web_search` 工具，其余用 `web_search_options`。
-
-### 第七版 C0：汇编工具试验
-
-`tools/eval/tools-trial.js` 比较三种做法：第五版的流水线（`v5`）、工具循环加"另发一次只开联网搜索的请求"来找寻（`model`）、工具循环加 DeepSeek Search API 来找寻（`api`）。题目在 `tools/eval/tools-cases.json`，每道题是一份试卷里的有机大题。获取工具用简化的提取：只按题干开头的几个字定位、返回文字，不取图。
-
-```sh
-STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [--only gk-] [--fetch-fallback]
-```
-
-也可以在 Actions 页面手动运行 "C0 tools trial"，Key 放在仓库的 Actions secret `STUDY_TEST_API_KEY` 里。加 `--fetch-fallback` 时，网站拒绝直接下载就改用 DeepSeek Fetch API 读正文。每道题每种做法一份 Markdown（调用记录和取到的原文），另有 `summary.json`；命令行最后几行是结论：通过几道、平均每题多少钱、是否达到"至少 4/5、费用不超过第五版 2 倍"。自动判断的"正确"是取到了文字、像有机大题、网页上有这份试卷的年份和地区，最后仍要人工看一遍取到的原文。
-
-## 里程碑
+### 里程碑
 
 1. **M1 骨架**：工程结构、CI、服务商和模型配置、会话列表、OpenAI 兼容协议的流式纯文本聊天。
 2. **M2 渲染**：WebView + markdown-it + KaTeX + mhchem + 代码高亮。

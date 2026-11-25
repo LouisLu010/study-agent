@@ -8,6 +8,7 @@ struct ConversationListView: View {
     @Environment(\.modelContext) private var context
     @Environment(GenerationCenter.self) private var generation
     @Environment(AppNavigation.self) private var navigation
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \Conversation.updatedAt, order: .reverse) private var conversations: [Conversation]
     @Query private var models: [ChatModel]
     @Query(filter: #Predicate<Mistake> { $0.masteredAt == nil }) private var activeMistakes: [Mistake]
@@ -17,9 +18,10 @@ struct ConversationListView: View {
     @State private var renameText = ""
 
     private var filtered: [Conversation] {
+        let visible = conversations.filter { !toasts.isHidden($0) }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return conversations }
-        return conversations.filter { $0.title.localizedStandardContains(query) }
+        guard !query.isEmpty else { return visible }
+        return visible.filter { $0.title.localizedStandardContains(query) }
     }
 
     var body: some View {
@@ -78,7 +80,7 @@ struct ConversationListView: View {
         .overlay {
             if conversations.isEmpty {
                 if models.isEmpty {
-                    OrbEmptyState(title: "还没有模型", message: "先添加一个服务商和模型。") {
+                    OrbEmptyState(title: "还没有模型") {
                         VStack(spacing: Theme.Spacing.s) {
                             Button("开始设置") { navigation.showsOnboarding = true }
                                 .buttonStyle(.borderedProminent)
@@ -91,6 +93,7 @@ struct ConversationListView: View {
                 ContentUnavailableView.search(text: searchText)
             }
         }
+        .toastBar(.conversations)
         .navigationTitle("格物")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -163,12 +166,15 @@ struct ConversationListView: View {
         renaming = nil
     }
 
+    /// 删除可以撤销（第九版）：先藏起来，5 秒后才真正删。正在生成的回答立刻停掉。
     private func delete(_ conversation: Conversation) {
         if selection == .conversation(conversation) {
             selection = .today
         }
         generation.stop(conversation)
-        context.delete(conversation)
-        try? context.save()
+        toasts.delete([conversation], scope: .conversations) { [context] in
+            context.delete(conversation)
+            try? context.save()
+        }
     }
 }

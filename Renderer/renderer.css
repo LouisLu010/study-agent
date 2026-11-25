@@ -280,7 +280,7 @@ body.is-fullscreen .simulation-stage { height: 55vh; min-height: 260px; }
   white-space: pre-wrap;
 }
 /* 按钮：胶囊形。主操作实心，其他淡底 */
-.sa-regenerate, .sa-button {
+.sa-regenerate, .sa-repair, .sa-button {
   -webkit-appearance: none;
   border: 0;
   background: var(--accent-fill);
@@ -295,7 +295,7 @@ body.is-fullscreen .simulation-stage { height: 55vh; min-height: 260px; }
   transition: opacity 0.15s;
 }
 .sa-button.is-primary { background: var(--accent); color: #fff; }
-.sa-button:active, .sa-regenerate:active { opacity: 0.65; }
+.sa-button:active, .sa-regenerate:active, .sa-repair:active { opacity: 0.65; }
 .sa-button:disabled { opacity: 0.4; }
 /* 分段选择（模拟的播放速度） */
 .sa-segmented {
@@ -324,6 +324,11 @@ body.is-fullscreen .simulation-stage { height: 55vh; min-height: 260px; }
 }
 .sa-regenerate { display: none; margin-top: 8px; }
 body.can-regenerate .sa-regenerate { display: inline-block; }
+.sa-repair { display: none; margin-top: 8px; }
+body.can-repair .sa-repair { display: inline-block; }
+.sa-component-error.is-repairing .sa-repair { display: none; }
+.sa-repair-status { color: var(--secondary); font-size: 0.88em; margin-top: 6px; }
+.sa-repair-status:empty { display: none; }
 
 /* 组件标题：左对齐，正文颜色 */
 .graph-title, .quiz-title, .steps-title { font-weight: 600; color: var(--text); text-align: left; margin-bottom: 10px; }

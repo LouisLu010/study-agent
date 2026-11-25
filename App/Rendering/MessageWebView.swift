@@ -8,6 +8,37 @@ enum RenderCache {
     static var heights: [UUID: CGFloat] = [:]
 }
 
+/// 回答里一个格式有误的组件（第九版）。`lines` 是它在消息原文里的行号，渲染器不知道时为 nil。
+struct ComponentErrorReport: Equatable {
+    let key: String
+    let type: String
+    let error: String
+    let lines: Range<Int>?
+
+    init?(_ body: Any) {
+        guard let payload = body as? [String: Any],
+              let key = payload["key"] as? String, !key.isEmpty,
+              let type = payload["type"] as? String, !type.isEmpty
+        else { return nil }
+        self.key = key
+        self.type = type
+        error = payload["error"] as? String ?? ""
+        if let start = (payload["start"] as? NSNumber)?.intValue,
+           let end = (payload["end"] as? NSNumber)?.intValue, end > start, start >= 0 {
+            lines = start..<end
+        } else {
+            lines = nil
+        }
+    }
+}
+
+/// 组件重新生成的进度，交给渲染器显示在提示卡片上。
+struct ComponentRepairState: Equatable {
+    var canRepair = false
+    var repairing: Set<String> = []
+    var failures: [String: String] = [:]
+}
+
 /// 用 WebView 渲染一条模型消息（Markdown、公式、化学式、代码、坐标图），见 docs/adr/0003。
 struct MessageWebView: UIViewRepresentable {
     let messageID: UUID
@@ -36,6 +67,12 @@ struct MessageWebView: UIViewRepresentable {
     var fullscreenSurface = false
     /// 模拟、坐标图、几何图卡片上的全屏按钮：(组件键, 只有这个组件的 Markdown, 它的状态 JSON)。为 nil 时不显示按钮。
     var onFullscreen: ((String, String, String) -> Void)?
+    /// 组件格式有误时只重新生成这一个组件（第九版）。
+    var repairState = ComponentRepairState()
+    /// 生成完的完整渲染里有格式有误的组件。刚生成完的回答会自动重新生成一次。
+    var onComponentError: (ComponentErrorReport) -> Void = { _ in }
+    /// 点了提示卡片上的"重新生成这个组件"。
+    var onRepairComponent: (ComponentErrorReport) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -74,6 +111,7 @@ struct MessageWebView: UIViewRepresentable {
         context.coordinator.parent = self
         context.coordinator.update(content: content, isStreaming: isStreaming)
         context.coordinator.updateCanRegenerate(canRegenerate)
+        context.coordinator.updateRepairState(repairState)
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
@@ -87,7 +125,10 @@ struct MessageWebView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
-        static let messageNames = ["ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal", "fullscreen"]
+        static let messageNames = [
+            "ready", "height", "formula", "copy", "state", "ask", "regenerate", "scrollLock", "quizResult", "reveal", "fullscreen",
+            "componentError", "repairComponent",
+        ]
 
         /// 被暂停滚动的聊天列表。手势结束或 WebView 被回收时恢复。
         private weak var lockedScrollView: UIScrollView?
@@ -138,6 +179,7 @@ struct MessageWebView: UIViewRepresentable {
         /// 页面加载后是否已经把保存的组件状态交给渲染器。
         private var didSendInitialOptions = false
         private var sentCanRegenerate: Bool?
+        private var sentRepairState: ComponentRepairState?
         private var rendered: (content: String, isStreaming: Bool)?
         private var pending: (content: String, isStreaming: Bool)?
         private var throttleTask: Task<Void, Never>?
@@ -154,6 +196,7 @@ struct MessageWebView: UIViewRepresentable {
             isRendering = false
             didSendInitialOptions = false
             sentCanRegenerate = nil
+            sentRepairState = nil
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
 
@@ -167,6 +210,26 @@ struct MessageWebView: UIViewRepresentable {
                 in: .page,
                 completionHandler: nil
             )
+        }
+
+        func updateRepairState(_ value: ComponentRepairState, force: Bool = false) {
+            guard isReady, didSendInitialOptions, force || sentRepairState != value, let webView else { return }
+            sentRepairState = value
+            webView.callAsyncJavaScript(
+                "window.StudyRenderer.setOptions({ canRepair, repairing, repairFailed })",
+                arguments: Self.repairArguments(value),
+                in: nil,
+                in: .page,
+                completionHandler: nil
+            )
+        }
+
+        private static func repairArguments(_ value: ComponentRepairState) -> [String: Any] {
+            [
+                "canRepair": value.canRepair,
+                "repairing": Dictionary(uniqueKeysWithValues: value.repairing.map { ($0, true) }),
+                "repairFailed": value.failures,
+            ]
         }
 
         func update(content: String, isStreaming: Bool) {
@@ -241,13 +304,17 @@ struct MessageWebView: UIViewRepresentable {
                 didSendInitialOptions = true
                 let canRegenerate = parent?.canRegenerate ?? false
                 sentCanRegenerate = canRegenerate
+                let repair = parent?.repairState ?? ComponentRepairState()
+                sentRepairState = repair
                 webView.callAsyncJavaScript(
                     """
                     let state = {};
                     try { state = stateJSON ? JSON.parse(stateJSON) : {}; } catch (e) {}
-                    window.StudyRenderer.render(text, streaming, { state, canRegenerate, recordsMistakes, grouped, fullscreen, canFullscreen });
+                    window.StudyRenderer.render(text, streaming, {
+                        state, canRegenerate, recordsMistakes, grouped, fullscreen, canFullscreen, canRepair, repairing, repairFailed,
+                    });
                     """,
-                    arguments: [
+                    arguments: Self.repairArguments(repair).merging([
                         "text": next.content,
                         "streaming": next.isStreaming,
                         "stateJSON": parent?.componentStateJSON ?? "",
@@ -256,7 +323,7 @@ struct MessageWebView: UIViewRepresentable {
                         "grouped": parent?.groupedSurface ?? false,
                         "fullscreen": parent?.fullscreenSurface ?? false,
                         "canFullscreen": parent?.onFullscreen != nil,
-                    ],
+                    ]) { _, new in new },
                     in: nil,
                     in: .page,
                     completionHandler: done
@@ -315,6 +382,21 @@ struct MessageWebView: UIViewRepresentable {
             case "regenerate":
                 if parent?.canRegenerate == true {
                     parent?.onRegenerate()
+                }
+            case "componentError":
+                if let report = ComponentErrorReport(body) {
+                    parent?.onComponentError(report)
+                }
+            case "repairComponent":
+                if let report = ComponentErrorReport(body), parent?.repairState.canRepair == true {
+                    parent?.onRepairComponent(report)
+                }
+                // 渲染器点按钮时自己先标成"正在重新生成"；Swift 没有接手时（例如正在生成回答）要把它改回来。
+                // 等 SwiftUI 带着新状态更新过一次再发，免得先闪回按钮。
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    guard let self, let state = self.parent?.repairState else { return }
+                    self.updateRepairState(state, force: true)
                 }
             default:
                 break
