@@ -4,9 +4,10 @@
  *
  *   STUDY_TEST_BASE_URL=https://.../v1 STUDY_TEST_API_KEY=sk-... \
  *     node tools/eval/run.js --model deepseek-flash [--model grok-4.7] [--only graph-] [--simple] [--web]
- *       [--persona socratic] [--personas]
+ *       [--persona socratic] [--personas] [--cards]
  *
  * --persona 给所有题加上这个人格（Prompts/personas.json 里的 id），检查换了人格后组件是否照常使用。
+ * --cards 只跑"整理成知识卡"的题（cards-cases.json），检查见 cards.js（第十版）。
  * --personas 只跑人格的题（cases.json 里带 persona 的题），检查讲解方式：forbid 里的正则不能出现，
  * require 里的正则必须出现，maxChars 是正文（不含代码块）的字数上限。
  * --web 只跑联网搜索的题（cases.json 里 web 为 true 的题），检查该搜时搜了、不该搜时没搜、回答带出处。
@@ -27,7 +28,7 @@ const PROMPTS = path.join(ROOT, 'StudyKit', 'Sources', 'StudyKit', 'Prompts');
 // ---------- 参数 ----------
 
 function parseArgs(argv) {
-  const args = { models: [], only: null, simple: false, web: false, persona: null, personas: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
+  const args = { models: [], only: null, simple: false, web: false, persona: null, personas: false, cards: false, concurrency: 4, cases: path.join(__dirname, 'cases.json') };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--model') args.models.push(argv[++i]);
@@ -36,6 +37,7 @@ function parseArgs(argv) {
     else if (arg === '--web') args.web = true;
     else if (arg === '--persona') args.persona = argv[++i];
     else if (arg === '--personas') args.personas = true;
+    else if (arg === '--cards') args.cards = true;
     else if (arg === '--concurrency') args.concurrency = Number(argv[++i]);
     else if (arg === '--cases') args.cases = argv[++i];
     else throw new Error('不认识的参数：' + arg);
@@ -228,6 +230,7 @@ async function runPool(items, limit, worker) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.cards) return require('./cards.js').run(args);
   const available = args.simple ? [] : core.componentTypes();
   const allCases = JSON.parse(fs.readFileSync(args.cases, 'utf8'));
   // 只跑当前已经实现的组件能覆盖的题。
