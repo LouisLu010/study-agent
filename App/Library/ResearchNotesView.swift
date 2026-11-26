@@ -13,6 +13,15 @@ struct ResearchNotesView: View {
     @State private var searchText = ""
     /// 弹窗挂在哪一行上。同一张卡可能同时出现在"刚整理的"和它的知识点下面，所以带上是哪一节。
     @State private var popup: CardAnchor?
+    @State private var mode = Mode.cards
+    @State private var mapSubject: Subject?
+    @State private var mapFocus: UUID?
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case cards = "知识卡"
+        case map = "关系图"
+        var id: String { rawValue }
+    }
 
     struct CardAnchor: Equatable {
         let cardID: UUID
@@ -70,8 +79,34 @@ struct ResearchNotesView: View {
     }
 
     var body: some View {
-        cardList
-            .navigationTitle("资料")
+        Group {
+            switch mode {
+            case .cards: cardList
+            case .map: ConceptMapView(subject: $mapSubject, focusRequest: $mapFocus).toastBar(.notes)
+            }
+        }
+        .navigationTitle("资料")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("显示", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+        }
+        .onAppear(perform: takeMapFocus)
+        .onChange(of: navigation.mapFocusCardID) { takeMapFocus() }
+        .onChange(of: subject) { if let subject { mapSubject = subject } }
+    }
+
+    /// 弹窗里点了"在关系图里看"：切到关系图，聚焦那张卡。
+    private func takeMapFocus() {
+        guard let id = navigation.mapFocusCardID else { return }
+        navigation.mapFocusCardID = nil
+        mapFocus = id
+        mode = .map
     }
 
     private var cardList: some View {

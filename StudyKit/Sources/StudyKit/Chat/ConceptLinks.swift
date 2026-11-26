@@ -53,10 +53,10 @@ public struct MapPoint: Sendable, Equatable, Codable {
         self.y = y
     }
 
-    static func + (a: MapPoint, b: MapPoint) -> MapPoint { MapPoint(x: a.x + b.x, y: a.y + b.y) }
-    static func - (a: MapPoint, b: MapPoint) -> MapPoint { MapPoint(x: a.x - b.x, y: a.y - b.y) }
-    static func * (a: MapPoint, k: Double) -> MapPoint { MapPoint(x: a.x * k, y: a.y * k) }
-    var length: Double { (x * x + y * y).squareRoot() }
+    public static func + (a: MapPoint, b: MapPoint) -> MapPoint { MapPoint(x: a.x + b.x, y: a.y + b.y) }
+    public static func - (a: MapPoint, b: MapPoint) -> MapPoint { MapPoint(x: a.x - b.x, y: a.y - b.y) }
+    public static func * (a: MapPoint, k: Double) -> MapPoint { MapPoint(x: a.x * k, y: a.y * k) }
+    public var length: Double { (x * x + y * y).squareRoot() }
 }
 
 /// 一条关联的两头和种类，不带存储细节。校验、排布、找邻居都用它。
