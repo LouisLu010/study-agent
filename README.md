@@ -19,7 +19,7 @@
 - 下载：[Releases](https://github.com/LouisLu010/study-agent/releases)，当前是 [1.0](https://github.com/LouisLu010/study-agent/releases/tag/v1.0.0)（第一次用请先看[发布说明](./docs/releases/1.0.0.md)）
 - 术语：[GLOSSARY.md](./GLOSSARY.md)
 - 架构决策：[docs/adr/](./docs/adr/)
-- 宣传片：在 [1.0 的发布页](https://github.com/LouisLu010/study-agent/releases/tag/v1.0.0)下载 `gewu-promo-1.0.mp4`，制作过程见 [docs/promo/](./docs/promo/README.md)
+- 宣传片：在 [1.0 的发布页](https://github.com/LouisLu010/study-agent/releases/tag/v1.0.0)下载 `gewu-promo-1.0.0.mp4`，制作过程见 [docs/promo/](./docs/promo/README.md)
 
 ## 1.0 说明
 
