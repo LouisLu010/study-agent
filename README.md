@@ -452,6 +452,15 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 第十版的阶段：A1 数据模型和 ADR → A2 整理的提示词、解析和 `tools/eval --cards` → A3 知识卡列表和弹窗（编辑、手动加关联、删除撤销、背景模糊）→ A4 旧资料拆成知识卡 → B1 关系图的排布算法 → B2 关系图页面（拖动、缩放、拖节点、按知识点筛选、只看周围两步）→ B3 从关系图打开弹窗、关联气泡、弹窗里换卡时图跟着移。全部放在一个 PR 里，每个阶段一个提交，版本号改成 1.1.0，先发 Beta。
 
+**实现**：A1 到 B3 都做完了，版本号是 1.1.0。A3 和 A4、B2 和 B3 改的是同一个文件，各合成了一个提交。
+- 数据：`ConceptCard`、`ConceptLink`（StudyKit 的 `LibraryModels.swift`），`ResearchNote` 多了 `isCardBased`。新字段都有默认值，轻量迁移即可。关联的规则（去重、上限、用户删过的、找周围几步）在 `LinkRules`，种类在 `LinkKind`。
+- 整理：提示词在 `Prompts/cards.md`，`ConceptCardWriter` 拼请求、选候选旧卡、解析 JSON、给每张卡单独处理出处角标；解析失败时 `NoteDraftSheet` 自动发一次 `repairRequest`。保存在 `App/Library/ConceptCardStore.swift`。整理时还不知道科目，所以候选旧卡按最近更新发所有科目的（最多 80 张），保存时只留同一科目的关联；拆旧资料时科目已知，只发同一科目的。
+- 弹窗里关联按"前置、后续、对比、应用、依据"分组：前置和应用有方向，从另一头看分别叫"后续"和"依据"，比只写三种更清楚是谁依赖谁。手动加关联时也按这五种说法选。
+- 弹窗是 `ConceptCardPopup`，用 `.popover` 加 `.presentationCompactAdaptation(.sheet)`：iPad 上是浮窗，iPhone 上自动变成可以拖到全屏的面板。背景模糊是 `popupBackdrop`。iPhone 上在关系图里点节点时，先把节点移到屏幕上半部分，免得被面板挡住。
+- 关系图是 `ConceptMapView`。排布 `ConceptMapLayout` 先按 ID 排序再算，浮点数的累加顺序固定，结果和节点的顺序无关；上次排过的节点最多挪 0.3 倍间距。弹窗里换卡时，图平移到让新卡落在弹窗原来指着的位置，所以弹窗不用重新弹。
+- `tools/eval --cards`（`tools/eval/cards.js`、`cards-cases.json`，8 道题）用 deepseek-flash 跑 8/8 通过：每道题 3 到 6 张卡，关联 3 到 8 条，都给出了预期的关联（例如新的"导数符号判极值"连到旧卡"用导数判断单调性"，原电池和电解池之间是对比）；"等差数列前 n 项和"那道题没有重写已有的"等差数列的通项公式"，而是直接连过去。每次约 1 千输入 token、1 到 4 千输出 token。
+- 真机上还要检查：iPad 上浮窗贴着节点的位置和箭头；iPhone 上面板拖到全屏后编辑；关系图里拖节点和拖画布会不会抢手势；几十张卡时关系图滑动是否流畅；从关系图里删卡后撤销。
+
 `tools/eval --cards` 检查：JSON 能解析；卡片 1 到 10 张；标题不超过 12 个字，核心内容不超过规定长度；关联不指向不存在的卡、种类只有三种。另有几道题预先给一张旧卡（例如"导数的定义"），看新整理的"用导数求极值"有没有连一条"前置"过去。
 
 ### 里程碑

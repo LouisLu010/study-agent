@@ -426,6 +426,14 @@ struct ConceptMapView: View {
 
     private func open(_ id: UUID) {
         bubble = nil
+        // iPhone 上弹窗是底部的半屏面板：先把这个节点移到上半部分，免得被面板挡住。
+        if sizeClass == .compact, let p = positions[id] {
+            let current = screenPoint(p)
+            let goal = CGPoint(x: viewSize.width / 2, y: viewSize.height * 0.22)
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                offset = CGSize(width: offset.width + goal.x - current.x, height: offset.height + goal.y - current.y)
+            }
+        }
         anchor = nodeRect(id)
         selectedID = id
         popupRoot = id
