@@ -2,255 +2,166 @@ import StudyKit
 import SwiftData
 import SwiftUI
 
-/// 要整理成资料的内容，用来驱动 `.sheet(item:)`。
-struct NoteDraftRequest: Identifiable {
-    let id = UUID()
-    let items: [ResearchNoteWriter.Item]
-    let fallbackTitle: String
-    let model: ChatModel?
-    let conversationID: UUID?
-
-    /// 整个会话。
-    static func conversation(_ conversation: Conversation) -> NoteDraftRequest {
-        NoteDraftRequest(
-            items: conversation.sortedMessages.map(item(for:)),
-            fallbackTitle: conversation.title,
-            model: conversation.model,
-            conversationID: conversation.id
-        )
-    }
-
-    /// 一条回答，连同它前面那条提问。
-    static func reply(_ message: Message) -> NoteDraftRequest {
-        let conversation = message.conversation
-        let question = conversation?.sortedMessages.last { $0.role == .user && $0.index < message.index }
-        return NoteDraftRequest(
-            items: [question, message].compactMap { $0 }.map(item(for:)),
-            fallbackTitle: conversation?.title ?? "资料",
-            model: conversation?.model,
-            conversationID: conversation?.id
-        )
-    }
-
-    private static func item(for message: Message) -> ResearchNoteWriter.Item {
-        var content = message.content
-        if message.role == .user, !message.imageData.isEmpty {
-            content = "（附了 \(message.imageData.count) 张图片）\n" + content
-        }
-        return ResearchNoteWriter.Item(
-            role: message.role,
-            content: content,
-            sources: message.webSearch?.displayedSources ?? []
-        )
-    }
-}
-
-/// 让模型整理资料，预览后保存。
-struct NoteDraftSheet: View {
-    let request: NoteDraftRequest
-
-    @Environment(\.modelContext) private var context
-    @Environment(\.dismiss) private var dismiss
-    @State private var raw = ""
-    @State private var isGenerating = false
-    @State private var errorText: String?
-    @State private var task: Task<Void, Never>?
-    @State private var height: CGFloat = 60
-    @State private var previewID = UUID()
-    private let prepared: (text: String, sources: [WebSource])
-
-    init(request: NoteDraftRequest) {
-        self.request = request
-        self.prepared = ResearchNoteWriter.prepare(request.items)
-    }
-
-    private var draft: ResearchNoteWriter.Draft {
-        ResearchNoteWriter.parse(raw, sources: prepared.sources, fallbackTitle: request.fallbackTitle)
-    }
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let errorText {
-                        Label(errorText, systemImage: "exclamationmark.triangle")
-                            .foregroundStyle(.red)
-                    }
-                    if raw.isEmpty && isGenerating {
-                        HStack(spacing: Theme.Spacing.s) {
-                            ActivityOrb(activity: .working)
-                            Text("正在整理…").foregroundStyle(.secondary)
-                        }
-                    }
-                    if !raw.isEmpty {
-                        let draft = draft
-                        Text(draft.title).font(.title3.bold())
-                        Text([draft.subject?.rawValue ?? "", draft.topic].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        MessageWebView(
-                            messageID: previewID,
-                            content: draft.content,
-                            isStreaming: isGenerating,
-                            height: $height
-                        )
-                        .frame(height: height)
-                        if !isGenerating && !draft.sources.isEmpty {
-                            SourceListView(sources: draft.sources, numbered: true)
-                        }
-                    }
-                }
-                .padding()
-                .frame(maxWidth: 820)
-                .frame(maxWidth: .infinity)
-            }
-            .navigationTitle("整理成资料")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        task?.cancel()
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存", action: save)
-                        .disabled(isGenerating || draft.content.isEmpty)
-                }
-                ToolbarItem(placement: .bottomBar) {
-                    Button("重新整理", systemImage: "arrow.clockwise", action: start)
-                        .disabled(isGenerating)
-                }
-            }
-        }
-        .task { start() }
-        .onDisappear { task?.cancel() }
-    }
-
-    private func start() {
-        task?.cancel()
-        raw = ""
-        errorText = nil
-        previewID = UUID()
-        guard let model = request.model else {
-            errorText = GenerationError.noModel.localizedDescription
-            return
-        }
-        let service: any ChatService
-        do {
-            service = try ModelLookup.service(for: model)
-        } catch {
-            errorText = ChatErrorDescription.describe(error)
-            return
-        }
-        let chatRequest = ChatRequest(
-            model: model.modelID,
-            systemPrompt: SystemPrompt.compose(
-                customInstructions: "",
-                conversationInstructions: ResearchNoteWriter.instructions,
-                simpleMode: UserDefaults.standard.bool(forKey: AppSettingsKey.simpleMode)
-            ),
-            messages: [ChatMessage(role: .user, text: prepared.text)],
-            reasoningEffort: model.reasoningEffort
-        )
-        isGenerating = true
-        task = Task {
-            do {
-                for try await event in service.streamChat(chatRequest) {
-                    if case let .text(delta) = event { raw += delta }
-                }
-            } catch {
-                if !Task.isCancelled { errorText = ChatErrorDescription.describe(error) }
-            }
-            isGenerating = false
-        }
-    }
-
-    private func save() {
-        let draft = draft
-        let note = ResearchNote(title: draft.title, content: draft.content)
-        note.subject = draft.subject ?? .other
-        note.topic = draft.topic.isEmpty ? "未分类" : draft.topic
-        note.sources = draft.sources
-        note.modelName = request.model?.name ?? ""
-        note.sourceConversationID = request.conversationID
-        context.insert(note)
-        try? context.save()
-        dismiss()
-    }
-}
-
-/// 资料列表：按科目分节，节里按知识点排。
+/// 资料页（第十版）：知识卡按科目、知识点分组；以前的整篇资料放在最后。点知识卡弹出弹窗，不切换页面。
 struct ResearchNotesView: View {
     @Environment(\.modelContext) private var context
     @Environment(ToastCenter.self) private var toasts
+    @Environment(AppNavigation.self) private var navigation
     @Query(sort: \ResearchNote.updatedAt, order: .reverse) private var notes: [ResearchNote]
+    @Query(sort: \ConceptCard.updatedAt, order: .reverse) private var cards: [ConceptCard]
+    @Query private var links: [ConceptLink]
     @State private var subject: Subject?
     @State private var searchText = ""
+    /// 弹窗挂在哪一行上。同一张卡可能同时出现在"刚整理的"和它的知识点下面，所以带上是哪一节。
+    @State private var popup: CardAnchor?
+    @State private var mode = Mode.cards
+    @State private var mapSubject: Subject?
+    @State private var mapFocus: UUID?
 
-    private var filtered: [ResearchNote] {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return notes.filter { note in
-            if toasts.isHidden(note) { return false }
-            if let subject, note.subject != subject { return false }
+    enum Mode: String, CaseIterable, Identifiable {
+        case cards = "知识卡"
+        case map = "关系图"
+        var id: String { rawValue }
+    }
+
+    struct CardAnchor: Equatable {
+        let cardID: UUID
+        let section: String
+    }
+
+    private var query: String { searchText.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var visibleCards: [ConceptCard] {
+        cards.filter { card in
+            if toasts.isHidden(card) { return false }
+            if let subject, (card.subject ?? .other) != subject { return false }
             guard !query.isEmpty else { return true }
-            return note.title.localizedStandardContains(query)
-                || note.topic.localizedStandardContains(query)
+            return card.title.localizedStandardContains(query) || card.topic.localizedStandardContains(query)
+                || card.content.localizedStandardContains(query) || card.example.localizedStandardContains(query)
+        }
+    }
+
+    /// 以前的整篇资料（还没拆成知识卡的）。
+    private var oldNotes: [ResearchNote] {
+        notes.filter { note in
+            guard !note.isCardBased, !toasts.isHidden(note) else { return false }
+            if let subject, (note.subject ?? .other) != subject { return false }
+            guard !query.isEmpty else { return true }
+            return note.title.localizedStandardContains(query) || note.topic.localizedStandardContains(query)
                 || note.content.localizedStandardContains(query)
         }
     }
 
-    /// 科目 → 知识点 → 资料。
-    private var groups: [(subject: Subject, topics: [(topic: String, notes: [ResearchNote])])] {
-        Subject.allCases.compactMap { subject in
-            let inSubject = filtered.filter { ($0.subject ?? .other) == subject }
+    private var recentCards: [ConceptCard] {
+        guard let id = navigation.recentNoteID, query.isEmpty else { return [] }
+        return visibleCards.filter { $0.noteID == id }.sorted { $0.createdAt < $1.createdAt }
+    }
+
+    /// 科目 → 知识点 → 知识卡。
+    private var groups: [(subject: Subject, topics: [(topic: String, cards: [ConceptCard])])] {
+        let visible = visibleCards
+        return Subject.allCases.compactMap { subject in
+            let inSubject = visible.filter { ($0.subject ?? .other) == subject }
             guard !inSubject.isEmpty else { return nil }
             let topics = Dictionary(grouping: inSubject) { $0.topic.isEmpty ? "未分类" : $0.topic }
-                .map { (topic: $0.key, notes: $0.value) }
+                .map { (topic: $0.key, cards: $0.value.sorted { $0.createdAt < $1.createdAt }) }
                 .sorted { $0.topic.localizedStandardCompare($1.topic) == .orderedAscending }
             return (subject, topics)
         }
     }
 
     private var subjects: [Subject] {
-        let present = Set(notes.map { $0.subject ?? .other })
+        let present = Set(cards.map { $0.subject ?? .other } + notes.filter { !$0.isCardBased }.map { $0.subject ?? .other })
         return Subject.allCases.filter(present.contains)
     }
 
+    private var isEmpty: Bool {
+        cards.allSatisfy { toasts.isHidden($0) } && notes.filter { !$0.isCardBased }.allSatisfy { toasts.isHidden($0) }
+    }
+
     var body: some View {
-        List {
-            if subjects.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        SubjectChip(title: "全部科目", isSelected: subject == nil) { subject = nil }
-                        ForEach(subjects) { item in
-                            SubjectChip(title: item.rawValue, isSelected: subject == item) { subject = item }
+        Group {
+            switch mode {
+            case .cards: cardList
+            case .map: ConceptMapView(subject: $mapSubject, focusRequest: $mapFocus).toastBar(.notes)
+            }
+        }
+        .navigationTitle("资料")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("显示", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+        }
+        .onAppear(perform: takeMapFocus)
+        .onChange(of: navigation.mapFocusCardID) { takeMapFocus() }
+        .onChange(of: subject) { if let subject { mapSubject = subject } }
+    }
+
+    /// 弹窗里点了"在关系图里看"：切到关系图，聚焦那张卡。
+    private func takeMapFocus() {
+        guard let id = navigation.mapFocusCardID else { return }
+        navigation.mapFocusCardID = nil
+        mapFocus = id
+        mode = .map
+    }
+
+    /// 知识卡排成卡片网格（第十版 Beta 2）：每张卡片显示标题和内容预览，点开弹出弹窗。
+    private var cardList: some View {
+        let colors = ConceptCardStore.topicColors(cards.map(\.topic))
+        let linkCounts = linkCountByCard
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: Theme.Spacing.l, pinnedViews: []) {
+                if subjects.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            SubjectChip(title: "全部科目", isSelected: subject == nil) { subject = nil }
+                            ForEach(subjects) { item in
+                                SubjectChip(title: item.rawValue, isSelected: subject == item) { subject = item }
+                            }
                         }
                     }
                 }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: Theme.Spacing.xs, leading: Theme.Spacing.l, bottom: Theme.Spacing.xs, trailing: Theme.Spacing.l))
-            }
-            ForEach(groups, id: \.subject) { group in
-                Section(group.subject.rawValue) {
+                if !recentCards.isEmpty {
+                    sectionHeader("刚整理的 \(recentCards.count) 张")
+                    grid(recentCards, section: "recent", colors: colors, linkCounts: linkCounts)
+                }
+                ForEach(groups, id: \.subject) { group in
+                    sectionHeader(group.subject.rawValue)
                     ForEach(group.topics, id: \.topic) { topic in
-                        Text(topic.topic)
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                            .listRowSeparator(.hidden)
-                        ForEach(topic.notes) { note in
+                        HStack(spacing: Theme.Spacing.s) {
+                            Circle().fill(colors[topic.topic] ?? .accentColor).frame(width: 8, height: 8)
+                            Text(topic.topic).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("\(topic.cards.count)").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        grid(topic.cards, section: group.subject.rawValue, colors: colors, linkCounts: linkCounts)
+                    }
+                }
+                if !oldNotes.isEmpty {
+                    sectionHeader("以前的资料")
+                    VStack(spacing: 0) {
+                        ForEach(oldNotes) { note in
                             NavigationLink {
                                 ResearchNoteDetailView(note: note)
                             } label: {
-                                // 列表已经按科目和知识点分组，行里不再重复科目标签。
                                 LibraryRow(
                                     title: PlainTextExporter.previewText(from: note.title),
+                                    subject: note.subject?.rawValue,
                                     summary: String(PlainTextExporter.previewText(from: note.content).prefix(120)),
-                                    meta: note.updatedAt.formatted(.dateTime.month().day()) + (note.sources.isEmpty ? "" : " · \(note.sources.count) 个出处")
-                                )
+                                    meta: note.updatedAt.formatted(.dateTime.month().day())
+                                ) {
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                }
+                                .padding(.horizontal, Theme.Spacing.l)
+                                .padding(.vertical, Theme.Spacing.s)
+                                .contentShape(Rectangle())
                             }
-                            .swipeActions {
+                            .buttonStyle(.plain)
+                            .contextMenu {
                                 Button("删除", systemImage: "trash", role: .destructive) {
                                     toasts.delete([note], scope: .notes) { [context] in
                                         context.delete(note)
@@ -258,25 +169,82 @@ struct ResearchNotesView: View {
                                     }
                                 }
                             }
+                            if note.id != oldNotes.last?.id { Divider().padding(.leading, Theme.Spacing.l) }
                         }
                     }
+                    .groupedCardBackground()
                 }
             }
+            .padding(Theme.Spacing.l)
+            .frame(maxWidth: 1100)
+            .frame(maxWidth: .infinity)
         }
-        .listStyle(.insetGrouped)
+        .groupedPageBackground()
+        .popupBackdrop(popup != nil)
         .toastBar(.notes)
         .overlay {
-            if notes.allSatisfy({ toasts.isHidden($0) }) {
+            if isEmpty {
                 OrbEmptyState(
                     title: "还没有资料",
                     message: "在会话标题菜单或回答下方点\"整理成资料\"。"
                 )
-            } else if filtered.isEmpty {
+            } else if visibleCards.isEmpty && oldNotes.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
-        .searchable(text: $searchText, prompt: "搜索资料")
-        .navigationTitle("资料")
+        .searchable(text: $searchText, prompt: "搜索知识卡")
+    }
+
+    /// 每张卡有几条关联（不含用户删掉的）。
+    private var linkCountByCard: [UUID: Int] {
+        var count: [UUID: Int] = [:]
+        for link in links where !link.dismissed {
+            if let id = link.fromID { count[id, default: 0] += 1 }
+            if let id = link.toID { count[id, default: 0] += 1 }
+        }
+        return count
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.bold())
+            .padding(.top, Theme.Spacing.s)
+    }
+
+    private func grid(_ items: [ConceptCard], section: String, colors: [String: Color], linkCounts: [UUID: Int]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 280), spacing: Theme.Spacing.m)], spacing: Theme.Spacing.m) {
+            ForEach(items) { card in
+                cardTile(card, section: section, color: colors[card.topic] ?? .accentColor, links: linkCounts[card.id] ?? 0)
+            }
+        }
+    }
+
+    private func cardTile(_ card: ConceptCard, section: String, color: Color, links: Int) -> some View {
+        let anchor = CardAnchor(cardID: card.id, section: section)
+        return Button {
+            popup = anchor
+        } label: {
+            ConceptCardTile(card: card, color: color, links: links)
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: Binding(get: { popup == anchor }, set: { if !$0, popup == anchor { popup = nil } })) {
+            ConceptCardPopup(startID: card.id, onShowInMap: showInMap)
+        }
+        .contextMenu {
+            Button("删除", systemImage: "trash", role: .destructive) {
+                toasts.delete([card], scope: .notes, message: "已删除知识卡") { [context] in
+                    ConceptCardStore.delete(card, context: context)
+                }
+            }
+        } preview: {
+            ConceptCardTile(card: card, color: color, links: links, expanded: true)
+                .frame(width: 300)
+        }
+    }
+
+    private func showInMap(_ id: UUID) {
+        popup = nil
+        navigation.mapFocusCardID = id
     }
 }
 
@@ -294,10 +262,16 @@ struct ResearchNoteDetailView: View {
     @State private var previewID = UUID()
     @State private var shareItem: ShareItem?
     @State private var errorMessage: String?
+    @State private var splitRequest: NoteDraftRequest?
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                // 第十版：以前的整篇资料可以拆成知识卡，点了才调一次模型。
+                if !note.isCardBased && !isEditing {
+                    Button("拆成知识卡", systemImage: "rectangle.split.2x2", action: split)
+                        .buttonStyle(.borderedProminent)
+                }
                 HStack {
                     Picker("科目", selection: Binding(get: { note.subject ?? .other }, set: { note.subject = $0 })) {
                         ForEach(Subject.allCases) { Text($0.rawValue).tag($0) }
@@ -367,6 +341,9 @@ struct ResearchNoteDetailView: View {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("编辑", systemImage: "pencil", action: startEditing)
+                        if !note.isCardBased {
+                            Button("拆成知识卡", systemImage: "rectangle.split.2x2", action: split)
+                        }
                         Button("复制", systemImage: "doc.on.doc") {
                             UIPasteboard.general.string = plainText
                         }
@@ -390,6 +367,11 @@ struct ResearchNoteDetailView: View {
             }
         }
         .onChange(of: showsPreview) { previewID = UUID() }
+        .sheet(item: $splitRequest) { request in
+            NoteDraftSheet(request: request)
+        }
+        // 拆好以后这份资料由知识卡组成，回到资料页看那些卡。
+        .onChange(of: note.isCardBased) { if note.isCardBased { dismiss() } }
         .onDisappear { try? context.save() }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
@@ -417,6 +399,14 @@ struct ResearchNoteDetailView: View {
 
     private var plainText: String {
         PlainTextExporter.plainText(from: note.content) + sourcesText
+    }
+
+    private func split() {
+        guard let model = ModelLookup.defaultModel(in: context) else {
+            errorMessage = GenerationError.noModel.localizedDescription
+            return
+        }
+        splitRequest = .note(note, model: model)
     }
 
     private func startEditing() {
@@ -461,5 +451,66 @@ enum ExportFile {
         let url = directory.appending(path: fileName)
         try data.write(to: url, options: .atomic)
         return url
+    }
+}
+
+/// 资料页上的一张知识卡（第十版 Beta 2）：顶上一条知识点颜色，标题，几行内容预览，底部是例子和关联数。
+/// `expanded` 是长按时的大预览：内容多显示几行，带上例子。
+struct ConceptCardTile: View {
+    let card: ConceptCard
+    let color: Color
+    let links: Int
+    var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Capsule()
+                .fill(color)
+                .frame(width: 28, height: 4)
+            Text(card.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(PlainTextExporter.previewText(from: card.content))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(expanded ? 10 : 4)
+                .multilineTextAlignment(.leading)
+            if expanded && !card.example.isEmpty {
+                Text("例　" + PlainTextExporter.previewText(from: card.example))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(Theme.Spacing.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: Theme.Spacing.s) {
+                if !card.example.isEmpty {
+                    Label("有例子", systemImage: "lightbulb")
+                }
+                if links > 0 {
+                    Label("\(links)", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                Spacer(minLength: 0)
+                if !card.sources.isEmpty {
+                    Label("\(card.sources.count)", systemImage: "link")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .labelStyle(.titleAndIcon)
+        }
+        .padding(Theme.Spacing.m)
+        .frame(maxWidth: .infinity, minHeight: expanded ? nil : 170, alignment: .topLeading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(color.opacity(0.25), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }

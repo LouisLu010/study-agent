@@ -171,5 +171,6 @@ public enum StudyAgentSchema {
         Provider.self, ChatModel.self, Conversation.self, Message.self, Attachment.self,
         Mistake.self, MistakeImage.self, Bookmark.self, StudyEvent.self,
         ResearchNote.self, Compilation.self, ExamQuestion.self, StoredImage.self,
+        ConceptCard.self, ConceptLink.self,
     ]
 }

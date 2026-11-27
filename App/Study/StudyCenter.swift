@@ -27,6 +27,10 @@ final class AppNavigation {
     var onboardingAfterSettings = false
     /// 从快捷菜单"拍题"新建的会话：打开后直接弹出相机，用一次就清掉。
     var cameraConversationID: UUID?
+    /// 刚整理好的资料（第十版）：资料页最上面先列出这次整理出的知识卡。
+    var recentNoteID: UUID?
+    /// 资料页要在关系图里看的那张知识卡（弹窗里点了"在关系图里看"）。
+    var mapFocusCardID: UUID?
 
     func open(conversationID: UUID?, in context: ModelContext) -> Bool {
         guard let id = conversationID else { return false }

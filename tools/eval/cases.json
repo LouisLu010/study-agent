@@ -618,5 +618,39 @@
       "评分[:：]",
       "\\d+\\s*/\\s*10\\s*分"
     ]
+  },
+  {
+    "id": "graph-conic-intersection",
+    "prompt": "画出椭圆 x²/25 + y²/9 = 1 和双曲线 x²/4 − y²/5 = 1，并标出它们的交点坐标。",
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "steps"
+    ],
+    "needsEquations": true
+  },
+  {
+    "id": "graph-hyperbola-asymptote",
+    "prompt": "画出双曲线 x²/16 − y²/9 = 1 和它的两条渐近线。",
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "steps",
+      "quiz"
+    ],
+    "needsEquations": true
+  },
+  {
+    "id": "graph-circle-line",
+    "prompt": "直线 y = x + 1 和圆 x² + y² = 4 有几个交点？画图说明。",
+    "expect": [
+      "graph"
+    ],
+    "allow": [
+      "steps"
+    ],
+    "needsEquations": true
   }
 ]
