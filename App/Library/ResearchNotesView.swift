@@ -9,6 +9,7 @@ struct ResearchNotesView: View {
     @Environment(AppNavigation.self) private var navigation
     @Query(sort: \ResearchNote.updatedAt, order: .reverse) private var notes: [ResearchNote]
     @Query(sort: \ConceptCard.updatedAt, order: .reverse) private var cards: [ConceptCard]
+    @Query private var links: [ConceptLink]
     @State private var subject: Subject?
     @State private var searchText = ""
     /// 弹窗挂在哪一行上。同一张卡可能同时出现在"刚整理的"和它的知识点下面，所以带上是哪一节。
@@ -109,67 +110,76 @@ struct ResearchNotesView: View {
         mode = .map
     }
 
+    /// 知识卡排成卡片网格（第十版 Beta 2）：每张卡片显示标题和内容预览，点开弹出弹窗。
     private var cardList: some View {
-        List {
-            if subjects.count > 1 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        SubjectChip(title: "全部科目", isSelected: subject == nil) { subject = nil }
-                        ForEach(subjects) { item in
-                            SubjectChip(title: item.rawValue, isSelected: subject == item) { subject = item }
-                        }
-                    }
-                }
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: Theme.Spacing.xs, leading: Theme.Spacing.l, bottom: Theme.Spacing.xs, trailing: Theme.Spacing.l))
-            }
-            if !recentCards.isEmpty {
-                Section("刚整理的 \(recentCards.count) 张") {
-                    ForEach(recentCards) { card in
-                        cardRow(card, section: "recent")
-                    }
-                }
-            }
-            ForEach(groups, id: \.subject) { group in
-                Section(group.subject.rawValue) {
-                    ForEach(group.topics, id: \.topic) { topic in
-                        Text(topic.topic)
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                            .listRowSeparator(.hidden)
-                        ForEach(topic.cards) { card in
-                            cardRow(card, section: group.subject.rawValue)
-                        }
-                    }
-                }
-            }
-            if !oldNotes.isEmpty {
-                Section("以前的资料") {
-                    ForEach(oldNotes) { note in
-                        NavigationLink {
-                            ResearchNoteDetailView(note: note)
-                        } label: {
-                            LibraryRow(
-                                title: PlainTextExporter.previewText(from: note.title),
-                                subject: note.subject?.rawValue,
-                                summary: String(PlainTextExporter.previewText(from: note.content).prefix(120)),
-                                meta: note.updatedAt.formatted(.dateTime.month().day())
-                            )
-                        }
-                        .swipeActions {
-                            Button("删除", systemImage: "trash", role: .destructive) {
-                                toasts.delete([note], scope: .notes) { [context] in
-                                    context.delete(note)
-                                    try? context.save()
-                                }
+        let colors = ConceptCardStore.topicColors(cards.map(\.topic))
+        let linkCounts = linkCountByCard
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: Theme.Spacing.l, pinnedViews: []) {
+                if subjects.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            SubjectChip(title: "全部科目", isSelected: subject == nil) { subject = nil }
+                            ForEach(subjects) { item in
+                                SubjectChip(title: item.rawValue, isSelected: subject == item) { subject = item }
                             }
                         }
                     }
                 }
+                if !recentCards.isEmpty {
+                    sectionHeader("刚整理的 \(recentCards.count) 张")
+                    grid(recentCards, section: "recent", colors: colors, linkCounts: linkCounts)
+                }
+                ForEach(groups, id: \.subject) { group in
+                    sectionHeader(group.subject.rawValue)
+                    ForEach(group.topics, id: \.topic) { topic in
+                        HStack(spacing: Theme.Spacing.s) {
+                            Circle().fill(colors[topic.topic] ?? .accentColor).frame(width: 8, height: 8)
+                            Text(topic.topic).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("\(topic.cards.count)").font(.caption).foregroundStyle(.tertiary)
+                        }
+                        grid(topic.cards, section: group.subject.rawValue, colors: colors, linkCounts: linkCounts)
+                    }
+                }
+                if !oldNotes.isEmpty {
+                    sectionHeader("以前的资料")
+                    VStack(spacing: 0) {
+                        ForEach(oldNotes) { note in
+                            NavigationLink {
+                                ResearchNoteDetailView(note: note)
+                            } label: {
+                                LibraryRow(
+                                    title: PlainTextExporter.previewText(from: note.title),
+                                    subject: note.subject?.rawValue,
+                                    summary: String(PlainTextExporter.previewText(from: note.content).prefix(120)),
+                                    meta: note.updatedAt.formatted(.dateTime.month().day())
+                                ) {
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                }
+                                .padding(.horizontal, Theme.Spacing.l)
+                                .padding(.vertical, Theme.Spacing.s)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu {
+                                Button("删除", systemImage: "trash", role: .destructive) {
+                                    toasts.delete([note], scope: .notes) { [context] in
+                                        context.delete(note)
+                                        try? context.save()
+                                    }
+                                }
+                            }
+                            if note.id != oldNotes.last?.id { Divider().padding(.leading, Theme.Spacing.l) }
+                        }
+                    }
+                    .groupedCardBackground()
+                }
             }
+            .padding(Theme.Spacing.l)
+            .frame(maxWidth: 1100)
+            .frame(maxWidth: .infinity)
         }
-        .listStyle(.insetGrouped)
+        .groupedPageBackground()
         .popupBackdrop(popup != nil)
         .toastBar(.notes)
         .overlay {
@@ -185,28 +195,50 @@ struct ResearchNotesView: View {
         .searchable(text: $searchText, prompt: "搜索知识卡")
     }
 
-    private func cardRow(_ card: ConceptCard, section: String) -> some View {
+    /// 每张卡有几条关联（不含用户删掉的）。
+    private var linkCountByCard: [UUID: Int] {
+        var count: [UUID: Int] = [:]
+        for link in links where !link.dismissed {
+            if let id = link.fromID { count[id, default: 0] += 1 }
+            if let id = link.toID { count[id, default: 0] += 1 }
+        }
+        return count
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.bold())
+            .padding(.top, Theme.Spacing.s)
+    }
+
+    private func grid(_ items: [ConceptCard], section: String, colors: [String: Color], linkCounts: [UUID: Int]) -> some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 160, maximum: 280), spacing: Theme.Spacing.m)], spacing: Theme.Spacing.m) {
+            ForEach(items) { card in
+                cardTile(card, section: section, color: colors[card.topic] ?? .accentColor, links: linkCounts[card.id] ?? 0)
+            }
+        }
+    }
+
+    private func cardTile(_ card: ConceptCard, section: String, color: Color, links: Int) -> some View {
         let anchor = CardAnchor(cardID: card.id, section: section)
         return Button {
             popup = anchor
         } label: {
-            LibraryRow(
-                title: card.title,
-                summary: PlainTextExporter.previewText(from: card.content),
-                meta: card.updatedAt.formatted(.dateTime.month().day())
-            )
-            .contentShape(Rectangle())
+            ConceptCardTile(card: card, color: color, links: links)
         }
         .buttonStyle(.plain)
         .popover(isPresented: Binding(get: { popup == anchor }, set: { if !$0, popup == anchor { popup = nil } })) {
             ConceptCardPopup(startID: card.id, onShowInMap: showInMap)
         }
-        .swipeActions {
+        .contextMenu {
             Button("删除", systemImage: "trash", role: .destructive) {
                 toasts.delete([card], scope: .notes, message: "已删除知识卡") { [context] in
                     ConceptCardStore.delete(card, context: context)
                 }
             }
+        } preview: {
+            ConceptCardTile(card: card, color: color, links: links, expanded: true)
+                .frame(width: 300)
         }
     }
 
@@ -419,5 +451,66 @@ enum ExportFile {
         let url = directory.appending(path: fileName)
         try data.write(to: url, options: .atomic)
         return url
+    }
+}
+
+/// 资料页上的一张知识卡（第十版 Beta 2）：顶上一条知识点颜色，标题，几行内容预览，底部是例子和关联数。
+/// `expanded` 是长按时的大预览：内容多显示几行，带上例子。
+struct ConceptCardTile: View {
+    let card: ConceptCard
+    let color: Color
+    let links: Int
+    var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.s) {
+            Capsule()
+                .fill(color)
+                .frame(width: 28, height: 4)
+            Text(card.title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(PlainTextExporter.previewText(from: card.content))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(expanded ? 10 : 4)
+                .multilineTextAlignment(.leading)
+            if expanded && !card.example.isEmpty {
+                Text("例　" + PlainTextExporter.previewText(from: card.example))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(Theme.Spacing.s)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: Theme.Spacing.s) {
+                if !card.example.isEmpty {
+                    Label("有例子", systemImage: "lightbulb")
+                }
+                if links > 0 {
+                    Label("\(links)", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                Spacer(minLength: 0)
+                if !card.sources.isEmpty {
+                    Label("\(card.sources.count)", systemImage: "link")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .labelStyle(.titleAndIcon)
+        }
+        .padding(Theme.Spacing.m)
+        .frame(maxWidth: .infinity, minHeight: expanded ? nil : 170, alignment: .topLeading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(color.opacity(0.25), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }

@@ -249,12 +249,20 @@ struct ConceptMapView: View {
     }
 
     /// 连线。前置是实线带箭头，对比是虚线不带箭头，应用是点线带箭头，三种同一个颜色。
+    ///
+    /// Canvas 只在自己的边框里画、超出的部分被裁掉。以前它和视图一样大，节点排到视图外面（图比屏幕大、缩小来看）时，
+    /// 节点照样显示（`.position` 不裁剪），连线却被裁掉，看起来像"有时候连线画不出来"。
+    /// 现在 Canvas 的边框盖住所有节点（再留一圈余量），按这个边框换算坐标。
     private func edgeCanvas(_ edges: [LinkEdge], center: CGPoint) -> some View {
-        Canvas { canvas, _ in
+        let bounds = Self.canvasBounds(for: edges.flatMap { [positions[$0.from], positions[$0.to]] }.compactMap { $0 })
+        let origin = CGPoint(x: center.x + bounds.minX, y: center.y + bounds.minY)
+        return Canvas { canvas, _ in
             for edge in edges {
                 guard let a = positions[edge.from], let b = positions[edge.to] else { continue }
-                let start = Self.boundaryPoint(from: cg(a, center), toward: cg(b, center))
-                let end = Self.boundaryPoint(from: cg(b, center), toward: cg(a, center))
+                let pa = CGPoint(x: a.x - bounds.minX, y: a.y - bounds.minY)
+                let pb = CGPoint(x: b.x - bounds.minX, y: b.y - bounds.minY)
+                let start = Self.boundaryPoint(from: pa, toward: pb)
+                let end = Self.boundaryPoint(from: pb, toward: pa)
                 var path = Path()
                 path.move(to: start)
                 path.addLine(to: end)
@@ -270,7 +278,21 @@ struct ConceptMapView: View {
                 }
             }
         }
+        .frame(width: bounds.width, height: bounds.height)
+        .position(x: origin.x + bounds.width / 2, y: origin.y + bounds.height / 2)
         .allowsHitTesting(false)
+    }
+
+    /// 盖住这些点的矩形（排布坐标），四周留出节点的一半大小加箭头的余量。
+    static func canvasBounds(for points: [MapPoint]) -> CGRect {
+        guard let first = points.first else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+        var minX = first.x, maxX = first.x, minY = first.y, maxY = first.y
+        for p in points {
+            minX = min(minX, p.x); maxX = max(maxX, p.x)
+            minY = min(minY, p.y); maxY = max(maxY, p.y)
+        }
+        let margin = Double(max(nodeSize.width, nodeSize.height))
+        return CGRect(x: minX - margin, y: minY - margin, width: maxX - minX + margin * 2, height: maxY - minY + margin * 2)
     }
 
     private func edgeBubble(_ bubble: EdgeBubble) -> some View {
