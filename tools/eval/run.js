@@ -200,6 +200,19 @@ function check(testCase, content, available) {
     });
     if (!withParams) problems.push('坐标图没有参数');
   }
+  // 圆锥曲线要写成方程（equations），不要拆成几段 y = ±√… 的函数（第十版 Beta 3）。
+  if (testCase.needsEquations) {
+    const withEquations = components.some((f) => {
+      if (f.language !== 'graph') return false;
+      const result = core.parseComponent('graph', f.content);
+      return result.ok && result.value.equations && result.value.equations.length > 0;
+    });
+    if (!withEquations) problems.push('曲线没有写成方程');
+    components.filter((f) => f.language === 'graph').forEach((f) => {
+      const result = core.parseComponent('graph', f.content);
+      if (result.ok && result.value.functions.some((fn) => /sqrt/.test(fn.expr) && fn.domain)) warnings.push('还有带 domain 的 sqrt 函数');
+    });
+  }
   // 用 Python 等代码画图，说明模型没按提示词使用组件。
   fences
     .filter((f) => !available.includes(f.language))

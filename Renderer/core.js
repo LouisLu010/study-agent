@@ -640,6 +640,33 @@
           dashed: f.dashed === true,
         };
       });
+      // 方程曲线（第十版 Beta 3）：F(x, y) = G(x, y) 形式的隐函数，例如圆、椭圆、双曲线。
+      // 画的是 F − G = 0 的整条曲线，缩放平移后跟着延伸，不用拆成几段 y = ±√… 的函数。
+      if (names.includes('y')) throw new Error('参数不能叫 y');
+      const equations = (raw.equations || []).map((e, i) => {
+        const what = '第 ' + (i + 1) + ' 个方程';
+        if (!e || typeof e.expr !== 'string') throw new Error(what + '缺少 expr');
+        const sides = e.expr.split('=');
+        if (sides.length !== 2 || !sides[0].trim() || !sides[1].trim()) throw new Error(what + '要写成"左边 = 右边"，只能有一个等号');
+        const withY = names.concat(['y']);
+        const left = compileExpression(sides[0], withY);
+        const right = compileExpression(sides[1], withY);
+        const at = (x, y, scope) => {
+          const values = Object.assign({}, scope, { y });
+          return left(x, values) - right(x, values);
+        };
+        // 检查一下在范围里能算出数，免得写错的方程画出一片空白。
+        if (!Number.isFinite(at(0.37, 0.61, defaults)) && !Number.isFinite(at(1.3, -0.7, defaults))) {
+          throw new Error(what + '算不出数值');
+        }
+        return {
+          expr: e.expr,
+          /** F(x, y) − G(x, y)，曲线是它等于 0 的地方。 */
+          at,
+          label: optionalLabel(e.label),
+          dashed: e.dashed === true,
+        };
+      });
       const points = (raw.points || []).map((p) => {
         const x = toDynamic(p && p.x, '点的 x 坐标', names, defaults);
         const y = toDynamic(p && p.y, '点的 y 坐标', names, defaults);
@@ -651,7 +678,7 @@
         label: optionalLabel(s && s.label),
         dashed: !!(s && s.dashed),
       }));
-      if (!functions.length && !points.length && !segments.length) throw new Error('坐标图里没有任何内容');
+      if (!functions.length && !equations.length && !points.length && !segments.length) throw new Error('坐标图里没有任何内容');
 
       const warnings = [];
       const readouts = parseReadouts(raw.readouts, names, defaults, warnings);
@@ -671,6 +698,7 @@
           xRange,
           yRange,
           functions,
+          equations,
           points,
           segments,
           params,

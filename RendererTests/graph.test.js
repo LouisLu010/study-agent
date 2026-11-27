@@ -216,3 +216,34 @@ test('数字格式', () => {
   assert.equal(formatNumber(-0.0001, 2), '0');
   assert.equal(formatNumber(NaN), '—');
 });
+
+test('方程曲线：双曲线和椭圆写成方程（第十版 Beta 3）', () => {
+  const result = parseGraphSpec(JSON.stringify({
+    xRange: [-6, 6],
+    yRange: [-4, 4],
+    params: [{ name: 'a', min: 1, max: 5, value: 4 }],
+    equations: [
+      { expr: 'x^2/a^2 - y^2/9 = 1', label: '双曲线' },
+      { expr: 'x^2/25 + y^2/9 = 1', dashed: true },
+    ],
+  }));
+  assert.equal(result.ok, true, result.error);
+  const [hyperbola, ellipse] = result.value.equations;
+  // 顶点 (4, 0) 在双曲线上；(0, 3) 在椭圆上。
+  assert.ok(Math.abs(hyperbola.at(4, 0, { a: 4 })) < 1e-9);
+  assert.ok(Math.abs(ellipse.at(0, 3, {})) < 1e-9);
+  // 参数变了，曲线跟着变：a = 2 时顶点在 (2, 0)。
+  assert.ok(Math.abs(hyperbola.at(2, 0, { a: 2 })) < 1e-9);
+  assert.equal(hyperbola.label, '双曲线');
+  assert.equal(ellipse.dashed, true);
+});
+
+test('方程曲线：格式不对时报错', () => {
+  const bad = (expr) => parseGraphSpec(JSON.stringify({ equations: [{ expr }] }));
+  assert.equal(bad('x^2 + y^2').ok, false);
+  assert.equal(bad('x = y = 1').ok, false);
+  assert.equal(bad('x^2 + z^2 = 1').ok, false);
+  assert.equal(parseGraphSpec(JSON.stringify({ params: [{ name: 'y', min: 0, max: 1 }], equations: [{ expr: 'x = y' }] })).ok, false);
+  // 只有方程也算有内容。
+  assert.equal(bad('x^2 + y^2 = 4').ok, true);
+});
