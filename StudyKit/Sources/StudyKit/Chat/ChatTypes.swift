@@ -93,10 +93,19 @@ public struct ToolCall: Sendable, Equatable {
         self.signature = signature
     }
 
-    /// 解析后的参数；不是 JSON 对象时为空对象。
+    /// 解析后的参数。执行工具前必须用 `validatedInput()` 验证，不能把损坏的参数当作无参数调用。
     public var input: JSONValue {
-        if let value = JSONValue.parse(arguments), value.objectValue != nil { return value }
-        return .object([:])
+        (try? validatedInput()) ?? .null
+    }
+
+    /// 无参数调用允许省略空字符串；其余输入必须是完整的 JSON 对象。
+    public func validatedInput() throws -> JSONValue {
+        let json = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
+        if json.isEmpty { return .object([:]) }
+        guard let value = JSONValue.parse(json), value.objectValue != nil else {
+            throw ChatServiceError.invalidToolArguments(name: name)
+        }
+        return value
     }
 
     var hasServiceID: Bool { !id.hasPrefix(Self.localIDPrefix) }

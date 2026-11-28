@@ -25,6 +25,22 @@ public struct GeminiService: ChatService {
             var id: String?
             let name: String
             var args: JSONValue?
+
+            enum CodingKeys: String, CodingKey { case id, name, args }
+
+            init(id: String?, name: String, args: JSONValue?) {
+                self.id = id
+                self.name = name
+                self.args = args
+            }
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                id = try container.decodeIfPresent(String.self, forKey: .id)
+                name = try container.decode(String.self, forKey: .name)
+                // 显式 null 不是无参数调用，不能与省略 args 混在一起。
+                args = container.contains(.args) ? try container.decode(JSONValue.self, forKey: .args) : nil
+            }
         }
 
         struct FunctionResponse: Codable {
@@ -120,6 +136,7 @@ public struct GeminiService: ChatService {
     }
 
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
+        for call in request.messages.flatMap(\.toolCalls) { _ = try call.validatedInput() }
         let model = request.model.hasPrefix("models/") ? String(request.model.dropFirst(7)) : request.model
         let url = baseURL
             .appending(path: "models/\(model):streamGenerateContent")
@@ -167,6 +184,11 @@ public struct GeminiService: ChatService {
 
             let content: CandidateContent?
             let groundingMetadata: Lenient<GroundingMetadata>?
+            let finishReason: String?
+        }
+
+        struct PromptFeedback: Decodable {
+            let blockReason: String?
         }
 
         /// 联网搜索的结果：搜索词、用到的网页、正文里哪段话依据哪些网页。每个片段给的都是累计值。
@@ -203,32 +225,77 @@ public struct GeminiService: ChatService {
 
         let candidates: [Candidate]?
         let usageMetadata: UsageMetadata?
+        let promptFeedback: PromptFeedback?
     }
 
     public static func decodeStreamData(_ data: String) throws -> StreamPayload {
-        let bytes = Data(data.utf8)
-        if let message = APIErrorMessage.extract(from: bytes) {
-            throw ChatServiceError.server(message: message)
+        let decoder = StreamDecoder()
+        let payload = try decoder.decode(data)
+        try decoder.checkCompletionError()
+        return payload
+    }
+
+    /// 结束原因与用量可能不在同一个片段里，到流尾再确认回答完整。
+    public final class StreamDecoder: @unchecked Sendable {
+        private var receivedEnd = false
+        private var completionError: ChatServiceError?
+
+        public init() {}
+
+        public func decode(_ data: String) throws -> StreamPayload {
+            let bytes = Data(data.utf8)
+            if let message = APIErrorMessage.extract(from: bytes) {
+                throw ChatServiceError.server(message: message)
+            }
+            let chunk: StreamChunk
+            do {
+                chunk = try JSONDecoder().decode(StreamChunk.self, from: bytes)
+            } catch {
+                throw ChatServiceError.invalidResponse
+            }
+            if let reason = chunk.promptFeedback?.blockReason, !reason.isEmpty, reason != "BLOCK_REASON_UNSPECIFIED" {
+                completionError = .blocked
+            }
+            if let reason = chunk.candidates?.first?.finishReason {
+                receivedEnd = true
+                switch reason {
+                case "STOP": break
+                case "MAX_TOKENS": completionError = .truncated
+                case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT":
+                    completionError = .blocked
+                case "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL": completionError = .invalidResponse
+                default: completionError = .incompleteStream
+                }
+            }
+            return .events(try GeminiService.events(from: chunk))
         }
 
-        let chunk: StreamChunk
-        do {
-            chunk = try JSONDecoder().decode(StreamChunk.self, from: bytes)
-        } catch {
-            throw ChatServiceError.invalidResponse
+        func checkCompletionError() throws {
+            if let completionError { throw completionError }
         }
 
+        func finishStream() throws -> [ChatStreamEvent] {
+            try checkCompletionError()
+            guard receivedEnd else { throw ChatServiceError.incompleteStream }
+            return []
+        }
+    }
+
+    private static func events(from chunk: StreamChunk) throws -> [ChatStreamEvent] {
         let parts = chunk.candidates?.first?.content?.parts ?? []
         var events: [ChatStreamEvent] = []
         for part in parts {
             if let call = part.functionCall {
                 // 函数调用一次给完整。旧版本不给 ID，自己编一个，用来和结果对上。
-                events.append(.toolCall(ToolCall(
+                guard !call.name.isEmpty else { throw ChatServiceError.invalidResponse }
+                let tool = ToolCall(
                     id: call.id ?? ToolCall.localIDPrefix + UUID().uuidString,
                     name: call.name,
                     arguments: (call.args ?? .object([:])).jsonString,
                     signature: part.thoughtSignature
-                )))
+                )
+                _ = try tool.validatedInput()
+                events.append(.toolCall(tool))
                 continue
             }
             if let text = part.text, !text.isEmpty {
@@ -248,7 +315,7 @@ public struct GeminiService: ChatService {
         if let grounding = chunk.candidates?.first?.groundingMetadata?.value {
             events += groundingEvents(grounding)
         }
-        return .events(events)
+        return events
     }
 
     /// 接地信息转成搜索事件。Gemini 3 起按搜索词计费，搜索次数就是搜索词的个数。
@@ -284,9 +351,13 @@ public struct GeminiService: ChatService {
 
     public func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         do {
-            return SSEStreaming.stream(session: session, request: try makeURLRequest(for: request)) { event in
-                try Self.decodeStreamData(event.data)
-            }
+            let decoder = StreamDecoder()
+            return SSEStreaming.stream(
+                session: session,
+                request: try makeURLRequest(for: request),
+                decode: { try decoder.decode($0.data) },
+                finish: { try decoder.finishStream() }
+            )
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }

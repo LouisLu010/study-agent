@@ -99,6 +99,34 @@ import Testing
         #expect(ReplyVersions.decode("not json") == nil)
         #expect(ReplyVersions.decode(#"{"items":[],"current":0}"#) == nil)
     }
+
+    @Test func switchingVersionsRestoresTheirModelNames() {
+        let message = reply("第一版")
+        message.modelName = "Model A"
+        message.beginNewVersion()
+        message.content = "第二版"
+        message.modelName = "Model B"
+        message.status = .complete
+        message.finishVersion()
+        message.selectVersion(0)
+        #expect(message.modelName == "Model A")
+        message.selectVersion(1)
+        #expect(message.modelName == "Model B")
+    }
+
+    @Test func legacyVersionsDoNotBorrowAnotherModelsName() throws {
+        let legacy = #"{"items":[{"content":"旧回答","reasoning":"","componentStateJSON":"","statusRaw":"complete"},{"content":"新回答","reasoning":"","componentStateJSON":"","statusRaw":"complete","modelName":"Model B"}],"current":1}"#
+        let versions = try #require(ReplyVersions.decode(legacy))
+        #expect(versions.items[0].modelName == nil)
+        let message = reply("新回答")
+        message.modelName = "Model B"
+        message.versionsJSON = legacy
+        message.selectVersion(0)
+        #expect(message.content == "旧回答")
+        #expect(message.modelName.isEmpty)
+        message.selectVersion(1)
+        #expect(message.modelName == "Model B")
+    }
 }
 
 @Suite struct ConversationInstructionsTests {

@@ -115,39 +115,23 @@ public enum ResearchNoteWriter {
         guard !sources.isEmpty else { return (body, []) }
         var used: [WebSource] = []
         let pattern = try! NSRegularExpression(pattern: #"(?<!\[)\[(\d{1,3})\](?![\(\]])"#)
-        var inFence = false
-        var lines: [String] = []
-        for line in body.components(separatedBy: "\n") {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
-                inFence.toggle()
-                lines.append(line)
-                continue
-            }
-            guard !inFence else { lines.append(line); continue }
-            let math = mathRanges(in: line)
-            var result = line
-            let ns = line as NSString
-            for match in pattern.matches(in: line, range: NSRange(location: 0, length: ns.length)).reversed() {
-                guard !math.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
-                      let n = Int(ns.substring(with: match.range(at: 1))), sources.indices.contains(n - 1)
-                else { continue }
-                let source = sources[n - 1]
-                let number: Int
-                if let index = used.firstIndex(where: { $0.url == source.url }) {
-                    number = index + 1
-                } else {
-                    used.append(source)
-                    number = used.count
-                }
-                result = (result as NSString).replacingCharacters(
-                    in: match.range, with: WebSearchRecorder.marker(number: number, url: source.url)
-                )
-            }
-            lines.append(result)
+        let protected = protectedRanges(in: body)
+        let ns = body as NSString
+        var result = ""
+        var cursor = 0
+        for match in pattern.matches(in: body, range: NSRange(location: 0, length: ns.length)) {
+            guard !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
+                  let n = Int(ns.substring(with: match.range(at: 1))), sources.indices.contains(n - 1)
+            else { continue }
+            let source = sources[n - 1]
+            if !used.contains(where: { $0.url == source.url }) { used.append(source) }
+            let number = used.firstIndex(where: { $0.url == source.url })! + 1
+            result += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
+            result += WebSearchRecorder.marker(number: number, url: source.url)
+            cursor = NSMaxRange(match.range)
         }
-        // 编号是从后往前替换时分配的，再按阅读顺序统一一次。
-        let content = renumber(lines.joined(separator: "\n"), sources: used)
-        return used.isEmpty ? (body, sources) : (content.content, content.sources)
+        result += ns.substring(from: cursor)
+        return used.isEmpty ? (body, sources) : (result, used)
     }
 
     /// 删除第 `index` 个出处：去掉正文里指向它的角标，其余角标重新编号。
@@ -180,9 +164,11 @@ public enum ResearchNoteWriter {
     static func replaceMarkers(in text: String, _ transform: (String) -> String?) -> String {
         let pattern = try! NSRegularExpression(pattern: #"\[\[\d{1,3}\]\]\(<([^>\n]*)>\)"#)
         let ns = text as NSString
+        let protected = protectedRanges(in: text)
         var result = ""
         var cursor = 0
         for match in pattern.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            guard !protected.contains(where: { NSIntersectionRange($0, match.range).length > 0 }) else { continue }
             result += ns.substring(with: NSRange(location: cursor, length: match.range.location - cursor))
             let url = ns.substring(with: match.range(at: 1))
             result += transform(url) ?? ns.substring(with: match.range)
@@ -192,9 +178,97 @@ public enum ResearchNoteWriter {
         return result
     }
 
-    /// 一行里 `$...$` 公式的位置。
-    private static func mathRanges(in line: String) -> [NSRange] {
-        let pattern = try! NSRegularExpression(pattern: #"\$\$?[^$]+\$\$?"#)
-        return pattern.matches(in: line, range: NSRange(location: 0, length: (line as NSString).length)).map(\.range)
+    /// 引用不是 Markdown 解析器：先跳过代码和数学范围，避免把公式里的数组下标改成出处。
+    /// UTF-16 偏移与 NSRegularExpression 一致，中文和 emoji 不会让替换位置错位。
+    private static func protectedRanges(in text: String) -> [NSRange] {
+        let units = Array(text.utf16)
+        var fences: [NSRange] = []
+        var fence: (marker: UInt16, count: Int, start: Int)?
+        var lineStart = 0
+        for line in text.components(separatedBy: "\n") {
+            let trimmed = Array(line.trimmingCharacters(in: .whitespaces).utf16)
+            if let marker = trimmed.first, marker == 96 || marker == 126 {
+                let count = trimmed.prefix(while: { $0 == marker }).count
+                if let open = fence {
+                    if marker == open.marker, count >= open.count,
+                       trimmed.dropFirst(count).allSatisfy({ $0 == 32 || $0 == 9 || $0 == 13 }) {
+                        fences.append(NSRange(location: open.start, length: lineStart + line.utf16.count - open.start))
+                        fence = nil
+                    }
+                } else if count >= 3 {
+                    fence = (marker, count, lineStart)
+                }
+            }
+            lineStart += line.utf16.count + 1
+        }
+        if let fence { fences.append(NSRange(location: fence.start, length: units.count - fence.start)) }
+
+        func escaped(_ index: Int) -> Bool {
+            var cursor = index
+            while cursor > 0, units[cursor - 1] == 92 { cursor -= 1 }
+            return (index - cursor) % 2 == 1
+        }
+        func matches(_ token: [UInt16], at index: Int) -> Bool {
+            index + token.count <= units.count && Array(units[index..<(index + token.count)]) == token
+        }
+        func closing(_ token: [UInt16], after start: Int, before limit: Int) -> Int? {
+            var index = start
+            while index + token.count <= limit {
+                if matches(token, at: index), !escaped(index) { return index + token.count }
+                index += 1
+            }
+            return nil
+        }
+
+        var ranges = fences
+        var index = 0
+        var fenceIndex = 0
+        while index < units.count {
+            if fenceIndex < fences.count, index >= fences[fenceIndex].location {
+                index = NSMaxRange(fences[fenceIndex])
+                fenceIndex += 1
+                continue
+            }
+            let limit = fenceIndex < fences.count ? fences[fenceIndex].location : units.count
+            let start = index
+            var end: Int?
+            if units[index] == 96, !escaped(index) {
+                let count = units[index...].prefix(while: { $0 == 96 }).count
+                var cursor = index + count
+                while cursor < limit {
+                    if units[cursor] == 96 {
+                        let closingCount = units[cursor...].prefix(while: { $0 == 96 }).count
+                        if closingCount == count { end = cursor + count; break }
+                        cursor += closingCount
+                    } else {
+                        cursor += 1
+                    }
+                }
+                if end == nil { index += count; continue }
+            } else if !escaped(index) {
+                if matches([36, 36], at: index) {
+                    end = closing([36, 36], after: index + 2, before: limit) ?? limit
+                } else if matches([92, 91], at: index) {
+                    end = closing([92, 93], after: index + 2, before: limit) ?? limit
+                } else if matches([92, 40], at: index) {
+                    end = closing([92, 41], after: index + 2, before: limit)
+                } else if units[index] == 36, index + 1 < limit,
+                          ![9, 10, 13, 32, 36].contains(units[index + 1]) {
+                    let lineEnd = units[(index + 1)..<limit].firstIndex(of: 10) ?? limit
+                    if let candidate = closing([36], after: index + 1, before: lineEnd),
+                       ![9, 13, 32].contains(units[candidate - 2]),
+                       candidate == units.count || !(48...57).contains(units[candidate]) {
+                        end = candidate
+                    }
+                }
+            }
+            if let end {
+                ranges.append(NSRange(location: start, length: end - start))
+                index = end
+            } else {
+                index += 1
+            }
+        }
+        return ranges
     }
 }

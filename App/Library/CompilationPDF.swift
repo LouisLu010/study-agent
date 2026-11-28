@@ -6,8 +6,8 @@ import WebKit
 /// 再用 UIPrintPageRenderer 分页，加页眉（汇编标题）和页脚（页码）。PDF 里不放出处链接。
 @MainActor
 enum CompilationPDF {
-    struct Document: Encodable {
-        struct Question: Encodable {
+    struct Document: Encodable, Equatable {
+        struct Question: Encodable, Equatable {
             let label: String
             let content: String
             let answer: String
@@ -20,6 +20,14 @@ enum CompilationPDF {
         let subtitle: String
         let includeAnswers: Bool
         let questions: [Question]
+    }
+
+    enum GenerationError: LocalizedError, Equatable {
+        case contentChanged
+
+        var errorDescription: String? {
+            "排版期间汇编内容发生了变化，请重新生成 PDF。"
+        }
     }
 
     /// A4，单位是点。
@@ -53,8 +61,8 @@ enum CompilationPDF {
         }
     }
 
-    static func make(_ compilation: Compilation) async throws -> Data {
-        let document = document(for: compilation)
+    /// 渲染使用固定快照，发布前还要确认当前汇编与它一致。
+    static func make(_ document: Document) async throws -> Data {
         let json = String(decoding: try JSONEncoder().encode(document), as: UTF8.self)
 
         let configuration = WKWebViewConfiguration()
@@ -66,7 +74,11 @@ enum CompilationPDF {
         let window = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
         webView.frame.origin = CGPoint(x: -width - 100, y: 0)
         window?.addSubview(webView)
-        defer { webView.removeFromSuperview() }
+        defer {
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+            webView.removeFromSuperview()
+        }
 
         let loader = PageLoader()
         webView.navigationDelegate = loader
@@ -75,6 +87,7 @@ enum CompilationPDF {
         }
         webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         try await loader.wait()
+        try Task.checkCancellation()
 
         let height = try await webView.callAsyncJavaScript(
             "return await window.StudyRenderer.renderPrint(JSON.parse(doc))",
@@ -87,7 +100,7 @@ enum CompilationPDF {
         // 等一帧，让布局用上新的高度。
         try await Task.sleep(for: .milliseconds(150))
 
-        let renderer = PageRenderer(title: compilation.title)
+        let renderer = PageRenderer(title: document.title)
         renderer.addPrintFormatter(webView.viewPrintFormatter(), startingAtPageAt: 0)
         let paper = CGRect(origin: .zero, size: pageSize)
         let printable = paper.inset(by: margins)
@@ -95,7 +108,7 @@ enum CompilationPDF {
         renderer.setValue(NSValue(cgRect: printable), forKey: "printableRect")
 
         let data = NSMutableData()
-        UIGraphicsBeginPDFContextToData(data, paper, [kCGPDFContextTitle as String: compilation.title])
+        UIGraphicsBeginPDFContextToData(data, paper, [kCGPDFContextTitle as String: document.title])
         renderer.prepare(forDrawingPages: NSRange(location: 0, length: renderer.numberOfPages))
         for page in 0..<renderer.numberOfPages {
             UIGraphicsBeginPDFPage()
@@ -105,27 +118,60 @@ enum CompilationPDF {
         return data as Data
     }
 
+    /// await 排版时答案、题目或选项可能已更新，旧文档不能覆盖当前缓存。
+    static func publish(_ data: Data, for compilation: Compilation, snapshot: Document) throws {
+        guard document(for: compilation) == snapshot else { throw GenerationError.contentChanged }
+        compilation.pdfData = data
+        compilation.pdfGeneratedAt = .now
+        compilation.pdfPending = false
+    }
+
     /// 等页面加载完。
     @MainActor
-    private final class PageLoader: NSObject, WKNavigationDelegate {
+    final class PageLoader: NSObject, WKNavigationDelegate {
         private var continuation: CheckedContinuation<Void, any Error>?
-        private var finished = false
+        private var result: Result<Void, any Error>?
+        private var timeoutTask: Task<Void, Never>?
 
-        func wait() async throws {
-            if finished { return }
-            try await withCheckedThrowingContinuation { continuation = $0 }
+        func wait(timeout: Duration = .seconds(30)) async throws {
+            try Task.checkCancellation()
+            if let result { return try result.get() }
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    self.continuation = continuation
+                    timeoutTask = Task { [weak self] in
+                        do { try await Task.sleep(for: timeout) } catch { return }
+                        self?.finish(.failure(URLError(.timedOut)))
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.finish(.failure(CancellationError())) }
+            }
+        }
+
+        private func finish(_ result: Result<Void, any Error>) {
+            guard self.result == nil else { return }
+            self.result = result
+            timeoutTask?.cancel()
+            timeoutTask = nil
+            continuation?.resume(with: result)
+            continuation = nil
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            finished = true
-            continuation?.resume()
-            continuation = nil
+            finish(.success(()))
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
-            finished = true
-            continuation?.resume(throwing: error)
-            continuation = nil
+            finish(.failure(error))
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+            finish(.failure(error))
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            finish(.failure(URLError(.networkConnectionLost)))
         }
     }
 

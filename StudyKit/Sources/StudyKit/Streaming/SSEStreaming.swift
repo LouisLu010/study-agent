@@ -9,12 +9,12 @@ public enum StreamPayload: Sendable, Equatable {
 
 /// 三种协议共用的流式请求：发送请求、处理 HTTP 错误、按 SSE 切分事件，再交给各协议的解码函数。
 enum SSEStreaming {
-    /// finish 在流正常结束时调用一次，返回还没发出的事件（例如收完参数的工具调用）。
+    /// finish 在 EOF 或结束标记后调用，验证协议是否完成，并返回尚未发出的事件。
     static func stream(
         session: URLSession,
         request: URLRequest,
         decode: @escaping @Sendable (SSEEvent) throws -> StreamPayload,
-        finish: (@Sendable () -> [ChatStreamEvent])? = nil
+        finish: (@Sendable () throws -> [ChatStreamEvent])? = nil
     ) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         var request = request
         // 推理模型可能思考很久才输出第一个字，默认的 60 秒空闲超时不够。
@@ -22,6 +22,7 @@ enum SSEStreaming {
         return AsyncThrowingStream { [request] continuation in
             let task = Task {
                 do {
+                    try Task.checkCancellation()
                     let (bytes, response) = try await session.bytes(for: request)
                     guard let http = response as? HTTPURLResponse else {
                         throw ChatServiceError.invalidResponse
@@ -44,12 +45,14 @@ enum SSEStreaming {
                     var splitter = LineSplitter()
                     var parser = SSEParser()
                     var isDone = false
+                    var hasResponse = false
 
                     for try await byte in bytes {
+                        try Task.checkCancellation()
                         guard let line = splitter.append(byte),
                               let event = parser.feed(line)
                         else { continue }
-                        if try forward(decode(event), to: continuation) {
+                        if try forward(decode(event), to: continuation, hasResponse: &hasResponse) {
                             isDone = true
                             break
                         }
@@ -57,15 +60,17 @@ enum SSEStreaming {
 
                     if !isDone {
                         if let line = splitter.finish(), let event = parser.feed(line) {
-                            isDone = try forward(decode(event), to: continuation)
+                            isDone = try forward(decode(event), to: continuation, hasResponse: &hasResponse)
                         }
                         if !isDone, let event = parser.finish() {
-                            _ = try forward(decode(event), to: continuation)
+                            isDone = try forward(decode(event), to: continuation, hasResponse: &hasResponse)
                         }
                     }
-                    for event in finish?() ?? [] {
-                        continuation.yield(event)
-                    }
+                    try Task.checkCancellation()
+                    guard isDone || finish != nil else { throw ChatServiceError.incompleteStream }
+                    _ = forward(.events(try finish?() ?? []), to: continuation, hasResponse: &hasResponse)
+                    guard hasResponse else { throw ChatServiceError.emptyResponse }
+                    try Task.checkCancellation()
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -78,13 +83,21 @@ enum SSEStreaming {
     /// 返回 `true` 表示收到了结束标记。
     private static func forward(
         _ payload: StreamPayload,
-        to continuation: AsyncThrowingStream<ChatStreamEvent, any Error>.Continuation
+        to continuation: AsyncThrowingStream<ChatStreamEvent, any Error>.Continuation,
+        hasResponse: inout Bool
     ) -> Bool {
         switch payload {
         case .done:
             return true
         case let .events(events):
             for event in events {
+                switch event {
+                case let .text(text):
+                    hasResponse = hasResponse || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                case .toolCall:
+                    hasResponse = true
+                default: break
+                }
                 continuation.yield(event)
             }
             return false

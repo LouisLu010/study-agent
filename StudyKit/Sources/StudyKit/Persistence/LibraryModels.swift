@@ -20,6 +20,9 @@ public final class ResearchNote {
     public var sourcesJSON: String = ""
     public var modelName: String = ""
     public var sourceConversationID: UUID?
+    /// 这份资料由知识卡组成（第十版）。为 false 时是以前的一整篇总结，正文在 `content` 里。
+    /// 旧资料拆成知识卡后也是 true，原来的正文留着不删。
+    public var isCardBased: Bool = false
 
     public init(title: String, content: String) {
         self.title = title
@@ -39,6 +42,86 @@ public final class ResearchNote {
         set {
             sourcesJSON = newValue.isEmpty ? "" : String(decoding: (try? JSONEncoder().encode(newValue)) ?? Data(), as: UTF8.self)
         }
+    }
+}
+
+/// 知识卡（第十版，见 GLOSSARY）：资料里的一个单位，只讲一个概念、结论或方法。
+@Model
+public final class ConceptCard {
+    public var id: UUID = UUID()
+    public var createdAt: Date = Date()
+    public var updatedAt: Date = Date()
+    public var title: String = ""
+    /// 核心内容，Markdown，可以有公式、化学式和出处角标，不放组件。
+    public var content: String = ""
+    /// 一个小例子，可以没有。
+    public var example: String = ""
+    public var subjectRaw: String = ""
+    public var topic: String = ""
+    /// 出处（`[WebSource]` 的 JSON），编号和正文里的角标一致。
+    public var sourcesJSON: String = ""
+    /// 属于哪一份资料（`ResearchNote.id`）。
+    public var noteID: UUID?
+    public var sourceConversationID: UUID?
+    public var modelName: String = ""
+    /// 用户在关系图里拖过时记下的位置（排布坐标）。没拖过时为 nil，由排布算法决定。
+    public var mapX: Double?
+    public var mapY: Double?
+
+    public init(title: String, content: String) {
+        self.title = title
+        self.content = content
+    }
+
+    public var subject: Subject? {
+        get { Subject(rawValue: subjectRaw) }
+        set { subjectRaw = newValue?.rawValue ?? "" }
+    }
+
+    public var sources: [WebSource] {
+        get {
+            guard !sourcesJSON.isEmpty else { return [] }
+            return (try? JSONDecoder().decode([WebSource].self, from: Data(sourcesJSON.utf8))) ?? []
+        }
+        set {
+            sourcesJSON = newValue.isEmpty ? "" : String(decoding: (try? JSONEncoder().encode(newValue)) ?? Data(), as: UTF8.self)
+        }
+    }
+
+    public var pinnedPosition: MapPoint? {
+        get { mapX.flatMap { x in mapY.map { MapPoint(x: x, y: $0) } } }
+        set { mapX = newValue?.x; mapY = newValue?.y }
+    }
+}
+
+/// 关联（第十版，见 GLOSSARY 和 docs/adr/0015）：两张知识卡之间的一条连线。
+/// 两头用 ID 指向知识卡，不用 SwiftData 的关系。用户删掉的模型关联不真正删除，只标 `dismissed`，
+/// 以后模型再提出同一条就忽略。
+@Model
+public final class ConceptLink {
+    public var id: UUID = UUID()
+    public var createdAt: Date = Date()
+    public var fromID: UUID?
+    public var toID: UUID?
+    /// `LinkKind` 的原始值。
+    public var kindRaw: String = LinkKind.prerequisite.rawValue
+    public var reason: String = ""
+    /// 用户自己加的为 true，模型提出的为 false。
+    public var isManual: Bool = false
+    /// 用户删掉了这条模型提出的关联。
+    public var dismissed: Bool = false
+
+    public init(from: UUID, to: UUID, kind: LinkKind, reason: String = "", isManual: Bool = false) {
+        fromID = from
+        toID = to
+        kindRaw = kind.rawValue
+        self.reason = reason
+        self.isManual = isManual
+    }
+
+    public var kind: LinkKind {
+        get { LinkKind(rawValue: kindRaw) ?? .prerequisite }
+        set { kindRaw = newValue.rawValue }
     }
 }
 

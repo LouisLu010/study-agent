@@ -33,7 +33,7 @@ public enum SystemPrompt {
         return parts.joined(separator: "\n\n")
     }
 
-    private static func load(_ name: String) -> String {
+    static func load(_ name: String) -> String {
         guard let url = Bundle.module.url(forResource: name, withExtension: "md", subdirectory: "Prompts"),
               let text = try? String(contentsOf: url, encoding: .utf8)
         else {

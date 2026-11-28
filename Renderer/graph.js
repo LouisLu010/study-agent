@@ -34,7 +34,8 @@
       const height = landscape ? window.innerHeight - 120 : window.innerHeight * 0.55;
       box.style.height = Math.round(Math.max(240, Math.min(900, height))) + 'px';
     } else {
-      box.style.height = Math.round(Math.min(420, Math.max(200, container.clientWidth * (options.aspect || 0.75)))) + 'px';
+      // 横纵坐标等比例（第十版 Beta 3）：按要显示的范围定高宽比，范围是"扁"的就矮一点、"高"的就高一点，空白少一些。
+      box.style.height = Math.round(Math.min(520, Math.max(200, container.clientWidth * (options.aspect || 0.75)))) + 'px';
     }
     container.appendChild(box);
 
@@ -42,22 +43,47 @@
     JXG.Options.text.strokeColor = colors.text;
     JXG.Options.text.fontSize = 13;
 
+    const settings = Object.assign({}, options.board);
+    if (options.equalScale && settings.boundingbox) {
+      settings.boundingbox = equalScaleBox(settings.boundingbox, box.clientWidth || container.clientWidth, box.clientHeight || parseFloat(box.style.height));
+    }
+
     const board = JXG.JSXGraph.initBoard(box.id, Object.assign({
-      keepAspectRatio: false,
+      // 横纵坐标一个单位一样长，双指缩放也只能等比例缩放（第十版 Beta 3）。
+      keepAspectRatio: !!options.equalScale,
       showCopyright: false,
       // JSXGraph 自带的 – o + ← ↓ ↑ → 按钮在聊天里的卡片上显得乱，只在全屏页里显示；卡片上用双指缩放和平移。
       showNavigation: document.body.classList.contains('is-fullscreen'),
       grid: false,
       // 单指上下滑动交给外层列表滚动，双指拖动和缩放图形。
       pan: { enabled: true, needTwoFingers: true },
-      zoom: { enabled: true, wheel: false, pinch: true, needShift: false, min: 0.05, max: 50 },
+      zoom: { enabled: true, wheel: false, pinch: true, needShift: false, min: 0.05, max: 50, pinchHorizontal: !options.equalScale, pinchVertical: !options.equalScale },
       defaultAxes: {
         x: { strokeColor: colors.axis, ticks: { strokeColor: colors.grid, majorHeight: -1, label: { strokeColor: colors.axis } } },
         y: { strokeColor: colors.axis, ticks: { strokeColor: colors.grid, majorHeight: -1, label: { strokeColor: colors.axis } } },
       },
-    }, options.board));
+    }, settings));
     box.style.touchAction = 'pan-y';
     return board;
+  }
+
+  /**
+   * 把 [xmin, ymax, xmax, ymin] 扩成横纵一个单位一样长：哪个方向的单位更长就把那个方向的范围放大，
+   * 中心不变。原来要显示的范围都还在里面。
+   */
+  function equalScaleBox(bbox, width, height) {
+    const [xmin, ymax, xmax, ymin] = bbox;
+    if (!(width > 0 && height > 0)) return bbox;
+    const unit = Math.min(width / (xmax - xmin), height / (ymax - ymin));
+    const cx = (xmin + xmax) / 2, cy = (ymin + ymax) / 2;
+    const halfX = width / unit / 2, halfY = height / unit / 2;
+    return [cx - halfX, cy + halfY, cx + halfX, cy - halfY];
+  }
+
+  /** 等比例时卡片的高宽比：按要显示的范围算，限制在 0.55 到 1.1 之间。 */
+  function aspectFor(xRange, yRange) {
+    const ratio = (yRange[1] - yRange[0]) / (xRange[1] - xRange[0]);
+    return Math.min(1.1, Math.max(0.55, ratio));
   }
 
   function addTitle(container, title) {
@@ -66,6 +92,15 @@
     element.className = 'graph-title';
     element.textContent = title;
     container.appendChild(element);
+  }
+
+  /** JSXGraph 默认把标签当作 HTML；模型给出的标签一律按纯文本显示。 */
+  function labelAttributes(text, style) {
+    return {
+      name: window.StudyRenderer.escapeHTML(text || ''),
+      withLabel: !!text,
+      label: Object.assign({ parse: false, useMathJax: false, useKatex: false }, style),
+    };
   }
 
   const core = window.StudyCore;
@@ -195,7 +230,11 @@
     if (ymin === 0) ymin = -(ymax - ymin) * 0.08;
     if (xmax === 0) xmax = (xmax - xmin) * 0.06;
     if (ymax === 0) ymax = (ymax - ymin) * 0.08;
-    const board = createBoard(container, { board: { boundingbox: [xmin, ymax, xmax, ymin], axis: true } });
+    const board = createBoard(container, {
+      board: { boundingbox: [xmin, ymax, xmax, ymin], axis: true },
+      equalScale: true,
+      aspect: aspectFor([xmin, xmax], [ymin, ymax]),
+    });
     container.board = board;
 
     let colorIndex = 0;
@@ -244,7 +283,34 @@
       });
       legend.appendChild(item);
     });
-    if (spec.functions.length > 1) container.appendChild(legend);
+    // 方程曲线（圆、椭圆、双曲线等隐函数）：JSXGraph 的 implicitcurve 按当前视野重新计算，缩放平移后整条曲线跟着延伸。
+    (spec.equations || []).forEach((e) => {
+      const color = nextColor();
+      const jsx = board.create('implicitcurve', [(x, y) => e.at(x, y, values)], {
+        strokeColor: color,
+        strokeWidth: 3,
+        dash: e.dashed ? 2 : 0,
+        highlight: false,
+        withLabel: false,
+      });
+      const item = document.createElement('button');
+      item.className = 'graph-legend-item';
+      item.setAttribute('aria-pressed', 'true');
+      const swatch = document.createElement('i');
+      swatch.style.borderTop = '3px ' + (e.dashed ? 'dashed ' : 'solid ') + color;
+      item.appendChild(swatch);
+      item.appendChild(document.createTextNode(e.label || e.expr));
+      let visible = true;
+      item.addEventListener('click', () => {
+        visible = !visible;
+        jsx.setAttribute({ visible });
+        item.classList.toggle('is-hidden', !visible);
+        item.setAttribute('aria-pressed', String(visible));
+      });
+      legend.appendChild(item);
+    });
+
+    if (spec.functions.length + (spec.equations || []).length > 1) container.appendChild(legend);
     else if (legend.childNodes.length) {
       // 只有一条曲线时图例只是说明，不用来隐藏。
       legend.querySelector('button').disabled = true;
@@ -259,29 +325,24 @@
     });
 
     spec.segments.forEach((s) => {
-      board.create('segment', [hiddenPoint(s.from), hiddenPoint(s.to)], {
+      board.create('segment', [hiddenPoint(s.from), hiddenPoint(s.to)], Object.assign({
         strokeColor: colors.axis,
         strokeWidth: 1.5,
         dash: s.dashed ? 2 : 0,
         fixed: true,
         highlight: false,
-        name: s.label,
-        withLabel: !!s.label,
-      });
+      }, labelAttributes(s.label)));
     });
 
     spec.points.forEach((p) => {
-      board.create('point', [() => p.xAt(values), () => p.yAt(values)], {
-        name: p.label,
-        withLabel: !!p.label,
+      board.create('point', [() => p.xAt(values), () => p.yAt(values)], Object.assign({
         fixed: true,
         size: 3,
         strokeColor: colors.text,
         fillColor: colors.text,
         highlight: false,
         showInfobox: false,
-        label: { offset: [6, 8] },
-      });
+      }, labelAttributes(p.label, { offset: [6, 8] })));
     });
 
     if (spec.params.length || spec.readouts.length) {
@@ -532,5 +593,5 @@
     },
   });
 
-  window.StudyGraph = { loadJSXGraph, createBoard, addTitle, palette, COLORS };
+  window.StudyGraph = { loadJSXGraph, createBoard, addTitle, labelAttributes, palette, COLORS };
 })();

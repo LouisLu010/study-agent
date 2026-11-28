@@ -1,0 +1,150 @@
+[
+  {
+    "id": "math-extrema-old-derivative",
+    "material": "【提问】\n怎么用导数求函数的极值？\n\n【回答】\n先求导 $f'(x)$，令 $f'(x)=0$ 求出驻点。再看驻点两侧导数的符号：左正右负是极大值，左负右正是极小值，不变号就不是极值。例如 $f(x)=x^3-3x$，$f'(x)=3x^2-3$，驻点 $x=\\pm1$，$x=-1$ 处取极大值 2，$x=1$ 处取极小值 −2。注意极值是局部的，不一定是最值；求闭区间上的最值时还要比较端点的函数值。",
+    "candidates": [
+      "导数的定义（数学 · 导数）",
+      "用导数判断单调性（数学 · 导数的应用）",
+      "等比数列求和（数学 · 数列）"
+    ],
+    "cardRange": [
+      2,
+      6
+    ],
+    "expectLinks": [
+      {
+        "a": "旧2",
+        "b": "极值",
+        "directed": true
+      }
+    ],
+    "noCardTitled": [
+      "单调性"
+    ]
+  },
+  {
+    "id": "physics-momentum-old-newton",
+    "material": "【提问】\n动量定理是什么？和牛顿第二定律有什么关系？\n\n【回答】\n动量 $p=mv$ 是矢量。动量定理：合外力的冲量等于物体动量的变化，$Ft=\\Delta p$。它可以由牛顿第二定律 $F=ma$ 推出：$F=m\\dfrac{\\Delta v}{\\Delta t}$，两边乘 $\\Delta t$ 即得。动量定理特别适合处理作用时间短、力变化复杂的问题，比如鸡蛋落在海绵上不易破，是因为作用时间长、平均冲力小。",
+    "candidates": [
+      "牛顿第二定律（物理 · 牛顿运动定律）",
+      "匀变速直线运动（物理 · 运动学）"
+    ],
+    "cardRange": [
+      2,
+      6
+    ],
+    "expectLinks": [
+      {
+        "a": "旧1",
+        "b": "动量定理",
+        "directed": true
+      }
+    ]
+  },
+  {
+    "id": "chem-galvanic-vs-electrolytic",
+    "material": "【提问】\n原电池和电解池有什么区别？\n\n【回答】\n原电池把化学能转化为电能，是自发的氧化还原反应；负极发生氧化反应，正极发生还原反应。电解池把电能转化为化学能，需要外加电源；与电源正极相连的是阳极，发生氧化反应，与负极相连的是阴极，发生还原反应。记忆口诀：\"升失氧，降得还\"，原电池看正负极，电解池看阴阳极。典型例子：铜锌原电池、电解饱和食盐水。",
+    "candidates": [],
+    "cardRange": [
+      2,
+      6
+    ],
+    "expectLinks": [
+      {
+        "a": "原电池",
+        "b": "电解池",
+        "kind": "contrast"
+      }
+    ]
+  },
+  {
+    "id": "bio-mitosis-vs-meiosis",
+    "material": "【提问】\n有丝分裂和减数分裂怎么区分？\n\n【回答】\n有丝分裂产生两个和亲代染色体数目相同的体细胞，分裂一次；减数分裂产生四个染色体数目减半的生殖细胞，连续分裂两次、染色体只复制一次。减数第一次分裂有同源染色体联会、形成四分体，可能发生交叉互换，这是有丝分裂没有的。看图判断时：有同源染色体且联会→减数第一次分裂；没有同源染色体→减数第二次分裂；有同源染色体但不联会→有丝分裂。",
+    "candidates": [
+      "细胞周期（生物 · 细胞增殖）"
+    ],
+    "cardRange": [
+      2,
+      6
+    ],
+    "expectLinks": [
+      {
+        "a": "有丝分裂",
+        "b": "减数分裂",
+        "kind": "contrast"
+      }
+    ]
+  },
+  {
+    "id": "tiny-boiling-point",
+    "material": "【提问】\n水的沸点是多少？\n\n【回答】\n在一个标准大气压下，纯水的沸点是 100 ℃。气压降低时沸点降低，所以高原上水不到 100 ℃ 就沸腾了。",
+    "candidates": [],
+    "cardRange": [
+      1,
+      2
+    ]
+  },
+  {
+    "id": "math-geometric-chapter",
+    "material": "【提问】\n帮我把等比数列这一章讲一遍。\n\n【回答】\n**定义**：从第二项起，每一项与前一项的比都等于同一个常数 $q$（$q\\neq0$），$q$ 叫公比。\n\n**通项公式**：$a_n=a_1q^{n-1}$。\n\n**前 n 项和**：$q=1$ 时 $S_n=na_1$；$q\\neq1$ 时 $S_n=\\dfrac{a_1(1-q^n)}{1-q}$。推导用错位相减：$S_n-qS_n=a_1-a_1q^n$。\n\n**等比中项**：若 $a,G,b$ 成等比数列，则 $G^2=ab$。\n\n**性质**：若 $m+n=p+q$，则 $a_ma_n=a_pa_q$。\n\n**易错点**：求和时忘记讨论 $q=1$；等比中项有两个值 $\\pm\\sqrt{ab}$。",
+    "candidates": [
+      "等差数列的通项公式（数学 · 数列）",
+      "等差数列求和（数学 · 数列）"
+    ],
+    "cardRange": [
+      3,
+      8
+    ],
+    "expectLinks": [
+      {
+        "a": "定义",
+        "b": "通项",
+        "kind": "prerequisite",
+        "directed": true
+      },
+      {
+        "a": "等比",
+        "b": "旧1",
+        "kind": "contrast"
+      }
+    ]
+  },
+  {
+    "id": "math-dedupe-arithmetic",
+    "material": "【提问】\n等差数列前 n 项和怎么求？\n\n【回答】\n等差数列的通项是 $a_n=a_1+(n-1)d$。前 n 项和用倒序相加：$S_n=\\dfrac{n(a_1+a_n)}{2}$，代入通项得 $S_n=na_1+\\dfrac{n(n-1)}{2}d$。例如 1+2+…+100=5050。",
+    "candidates": [
+      "等差数列的通项公式（数学 · 数列）",
+      "倒序相加法（数学 · 数列）"
+    ],
+    "cardRange": [
+      1,
+      4
+    ],
+    "expectLinks": [
+      {
+        "a": "旧1",
+        "b": "和",
+        "directed": true
+      }
+    ],
+    "noCardTitled": [
+      "通项"
+    ]
+  },
+  {
+    "id": "english-tenses",
+    "material": "【提问】\n现在完成时和一般过去时有什么不同？\n\n【回答】\n一般过去时只说过去发生的事，和现在无关，常和 yesterday、last year、in 2010 这类明确的过去时间连用：I saw the film yesterday. 现在完成时强调过去的动作对现在的影响或持续到现在，常和 already、yet、ever、since、for 连用：I have seen the film（所以我现在知道剧情）。现在完成时不能和明确的过去时间连用，不能说 I have seen it yesterday.",
+    "candidates": [],
+    "cardRange": [
+      2,
+      5
+    ],
+    "expectLinks": [
+      {
+        "a": "现在完成时",
+        "b": "一般过去时",
+        "kind": "contrast"
+      }
+    ]
+  }
+]

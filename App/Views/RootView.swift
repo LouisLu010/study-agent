@@ -64,6 +64,8 @@ struct RootView: View {
         // 但弹出相机这类全屏页面时聊天页也会触发 onDisappear，会把正在拍题的新会话删掉。
         .onChange(of: navigation.selection) { old, _ in
             if case let .conversation(conversation) = old { discardIfEmpty(conversation) }
+            // 离开资料页后，"刚整理的"那一节就不再单独列出。
+            if old == .notes { navigation.recentNoteID = nil }
         }
         .onChange(of: scenePhase) {
             // 回到前台或退到后台时重新排复习提醒，通知里的题数保持准确。

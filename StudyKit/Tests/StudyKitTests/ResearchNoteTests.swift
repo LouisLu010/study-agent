@@ -74,4 +74,47 @@ import Testing
         #expect(result.sources == [b, c])
         #expect(result.content == "甲乙[[1]](<https://b.com/2>)丙[[2]](<https://c.com/3>)")
     }
+
+    @Test(arguments: [
+        "$$\na[1]+b[2]\n$$",
+        "\\[\n矩阵😀 a[1]+b[2]\n\\]",
+        "\\(a[1]+b[2]\\)",
+        "$a[1]+b[2]$",
+        "`a[1]` 和 ``b[2] + `text``",
+        "````swift\nlet a = [1]\n```\nb[2]\n````",
+        "~~~text\n[1]\n```\n[2]\n~~~",
+    ])
+    func preservesMathAndCodeBeforeCitations(_ protected: String) {
+        let body = protected + "\n正文😀[2][1][2]。"
+        let result = ResearchNoteWriter.citeSources(in: body, sources: [a, b])
+        #expect(result.content == protected + "\n正文😀[[1]](<https://b.com/2>)[[2]](<https://a.com/1>)[[1]](<https://b.com/2>)。")
+        #expect(result.sources == [b, a])
+    }
+
+    @Test(arguments: ["$$\na[1]", "\\[\na[1]", "~~~\na[1]", "````\na[1]\n```\nb[2]"])
+    func preservesUnclosedBlocks(_ body: String) {
+        let result = ResearchNoteWriter.citeSources(in: body, sources: [a, b])
+        #expect(result.content == body)
+        #expect(result.sources == [a, b])
+    }
+
+    @Test func currencyDoesNotHideFollowingCitations() {
+        let result = ResearchNoteWriter.citeSources(in: #"价格 $5 和 $10，转义 \$5[2]。"#, sources: [a, b])
+        #expect(result.content == #"价格 $5 和 $10，转义 \$5[[1]](<https://b.com/2>)。"#)
+        #expect(result.sources == [b])
+    }
+
+    @Test func removingSourcesPreservesLiteralMarkersInCodeAndMath() {
+        let marker = "[[1]](<https://a.com/1>)"
+        let protected = "`\(marker)`\n$$\n\(marker)\n$$\n~~~\n\(marker)\n~~~"
+        let result = ResearchNoteWriter.removeSource(at: 0, sources: [a], content: protected + "\n正文" + marker)
+        #expect(result.content == protected + "\n正文")
+        #expect(result.sources.isEmpty)
+    }
+
+    @Test func preparingTranscriptKeepsLiteralCodeMarkers() {
+        let marker = "[[1]](<https://a.com/1>)"
+        let prepared = ResearchNoteWriter.prepare([.init(role: .assistant, content: "`\(marker)`\n正文" + marker, sources: [a])])
+        #expect(prepared.text.contains("`\(marker)`\n正文[1]"))
+    }
 }

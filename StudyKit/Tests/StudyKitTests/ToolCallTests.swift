@@ -93,13 +93,13 @@ private func conversation(thinking: [ThinkingBlock], callID: String = "call_1", 
             .toolCall(ToolCall(id: "call_a", name: "search_web", arguments: #"{"query":"北京卷"}"#)),
             .toolCall(ToolCall(id: "call_b", name: "read_page", arguments: "{}")),
         ])
-        #expect(decoder.finish().isEmpty)
+        #expect(try decoder.finish().isEmpty)
     }
 
     @Test func flushesCallsWhenStreamEndsWithoutFinishReason() throws {
         let decoder = OpenAICompatibleService.StreamDecoder()
         _ = try decoder.decode(#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"finish_paper","arguments":"{}"}}]}}]}"#)
-        let events = decoder.finish()
+        let events = try decoder.finish()
         guard case let .toolCall(call) = events.first else { Issue.record("没有工具调用"); return }
         #expect(call.name == "finish_paper")
         #expect(call.id.hasPrefix(ToolCall.localIDPrefix))
@@ -298,6 +298,79 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         await #expect(throws: ChatServiceError.http(status: 401, message: "bad key")) {
             try await ToolLoop(maxCalls: 5).run(service: other, request: request) { _ in ToolLoop.Outcome(["ok": true]) }
         }
+    }
+
+    @Test func rejectsTheWholeTurnBeforeExecutingInvalidArguments() async {
+        let service = ScriptedService([[call("a", "search_web"), call("b", "fetch_question", "[]")]])
+        let executed = Recorder()
+        await #expect(throws: ChatServiceError.invalidToolArguments(name: "fetch_question")) {
+            try await ToolLoop(maxCalls: 5).run(service: service, request: request) { call in
+                await executed.add(call.name)
+                return ToolLoop.Outcome(["ok": true])
+            }
+        }
+        #expect(await executed.items.isEmpty)
+    }
+
+    @Test func cancellationDuringEventDeliveryDoesNotExecuteTools() async {
+        let service = ScriptedService([[call("a", "finish_paper")]])
+        let executed = Recorder()
+        let task = Task {
+            try await ToolLoop(maxCalls: 5).run(
+                service: service, request: request,
+                onEvent: { _ in withUnsafeCurrentTask { $0?.cancel() } }
+            ) { call in
+                await executed.add(call.name)
+                return ToolLoop.Outcome(["ok": true], stop: true)
+            }
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await executed.items.isEmpty)
+    }
+
+    @Test func cancellationWithNormalStreamEOFCannotReturnSuccess() async {
+        struct CancellingService: ChatService {
+            func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
+                withUnsafeCurrentTask { $0?.cancel() }
+                return AsyncThrowingStream { $0.finish() }
+            }
+        }
+        let task = Task {
+            try await ToolLoop(maxCalls: 5).run(service: CancellingService(), request: request) { _ in
+                ToolLoop.Outcome(["ok": true], stop: true)
+            }
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
+    @Test func cancellationDuringUsageDeliveryDoesNotExecuteTools() async {
+        let service = ScriptedService([[call("a", "finish_paper")]])
+        let executed = Recorder()
+        let task = Task {
+            try await ToolLoop(maxCalls: 5).run(
+                service: service, request: request,
+                onUsage: { _ in withUnsafeCurrentTask { $0?.cancel() } }
+            ) { call in
+                await executed.add(call.name)
+                return ToolLoop.Outcome(["ok": true], stop: true)
+            }
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await executed.items.isEmpty)
+    }
+
+    @Test func cancellationInsideToolCannotReturnSuccessOrExecuteTheNextTool() async {
+        let service = ScriptedService([[call("a", "read_page"), call("b", "finish_paper")]])
+        let executed = Recorder()
+        let task = Task {
+            try await ToolLoop(maxCalls: 5).run(service: service, request: request) { call in
+                await executed.add(call.name)
+                withUnsafeCurrentTask { $0?.cancel() }
+                return ToolLoop.Outcome(["ok": true], stop: true)
+            }
+        }
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(await executed.items == ["read_page"])
     }
 }
 
