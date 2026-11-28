@@ -128,6 +128,7 @@ final class CompilationCenter {
                     maxCalls: CompilationTools.maxCallsForListing,
                     nudge: "核实完了就调用 submit_papers 交上试卷列表；还没核实完就继续用工具。"
                 )
+                try Task.checkCancellation()
                 guard let list = toolbox.submitted else {
                     switch result.ending {
                     case let .answered(text):
@@ -288,6 +289,7 @@ final class CompilationCenter {
                     maxCalls: CompilationTools.maxCallsPerPaper,
                     nudge: "这份试卷查完了就调用 finish_paper；还没取完就继续用工具。"
                 )
+                try Task.checkCancellation()
                 let count = Self.questions(of: paper, in: compilation).count
                 updated.state = .done
                 updated.found = count
@@ -337,6 +339,7 @@ final class CompilationCenter {
         if !stopped, !remaining, !(compilation.questions ?? []).isEmpty, !Task.isCancelled {
             await arrange(compilation, model: model, service: service, context: context, log: log)
         }
+        if Task.isCancelled { stopped = true }
         compilation.status = stopped || remaining ? .paused : .done
         if interrupted.contains(compilation.id) {
             compilation.errorText = Self.interruptedText
@@ -391,10 +394,9 @@ final class CompilationCenter {
         }
         progress[compilation.id] = "正在生成 PDF…"
         do {
-            let data = try await CompilationPDF.make(compilation)
-            compilation.pdfData = data
-            compilation.pdfGeneratedAt = .now
-            compilation.pdfPending = false
+            let snapshot = CompilationPDF.document(for: compilation)
+            let data = try await CompilationPDF.make(snapshot)
+            try CompilationPDF.publish(data, for: compilation, snapshot: snapshot)
             log?(.success, "生成了 PDF")
         } catch {
             compilation.pdfPending = false
@@ -494,15 +496,13 @@ final class CompilationCenter {
                     messages: [ChatMessage(role: .user, text: text, images: images)],
                     reasoningEffort: model.reasoningEffort
                 )
-                question.answer = ""
-                question.answerKind = .ai
-                question.answerSite = ""
+                Self.setAIExplanation("", for: question)
                 var answer = ""
                 for try await event in service.streamChat(request) {
                     BackgroundKeeper.shared.tick()
                     if case let .text(delta) = event {
                         answer += delta
-                        question.answer = answer
+                        Self.setAIExplanation(answer, for: question)
                     }
                 }
             } catch {
@@ -510,6 +510,16 @@ final class CompilationCenter {
             }
             try? context.save()
         }
+    }
+
+    /// 答案变更后旧 PDF 不再可分享；正在生成解析时也不能继续排版上一次的待生成版本。
+    static func setAIExplanation(_ text: String, for question: ExamQuestion) {
+        question.answer = text
+        question.answerKind = .ai
+        question.answerSite = ""
+        question.compilation?.pdfData = nil
+        question.compilation?.pdfGeneratedAt = nil
+        question.compilation?.pdfPending = false
     }
 
     // MARK: - 内部

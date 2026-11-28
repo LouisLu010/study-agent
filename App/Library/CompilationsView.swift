@@ -413,9 +413,9 @@ struct CompilationDetailView: View {
         Task {
             defer { isMakingPDF = false }
             do {
-                let data = try await CompilationPDF.make(compilation)
-                compilation.pdfData = data
-                compilation.pdfGeneratedAt = .now
+                let snapshot = CompilationPDF.document(for: compilation)
+                let data = try await CompilationPDF.make(snapshot)
+                try CompilationPDF.publish(data, for: compilation, snapshot: snapshot)
                 try? context.save()
                 pdfItem = PDFItem(data: data, title: compilation.title)
             } catch {
