@@ -4,6 +4,11 @@ import SwiftUI
 
 /// 用 WebView 渲染一段固定的内容（错题、收藏），高度跟着内容走。
 struct RenderedContentView: View {
+    private struct ContentIdentity: Hashable {
+        let id: UUID
+        let content: String
+    }
+
     let id: UUID
     let content: String
     var componentStateJSON: String = ""
@@ -46,7 +51,10 @@ struct RenderedContentView: View {
             onQuizResult: onQuizResult,
             groupedSurface: grouped
         )
+        // 换题或编辑固定内容时重建 WebView，上一份内容的测验答案不能带到新内容里。
+        .id(ContentIdentity(id: id, content: content))
         .frame(height: height)
+        .onChange(of: id) { height = RenderCache.heights[id] ?? 60 }
     }
 }
 

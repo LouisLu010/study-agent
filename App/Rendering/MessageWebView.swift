@@ -108,7 +108,7 @@ struct MessageWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        context.coordinator.parent = self
+        context.coordinator.updateParent(self)
         context.coordinator.update(content: content, isStreaming: isStreaming)
         context.coordinator.updateCanRegenerate(canRegenerate)
         context.coordinator.updateRepairState(repairState)
@@ -176,6 +176,7 @@ struct MessageWebView: UIViewRepresentable {
         weak var webView: WKWebView?
 
         private var isReady = false
+        private var rendererNavigation: WKNavigation?
         /// 页面加载后是否已经把保存的组件状态交给渲染器。
         private var didSendInitialOptions = false
         private var sentCanRegenerate: Bool?
@@ -185,19 +186,35 @@ struct MessageWebView: UIViewRepresentable {
         private var throttleTask: Task<Void, Never>?
         /// 有一次渲染已经交给 WebView、还没算完。
         private var isRendering = false
+        /// 页面重载后，上一页的 JavaScript 完成回调不再参与当前页的渲染调度。
+        private var rendererGeneration = 0
         /// 上一次渲染在 WebView 里花了多久（秒）。
         private var lastRenderDuration: Double = 0
+
+        func updateParent(_ next: MessageWebView) {
+            let changedMessage = parent.map { $0.messageID != next.messageID } ?? false
+            parent = next
+            guard changedMessage else { return }
+            // UIViewRepresentable 被复用来显示另一条内容时，重新加载页面以清掉 JS 组件状态。
+            // 同一条消息的流式更新仍复用当前页面。
+            rendered = nil
+            pending = nil
+            setOuterScrollLocked(false)
+            loadRenderer()
+        }
 
         func loadRenderer() {
             guard let webView,
                   let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "Renderer")
             else { return }
+            cancelPendingRender()
+            rendererGeneration += 1
             isReady = false
             isRendering = false
             didSendInitialOptions = false
             sentCanRegenerate = nil
             sentRepairState = nil
-            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            rendererNavigation = webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
 
         func updateCanRegenerate(_ value: Bool) {
@@ -252,18 +269,20 @@ struct MessageWebView: UIViewRepresentable {
         /// 才发下一次。以前固定每 80 毫秒发一次，公式多、回答长时一次渲染要几百毫秒，调用在 WebView 里排队，
         /// WebView 一直忙着算、没空画，高度又在不停变，整条回答就成了一片空白，要等生成完才出来。
         private func scheduleStreamingFlush() {
-            guard throttleTask == nil, !isRendering else { return }
+            guard isReady, throttleTask == nil, !isRendering else { return }
+            let generation = rendererGeneration
             let interval = max(0.08, min(1.5, lastRenderDuration))
             throttleTask = Task { [weak self] in
                 try? await Task.sleep(for: .seconds(interval))
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.rendererGeneration == generation else { return }
                 self.throttleTask = nil
                 self.flush()
             }
         }
 
         /// 一次渲染算完：记下用时；中间又来了新内容就接着排下一次。
-        private func renderFinished(startedAt start: Date) {
+        private func renderFinished(startedAt start: Date, generation: Int) {
+            guard generation == rendererGeneration else { return }
             isRendering = false
             lastRenderDuration = Date().timeIntervalSince(start)
             guard let pending else { return }
@@ -280,15 +299,16 @@ struct MessageWebView: UIViewRepresentable {
         }
 
         private func flush() {
-            guard let webView, let next = pending, !isRendering else { return }
+            guard isReady, let webView, let next = pending, !isRendering else { return }
             pending = nil
             rendered = next
             isRendering = true
             let start = Date()
+            let generation = rendererGeneration
             // 出错也算这次算完了（例如页面正在重新加载），不然后面的渲染会一直等着。
             let done: @Sendable (Result<Any, any Error>) -> Void = { [weak self] _ in
                 let coordinator = self
-                Task { @MainActor in coordinator?.renderFinished(startedAt: start) }
+                Task { @MainActor in coordinator?.renderFinished(startedAt: start, generation: generation) }
             }
 
             if didSendInitialOptions {
@@ -332,8 +352,12 @@ struct MessageWebView: UIViewRepresentable {
         }
 
         func receive(name: String, body: Any) {
+            // 新页面就绪前，旧页面排队中的组件事件不能写入已经切换的消息。
+            guard name == "ready" || isReady else { return }
             switch name {
             case "ready":
+                // DOMContentLoaded 的旧消息可能晚于下一次 load 到达；只由当前导航完成后确认就绪。
+                guard rendererNavigation == nil, !isReady else { return }
                 isReady = true
                 if pending == nil, let rendered {
                     pending = rendered
@@ -404,6 +428,12 @@ struct MessageWebView: UIViewRepresentable {
         }
 
         // MARK: WKNavigationDelegate
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let navigation, navigation === rendererNavigation else { return }
+            rendererNavigation = nil
+            receive(name: "ready", body: true)
+        }
 
         func webView(
             _ webView: WKWebView,
