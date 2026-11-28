@@ -112,12 +112,34 @@ API Key 只存在设备的钥匙串里，App 直接请求服务商的接口，�
 ### 目录
 
 - `App/`：SwiftUI 界面、WebView 渲染、图片处理
+- `AppTests/`：SwiftData、资料删除撤销、PDF 加载和真实 WKWebView 的 App 集成测试
 - `App/Vendor/`：复制进来的第三方 Swift 源码（第六版起有 Thinking Orbs），各自附许可证
 - `StudyKit/`：不依赖界面的代码（数据模型、三种协议、SSE 解析、内置提示词）和测试
 - `Renderer/`：WebView 里运行的渲染器（Markdown、公式、化学式、代码、坐标图）和第三方库
 - `RendererTests/`：渲染器的 Node 测试，运行方法是 `node --test RendererTests/*.test.js`
 - `tools/eval/`：用真实模型测试组件，见下一节
 - `promo/`：宣传片的 Remotion 工程，见 [docs/promo/](./docs/promo/README.md)
+
+### 本地测试
+
+在装有 Xcode 和 XcodeGen 的 Mac 上运行：
+
+```sh
+swift test --package-path StudyKit --enable-code-coverage
+node --test RendererTests/*.test.js
+xcodegen generate
+xcrun simctl list devices available
+```
+
+从模拟器列表取一个 iPhone 的 UUID，替换下面的 `SIMULATOR_UDID`：
+
+```sh
+xcodebuild test -project StudyAgent.xcodeproj -scheme StudyAgent \
+  -destination 'platform=iOS Simulator,id=SIMULATOR_UDID' \
+  -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+```
+
+CI 同样运行这三组测试，并保留 `app-test-results` 中的 `.xcresult`。协议测试使用可控 HTTP 流，不需要 API Key；App 测试使用独立的内存数据库和随包 Renderer。
 
 ### 用真实模型测试组件
 
