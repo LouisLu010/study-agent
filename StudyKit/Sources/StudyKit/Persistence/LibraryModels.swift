@@ -67,6 +67,8 @@ public final class ConceptCard {
     /// 用户在关系图里拖过时记下的位置（排布坐标）。没拖过时为 nil，由排布算法决定。
     public var mapX: Double?
     public var mapY: Double?
+    /// 用户确认对照阅读后保存的原文和引用位置；独立于探索记录，合并时保留各组证据。
+    @Attribute(.externalStorage) public var readingEvidenceData: Data?
 
     public init(title: String, content: String) {
         self.title = title

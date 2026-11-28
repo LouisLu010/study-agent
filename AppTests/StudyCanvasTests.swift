@@ -42,6 +42,44 @@ import UIKit
         #expect(throws: StudyMaterialStore.MaterialError.self) { try StudyCanvasStore.question("问", selected: [broken.id], canvas: canvas) }
     }
 
+    @Test func snapshotsMistakeCardAndMessageAssetsWithoutDuplicateReferences() throws {
+        let container = try container(), context = ModelContext(container)
+        let asset = StoredImage(data: Data([1, 2]), contentType: "image/png"); context.insert(asset)
+        let ref = "![](sa-asset:\(asset.id))"
+        let mistake = Mistake(kind: .manual); context.insert(mistake)
+        mistake.questionText = "题干"; mistake.solution = "解答 " + ref; mistake.solutionStateJSON = "state"
+        asset.mistake = mistake
+        let attached = MistakeImage(data: Data([3, 4]), index: 0); context.insert(attached); attached.mistake = mistake
+        let material = StudyMaterialStore.record(.mistake(mistake), context: context)
+        #expect(material.content.contains("解答") && material.componentStateJSON == "state" && material.images.count == 2)
+        mistake.kindRaw = MistakeKind.quiz.rawValue; mistake.questionJSON = "quiz"
+        #expect(StudyMaterialStore.record(.mistake(mistake), context: context).content == "quiz")
+        let card = ConceptCard(title: "卡", content: ref + " " + ref); context.insert(card)
+        #expect(StudyMaterialStore.record(.card(card), context: context).images.count == 1)
+        let message = Message(role: .assistant, content: ref, index: 0); context.insert(message)
+        #expect(StudyMaterialStore.message(message).images.count == 1)
+        #expect(StudyMaterialStore.referencedImages(in: "![](sa-asset:\(UUID()))", context: context).isEmpty)
+        let conversation = Conversation(title: "会话"); context.insert(conversation)
+        #expect(StudyMaterialStore.record(.conversation(conversation), context: context).reference?.recordID == conversation.id)
+        let emptyAsset = StoredImage(data: Data(), contentType: "image/png"); emptyAsset.data = nil
+        #expect(StudyMaterialStore.image(emptyAsset) == nil)
+    }
+
+    @Test func failedQuestionLeavesNoEmptyConversationAndTooManyImagesAreRejected() throws {
+        let container = try container(), context = ModelContext(container)
+        let canvas = StudyCanvas(title: "专题"); context.insert(canvas)
+        let item = try StudyCanvasStore.add(.init(title: "题", content: "内容"), to: canvas, at: MapPoint(x: 0, y: 0), context: context)
+        let model = ChatModel(modelID: "未配置服务商"); context.insert(model)
+        #expect(throws: GenerationError.self) {
+            try StudyCanvasStore.ask("问题", selected: [item.id], canvas: canvas, model: model, context: context, generation: GenerationCenter())
+        }
+        #expect(try context.fetchCount(FetchDescriptor<Conversation>()) == 0)
+        for _ in 0..<13 {
+            let image = StoredImage(data: Data([1]), contentType: "image/png"); context.insert(image); image.canvasItem = item
+        }
+        #expect(throws: StudyMaterialStore.MaterialError.self) { try StudyCanvasStore.question("问", selected: [item.id], canvas: canvas) }
+    }
+
     @Test func convertsRealImageAndPreservesMessageLocation() throws {
         let container = try container(), context = ModelContext(container)
         let conversation = Conversation(title: "会话"); context.insert(conversation)

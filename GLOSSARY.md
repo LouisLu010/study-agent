@@ -225,6 +225,12 @@ _Avoid_: 答案, 参考答案
 
 ### 界面
 
+<spec-entry category="coding" keywords="资料对照阅读,原文证据,理解草稿" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/ReadingComparison.swift:3">
+
+**资料对照阅读 (Reading Comparison)**：以同一概念为中心，比较不同原文的定义、前提和结论。每条证据保留材料名称、原文位置、行号与逐字片段；理解草稿经过用户核对与确认后才能保存为知识卡。
+
+</spec-entry>
+
 <spec-entry category="coding" keywords="条件探索,变式" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/ConditionExploration.swift:3">
 
 **条件探索 (Condition Exploration)**：保留原题，改变或去掉一个条件，查看推导和结论如何变化。

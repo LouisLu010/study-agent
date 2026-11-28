@@ -34,6 +34,7 @@ struct ConceptCardPopup: View {
     @State private var linkError: String?
     @State private var errorMessage: String?
     @State private var originalNote: ResearchNote?
+    @State private var evidenceCard: ConceptCard?
 
     private var currentID: UUID { stack.last ?? startID }
     private var current: ConceptCard? { cards.first { $0.id == currentID && !toasts.isHidden($0) } }
@@ -63,6 +64,7 @@ struct ConceptCardPopup: View {
                 ResearchNoteDetailView(note: note, showsCloseButton: true)
             }
         }
+        .sheet(item: $evidenceCard) { ReadingCardEvidenceSheet(card: $0) }
         .alert("提示", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -120,6 +122,9 @@ struct ConceptCardPopup: View {
                 RenderedContentView(id: card.id, content: Self.markdown(card))
                 if !card.sources.isEmpty {
                     SourceListView(sources: card.sources, numbered: true)
+                }
+                if card.readingEvidenceData != nil {
+                    Button("核对对照阅读原文", systemImage: "text.book.closed") { evidenceCard = card }
                 }
 
                 if !neighbors.isEmpty {

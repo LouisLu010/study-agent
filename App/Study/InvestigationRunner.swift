@@ -25,7 +25,7 @@ final class InvestigationRunner {
         Self.activeIDs.insert(record.id)
         isRunning = true; characterCount = 0
         record.statusRaw = "generating"; record.errorText = nil
-        record.modelID = model.id; record.modelName = model.name
+        record.modelID = model.id
         let started = Date(), price = model.price()
         var input = 0, output = 0, cached = 0
         var raw = ""
@@ -57,6 +57,7 @@ final class InvestigationRunner {
             let result = try validate(raw)
             account(); accounted = true
             if savesDetail { record.detailJSON = result } else { record.resultJSON = result }
+            record.modelName = model.name
             record.statusRaw = "complete"
             try context.save()
         } catch {

@@ -42,6 +42,12 @@ iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。�
 
 ## 构建和测试
 
+<spec-entry category="arch" keywords="学习画布,学习探索,1.3.0" date="2026-11-28" source="README.md:543">
+
+第十二至十六阶段进入 1.3.0 开发版：侧栏“学习画布”保存 `StudyCanvas` / `CanvasItem` 独立内容与图片，PencilKit 笔迹可继续编辑，选区提问产生带 `sourceCanvasID` 的会话。“学习探索”保存 `StudyInvestigation`，依次实现多解对照、知识缺口定位、条件探索、资料对照阅读。核心协议和校验在 StudyKit 的对应 Chat 文件，App 界面在 `App/Study/`；`InvestigationRunner` 控制生成、取消、用量与恢复，`InvestigationWorkflow` 从已保存快照组装请求。知识缺口分出题、作答、评估三步，改答使旧结论失效；条件探索在本机精确替换唯一条件；阅读证据按原文行号与引用逐字核对。保存知识卡要用户确认，`readingEvidenceData` 独立保留各次确认的材料快照，资料助手合并和撤销也要维护该字段。
+
+</spec-entry>
+
 - CI（`.github/workflows/ci.yml`，macOS）：`swift test --package-path StudyKit`、`node --test RendererTests/*.test.js`、`xcodegen generate` 后编译模拟器和真机版，打包未签名 ipa。
 - 先检查实际环境；当前工作区可在 macOS 上运行 `swift test --package-path StudyKit` 和 iOS Simulator 的 `xcodebuild test`。Linux 缺少 SwiftData，不能在那里验证整个包。不要因早期环境记录而跳过当前可运行的构建与测试。
 - 改了 `Prompts/` 或组件格式：用 `tools/eval/run.js` 跑真实模型（Key 只从环境变量 `STUDY_TEST_API_KEY` 读，绝不写进仓库），用法见 README"用真实模型测试组件"。

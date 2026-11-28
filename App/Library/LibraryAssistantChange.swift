@@ -20,6 +20,7 @@ struct LibraryAssistantSnapshot: Equatable {
         let modelName: String
         let mapXBits: UInt64?
         let mapYBits: UInt64?
+        let readingEvidenceData: Data?
 
         init(_ card: ConceptCard) {
             id = card.id
@@ -37,6 +38,7 @@ struct LibraryAssistantSnapshot: Equatable {
             // 按位记录可保留 -0，也不会让旧数据中的 NaN 与自身比较不相等。
             mapXBits = card.mapX?.bitPattern
             mapYBits = card.mapY?.bitPattern
+            readingEvidenceData = card.readingEvidenceData
         }
 
         func apply(to card: ConceptCard) {
@@ -54,6 +56,7 @@ struct LibraryAssistantSnapshot: Equatable {
             card.modelName = modelName
             card.mapX = mapXBits.map { Double(bitPattern: $0) }
             card.mapY = mapYBits.map { Double(bitPattern: $0) }
+            card.readingEvidenceData = readingEvidenceData
         }
     }
 

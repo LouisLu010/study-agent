@@ -46,6 +46,7 @@ struct InvestigationTestService: ChatService {
     @Test func invalidOutputAndNetworkFailurePreservePreviousResult() async throws {
         let (_, context, record, model) = try fixture()
         record.resultJSON = "original"
+        record.modelName = "原模型"
         let runner = InvestigationRunner()
         await #expect(throws: StudyToolError.self) {
             try await runner.run(record: record, request: .init(model: "test", messages: []), model: model, context: context,
@@ -54,6 +55,7 @@ struct InvestigationTestService: ChatService {
             }
         }
         #expect(record.resultJSON == "original" && record.statusRaw == "failed" && record.inputTokens == 1)
+        #expect(record.modelName == "原模型")
         await #expect(throws: (any Error).self) {
             try await runner.run(record: record, request: .init(model: "test", messages: []), model: model, context: context,
                                  service: InvestigationTestService(events: [], failure: .emptyResponse)) { $0 }

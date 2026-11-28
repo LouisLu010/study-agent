@@ -5,12 +5,14 @@ public enum InvestigationKind: String, Codable, CaseIterable, Identifiable, Send
     case comparison
     case gaps
     case conditions
+    case reading
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .comparison: "多解对照"
         case .gaps: "知识缺口定位"
         case .conditions: "条件探索"
+        case .reading: "资料对照阅读"
         }
     }
     public var symbol: String {
@@ -18,6 +20,7 @@ public enum InvestigationKind: String, Codable, CaseIterable, Identifiable, Send
         case .comparison: "rectangle.split.2x1"
         case .gaps: "point.3.connected.trianglepath.dotted"
         case .conditions: "arrow.triangle.branch"
+        case .reading: "text.book.closed"
         }
     }
 }

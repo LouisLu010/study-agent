@@ -124,6 +124,7 @@ struct KnowledgeGapDetailView: View {
             }.padding()
         }
         .navigationTitle("知识缺口定位").navigationBarTitleDisplayMode(.inline)
+        .groupedPageBackground()
         .sheet(item: $selection) { StudyMaterialSheet(material: $0) }
         .task {
             do {

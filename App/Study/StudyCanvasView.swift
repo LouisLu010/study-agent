@@ -4,14 +4,16 @@ import SwiftUI
 
 struct StudyCanvasesView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \StudyCanvas.updatedAt, order: .reverse) private var canvases: [StudyCanvas]
     @State private var title = ""
     @State private var creating = false
     @State private var errorText: String?
+    private var visible: [StudyCanvas] { canvases.filter { !toasts.isHidden($0) } }
 
     var body: some View {
         List {
-            ForEach(canvases) { canvas in
+            ForEach(visible) { canvas in
                 NavigationLink { StudyCanvasView(canvas: canvas) } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(canvas.title).font(.headline)
@@ -21,11 +23,14 @@ struct StudyCanvasesView: View {
                 }
             }
             .onDelete { offsets in
-                for index in offsets { context.delete(canvases[index]) }
-                save()
+                let removed = offsets.map { visible[$0] }
+                toasts.delete(removed, scope: .canvases) {
+                    for canvas in removed { context.delete(canvas) }; save()
+                }
             }
         }
-        .overlay { if canvases.isEmpty { ContentUnavailableView("建立一个专题空间", systemImage: "rectangle.3.group", description: Text("把原题、图表、知识卡和手写放在一起。")) } }
+        .overlay { if visible.isEmpty { ContentUnavailableView("建立一个专题空间", systemImage: "rectangle.3.group", description: Text("把原题、图表、知识卡和手写放在一起。")) } }
+        .toastBar(.canvases)
         .navigationTitle("学习画布")
         .toolbar { Button("新建画布", systemImage: "plus") { title = ""; creating = true } }
         .alert("新建画布", isPresented: $creating) {
@@ -61,6 +66,7 @@ private enum CanvasSheet: Identifiable {
 struct StudyCanvasView: View {
     @Bindable var canvas: StudyCanvas
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @State private var selection: Set<UUID> = []
     @State private var selecting = false
     @State private var box: CGRect?
@@ -70,6 +76,7 @@ struct StudyCanvasView: View {
     @State private var renaming = false
     @State private var name = ""
     @State private var viewSize = CGSize.zero
+    private var visibleItems: [CanvasItem] { canvas.sortedItems.filter { !toasts.isHidden($0) } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,12 +86,16 @@ struct StudyCanvasView: View {
                     Color(.systemGroupedBackground)
                         .contentShape(Rectangle())
                         .gesture(backgroundDrag)
-                    ForEach(canvas.sortedItems) { item in
+                    ForEach(visibleItems) { item in
                         CanvasTile(item: item, selected: selection.contains(item.id), selecting: selecting,
+                                   visible: isOnScreen(item, size: proxy.size),
                                    zoom: canvas.zoom, onSelect: { toggle(item.id) },
                                    onOpen: { sheet = .preview(item) }, onEdit: {
                             sheet = item.drawingData == nil ? .text(item) : .drawing(item)
-                        }, onMove: save, onDelete: { context.delete(item); selection.remove(item.id); save() })
+                        }, onMove: save, onDelete: {
+                            selection.remove(item.id)
+                            toasts.delete([item], scope: .canvases) { context.delete(item); save() }
+                        })
                             .frame(width: CanvasSelection.width, height: CanvasSelection.height)
                             .scaleEffect(canvas.zoom)
                             .position(x: item.x * canvas.zoom + canvas.offsetX + proxy.size.width / 2,
@@ -96,7 +107,7 @@ struct StudyCanvasView: View {
                             .frame(width: box.width, height: box.height).position(x: box.midX, y: box.midY)
                             .allowsHitTesting(false)
                     }
-                    if canvas.sortedItems.isEmpty {
+                    if visibleItems.isEmpty {
                         ContentUnavailableView("添加你的学习内容", systemImage: "plus.rectangle.on.rectangle", description: Text("添加原题、知识卡、会话消息或手写，再拖动标题栏自由摆放。"))
                             .frame(width: proxy.size.width, height: proxy.size.height).allowsHitTesting(false)
                     }
@@ -107,6 +118,7 @@ struct StudyCanvasView: View {
             }
         }
         .navigationTitle(canvas.title)
+        .toastBar(.canvases)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             Menu {
@@ -176,7 +188,7 @@ struct StudyCanvasView: View {
         }.onEnded { value in
             if selecting {
                 let offset = MapPoint(x: canvas.offsetX + viewSize.width / 2, y: canvas.offsetY + viewSize.height / 2)
-                selection = CanvasSelection.selected(items: canvas.sortedItems.map { .init(id: $0.id, center: MapPoint(x: $0.x, y: $0.y)) },
+                selection = CanvasSelection.selected(items: visibleItems.map { .init(id: $0.id, center: MapPoint(x: $0.x, y: $0.y)) },
                     from: CanvasSelection.world(MapPoint(x: value.startLocation.x, y: value.startLocation.y), offset: offset, zoom: canvas.zoom),
                     to: CanvasSelection.world(MapPoint(x: value.location.x, y: value.location.y), offset: offset, zoom: canvas.zoom))
                 box = nil
@@ -185,6 +197,13 @@ struct StudyCanvasView: View {
     }
 
     private func toggle(_ id: UUID) { if !selection.insert(id).inserted { selection.remove(id) } }
+
+    private func isOnScreen(_ item: CanvasItem, size: CGSize) -> Bool {
+        let x = item.x * canvas.zoom + canvas.offsetX + size.width / 2
+        let y = item.y * canvas.zoom + canvas.offsetY + size.height / 2
+        let margin = max(CanvasSelection.width, CanvasSelection.height) * canvas.zoom
+        return x > -margin && x < size.width + margin && y > -margin && y < size.height + margin
+    }
 
     @discardableResult private func add(_ material: StudyMaterial) -> CanvasItem? {
         guard canvas.sortedItems.count < 40 else { errorText = "每张画布最多保存 40 份内容，请新建另一个专题。"; return nil }
@@ -205,6 +224,7 @@ private struct CanvasTile: View {
     @Bindable var item: CanvasItem
     let selected: Bool
     let selecting: Bool
+    let visible: Bool
     let zoom: Double
     let onSelect: () -> Void
     let onOpen: () -> Void
@@ -231,7 +251,10 @@ private struct CanvasTile: View {
                 } label: { Image(systemName: "ellipsis") }.accessibilityLabel("内容操作")
             }.padding(12)
             Divider()
-            CanvasItemContent(item: item)
+            Group {
+                if visible { CanvasItemContent(item: item) }
+                else { Color.clear }
+            }
                 .allowsHitTesting(!selecting)
                 .overlay { if selecting { Color.clear.contentShape(Rectangle()).onTapGesture(perform: onSelect) } }
         }
@@ -246,6 +269,7 @@ struct CanvasItemContent: View {
     let item: CanvasItem
     @Environment(\.modelContext) private var context
     @State private var height: CGFloat = 180
+    @State private var handle = WebViewHandle()
     @State private var errorText: String?
     var body: some View {
         ScrollView {
@@ -253,8 +277,13 @@ struct CanvasItemContent: View {
                            height: $height, onComponentState: { key, state in
                 item.componentStateJSON = ComponentStateStore.updating(item.componentStateJSON, key: key, state: state)
                 do { try context.save() } catch { errorText = ChatErrorDescription.describe(error) }
-            }, groupedSurface: true)
+            }, groupedSurface: true, handle: handle)
+            .id(item.content)
             .frame(height: height).padding(10)
+        }
+        .onChange(of: item.componentStateJSON) { old, new in
+            let keys = Set(ComponentStateStore.decode(old).keys).union(ComponentStateStore.decode(new).keys)
+            for key in keys { handle.applyState(key: key, stateJSON: new) }
         }
         .studyError($errorText)
     }

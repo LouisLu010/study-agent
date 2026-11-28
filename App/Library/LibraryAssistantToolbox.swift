@@ -124,12 +124,14 @@ final class LibraryAssistantToolbox {
         let ids = Set(request.ids)
         try validatePersistedState(cardIDs: ids)
         let sources = mergedSources(cards)
+        let readingEvidence = try ReadingComparisonStore.mergedEvidence(cards)
         let summary = "已将 \(cards.count) 张知识卡合并为「\(request.title)」"
         try mutate(summary: summary) {
             keeper.title = request.title
             keeper.content = try normalized(request.content, sources: sources)
             keeper.example = try normalized(request.example, sources: sources)
             keeper.sources = sources
+            keeper.readingEvidenceData = readingEvidence
             keeper.subject = request.subject
             keeper.topic = request.topic
             keeper.updatedAt = .now
@@ -361,6 +363,7 @@ final class LibraryAssistantToolbox {
         ["id": .string(card.id.uuidString), "title": .string(card.title), "content": .string(card.content),
          "example": .string(card.example), "subject": .string(card.subjectRaw), "topic": .string(card.topic),
          "sources": sourceData(card.sources), "sources_json": .string(card.sourcesJSON),
+         "reading_evidence_digest": card.readingEvidenceData.map { .string(SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined()) } ?? .null,
          "created_at": .string(String(card.createdAt.timeIntervalSince1970.bitPattern)), "updated_at": .string(String(card.updatedAt.timeIntervalSince1970.bitPattern)),
          "group_id": card.noteID.map { .string($0.uuidString) } ?? .null,
          "conversation_id": card.sourceConversationID.map { .string($0.uuidString) } ?? .null,

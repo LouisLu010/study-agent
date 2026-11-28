@@ -4,8 +4,10 @@ import SwiftUI
 
 struct InvestigationsView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ToastCenter.self) private var toasts
     @Query(sort: \StudyInvestigation.updatedAt, order: .reverse) private var records: [StudyInvestigation]
     @State private var errorText: String?
+    private var visible: [StudyInvestigation] { records.filter { !toasts.isHidden($0) } }
 
     var body: some View {
         List {
@@ -19,10 +21,13 @@ struct InvestigationsView: View {
                 NavigationLink { ConditionExplorationComposer() } label: {
                     Label("条件探索", systemImage: InvestigationKind.conditions.symbol)
                 }
+                NavigationLink { ReadingComparisonComposer() } label: {
+                    Label("资料对照阅读", systemImage: InvestigationKind.reading.symbol)
+                }
             }
             Section("已保存的探索") {
-                if records.isEmpty { Text("分析材料、作答和结果会保存在这里。").foregroundStyle(.secondary) }
-                ForEach(records) { record in
+                if visible.isEmpty { Text("分析材料、作答和结果会保存在这里。").foregroundStyle(.secondary) }
+                ForEach(visible) { record in
                     NavigationLink {
                         if record.kind == .gaps { KnowledgeGapDetailView(record: record) }
                         else { InvestigationDetailView(record: record) }
@@ -35,12 +40,16 @@ struct InvestigationsView: View {
                     }
                 }
                 .onDelete { offsets in
-                    for index in offsets { context.delete(records[index]) }
-                    do { try context.save() } catch { errorText = ChatErrorDescription.describe(error) }
+                    let removed = offsets.map { visible[$0] }
+                    toasts.delete(removed, scope: .investigations) {
+                        for record in removed { context.delete(record) }
+                        do { try context.save() } catch { errorText = ChatErrorDescription.describe(error) }
+                    }
                 }
             }
         }
         .navigationTitle("学习探索")
+        .toastBar(.investigations)
         .studyError($errorText)
     }
 }
@@ -118,13 +127,15 @@ struct InvestigationDetailView: View {
                 ForEach(materials) { material in
                     Button { selection = material } label: { Label(material.title, systemImage: "doc.text.magnifyingglass") }
                 }
-                if !record.inputText.isEmpty {
+                if !record.inputText.isEmpty && record.kind != .reading {
                     DisclosureGroup(record.kind == .conditions ? "原解法" : "自己的原解法") { StudyMarkdown(content: record.inputText) }
                 }
                 generationControls
                 if !record.resultJSON.isEmpty {
                     Label("AI 分析 · \(record.modelName)", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)
-                    if record.kind == .conditions, let result = try? ConditionExploration.parse(record.resultJSON, solution: record.inputText) {
+                    if record.kind == .reading, let result = try? ReadingComparison.parse(record.resultJSON, materials: materials) {
+                        ReadingComparisonResultView(result: result, materials: materials, record: record)
+                    } else if record.kind == .conditions, let result = try? ConditionExploration.parse(record.resultJSON, solution: record.inputText) {
                         ConditionExplorationResultView(result: result)
                     } else if let result = try? SolutionComparison.parse(record.resultJSON, ownSolution: record.inputText) {
                         ComparisonResultView(result: result)
@@ -138,6 +149,7 @@ struct InvestigationDetailView: View {
             .padding()
         }
         .navigationTitle(record.kind?.title ?? "学习探索").navigationBarTitleDisplayMode(.inline)
+        .groupedPageBackground()
         .sheet(item: $selection) { material in StudyMaterialSheet(material: material) }
         .task {
             do {
@@ -172,26 +184,13 @@ struct InvestigationDetailView: View {
     }
 
     private func start() {
-        guard let model, let question = materials.first, !runner.isRunning else { return }
+        guard let model, !runner.isRunning else { return }
         do {
-            let request: ChatRequest
-            if record.kind == .conditions {
-                let change = try StudyToolJSON.decode(ConditionExploration.Change.self, from: record.detailJSON)
-                guard materials.count == 2, try ConditionExploration.variant(original: question, change: change).content == materials[1].content else {
-                    throw StudyToolError.invalidInput("变式与保存的条件变化不一致，请重新创建探索。")
-                }
-                request = try ConditionExploration.request(model: model.modelID, original: question, change: change, solution: record.inputText, reasoning: model.reasoningEffort)
-            } else {
-                request = try SolutionComparison.request(model: model.modelID, question: question, ownSolution: record.inputText, reasoning: model.reasoningEffort)
-            }
-            let prepared = try InvestigationRunner.attachImages([question], to: request, model: model)
+            let prepared = try InvestigationWorkflow.prepare(record: record, model: model)
             let service = try ModelLookup.service(for: model)
             task = Task {
                 do {
-                    try await runner.run(record: record, request: prepared, model: model, context: context, service: service) { raw in
-                        if record.kind == .conditions { return try StudyToolJSON.encode(ConditionExploration.parse(raw, solution: record.inputText)) }
-                        return try StudyToolJSON.encode(SolutionComparison.parse(raw, ownSolution: record.inputText))
-                    }
+                    try await runner.run(record: record, request: prepared.request, model: model, context: context, service: service, validate: prepared.validate)
                 } catch { if !Task.isCancelled { errorText = ChatErrorDescription.describe(error) } }
             }
         } catch { errorText = ChatErrorDescription.describe(error) }
@@ -200,8 +199,10 @@ struct InvestigationDetailView: View {
 
 struct ComparisonResultView: View {
     let result: SolutionComparison.Result
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            if sizeClass == .compact { Text("左右滑动查看各解法，按共同目标逐行对照。").font(.caption).foregroundStyle(.secondary) }
             ScrollView(.horizontal) {
                 Grid(alignment: .topLeading, horizontalSpacing: 12, verticalSpacing: 14) {
                     GridRow {
@@ -249,20 +250,37 @@ struct StudyMarkdown: View {
 
 struct StudyMaterialSheet: View {
     let material: StudyMaterial
+    var evidence: ReadingComparison.Evidence?
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         NavigationStack {
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if let reference = material.reference { StudyReferenceStrip(references: [reference]) }
                     if !material.location.isEmpty { Text(material.location).font(.caption).textSelection(.enabled) }
-                    StudyMarkdown(content: displayContent)
+                    if let evidence {
+                        let lines = material.content.components(separatedBy: "\n")
+                        LazyVStack(alignment: .leading, spacing: 8) {
+                            ForEach(lines.indices, id: \.self) { index in
+                                HStack(alignment: .top, spacing: 10) {
+                                    Text("\(index + 1)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 30)
+                                    Text(lines[index].isEmpty ? " " : lines[index]).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(8)
+                                .background(index + 1 >= evidence.startLine && index + 1 <= evidence.endLine ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .id(index + 1)
+                            }
+                        }
+                    } else { StudyMarkdown(content: displayContent) }
                     ForEach(material.images.indices, id: \.self) { index in
                         if let image = UIImage(data: material.images[index].data) {
                             Image(uiImage: image).resizable().scaledToFit().accessibilityLabel("原材料附件 \(index + 1)")
                         }
                     }
                 }.padding()
+            }
+            .task { if let evidence { proxy.scrollTo(evidence.startLine, anchor: .center) } }
             }
             .navigationTitle(material.title).navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("完成") { dismiss() } }

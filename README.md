@@ -540,9 +540,11 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 </spec-entry>
 
-<spec-entry category="arch" keywords="第十二版,学习画布,内容副本" date="2026-11-28" source="docs/future-goals.md:9">
+<spec-entry category="arch" keywords="第十二版,学习画布,内容副本" date="2026-11-28" source="docs/future-goals.md:7">
 
 ### 第十二版范围：学习画布
+
+本轮第十二至十六版范围按功能阶段依次实现，统一进入 1.3.0 开发版。
 
 专题画布保存原题、知识卡、会话中的消息、文字笔记与可继续编辑的手写。内容以独立副本保存，保留原记录入口；删除原记录不影响画布。坐标图复用现有交互渲染器，状态随画布保存。
 
@@ -555,7 +557,7 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 </spec-entry>
 
-<spec-entry category="arch" keywords="第十三版,多解对照,自己的解法" date="2026-11-28" source="docs/future-goals.md:15">
+<spec-entry category="arch" keywords="第十三版,多解对照,自己的解法" date="2026-11-28" source="docs/future-goals.md:13">
 
 ### 第十三版范围：多解对照
 
@@ -567,7 +569,7 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 </spec-entry>
 
-<spec-entry category="arch" keywords="第十四版,知识缺口定位,作答证据" date="2026-11-28" source="docs/future-goals.md:21">
+<spec-entry category="arch" keywords="第十四版,知识缺口定位,作答证据" date="2026-11-28" source="docs/future-goals.md:19">
 
 ### 第十四版范围：知识缺口定位
 
@@ -579,7 +581,7 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 </spec-entry>
 
-<spec-entry category="arch" keywords="第十五版,题目条件探索,独立变式" date="2026-11-28" source="docs/future-goals.md:27">
+<spec-entry category="arch" keywords="第十五版,题目条件探索,独立变式" date="2026-11-28" source="docs/future-goals.md:25">
 
 ### 第十五版范围：题目条件探索
 
@@ -591,13 +593,29 @@ STUDY_TEST_API_KEY=sk-... node tools/eval/tools-trial.js [--mode v5,model,api] [
 
 </spec-entry>
 
-<spec-entry category="arch" keywords="第十六版,资料对照阅读,原文位置" date="2026-11-28" source="docs/future-goals.md:33">
+<spec-entry category="arch" keywords="第十六版,资料对照阅读,原文位置" date="2026-11-28" source="docs/future-goals.md:31">
 
 ### 第十六版范围：资料对照阅读
 
 选入两至四份已有内容，或粘贴教材、讲义的文字并注明页码或章节，填写要比较的概念。按定义、前提和结论展示一致、差异或资料不足。模型给出原文行号与逐字引用，由 App 核对后才能展示；点击证据打开保存的原文并定位，原记录可用时还可回到原记录。
 
 原文和位置独立保存，删除来源不会丢失对照依据。对照完成后，用户检查、编辑并确认内容，再保存为知识卡；卡片保留经核对的引用片段与来源位置。缺少文字的扫描页需要先提供可核对的原文；首版不做自动 OCR 或在线抓取教材。
+
+**实现**：`ReadingComparison` 校验定义、前提和结论三项比较，每条证据必须逐字出现在指定原文行范围内。一致或差异的结论须包含每份材料的依据，缺少依据标为资料不足。页面可按证据打开独立原文并高亮对应行。`ReadingComparisonStore` 在用户确认后保存知识卡，同时保存材料和证据副本；重新分析后的每次确认分别留存，资料助手合并、撤销和版本核对也包含这些证据。确认期间结果发生变化会拒绝保存，避免正文与证据不一致。
+
+本轮收尾还统一了探索请求的快照与校验入口 `InvestigationWorkflow`，补齐画布和探索的删除撤销、画布组件参数同步及编辑后的状态重置。重新分析失败时保留上一份有效结果和对应模型名称。
+
+</spec-entry>
+
+<spec-entry category="quality" keywords="1.3.0,学习画布,学习探索,回归验证" date="2026-11-28" source="AppTests/LearningToolsFlowTests.swift:1">
+
+**1.3.0 开发版验证**：StudyKit 全量 293 项通过，Renderer 全量 106 项通过，App 的 Swift Testing 全量 176 项通过。App 完整测试包中的新展示测试最初因测试数据与界面使用不同的 `ModelContext` 失败；测试数据改用容器的 `mainContext` 后，受影响的展示测试和 3 项完整流程测试定向复跑通过。原有学习助手展示测试也已通过。
+
+新增核心文件的行覆盖率：StudyKit 为 89.7%–100%，App 为 88.9%–100%；分析执行器、请求组装、知识缺口存储和阅读证据存储均为 100%。完整流程测试覆盖选区提问、四种分析请求与结果保存、错误和取消、证据独立保存及合并撤销；非空 PencilKit 笔迹导出 JPEG 与恢复通过。
+
+iPhone 与 iPad 的 iOS 26.3 模拟器展示检查已通过，包含真实曲线绘制、滑块参数保存与重新打开恢复、多解并排、缺口作答、条件探索、阅读对照、原文定位和知识卡证据。当前模拟器的 WebView 中文字体缺失，原生中文、公式和正文 DOM 检查正常；中文排版仍需在字体完整的设备复核。尚未进行真实 API 的生成质量与费用评测、iOS 18 兼容性验证和 Apple Pencil 真机交互检查。
+
+测试结果保存在 `build/v16-full-retry.xcresult`（App 功能全量及首次展示检查）、`build/v16-final-screens.xcresult`（iPhone 定向复测）、`build/v16-ipad-final.xcresult`（iPad 最终复测）。iPad 最终截图在 `build/v16-ipad-final-screens/`；页面与 WebView 正文分别取图，避免异步快照叠加产生重影。
 
 </spec-entry>
 

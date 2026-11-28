@@ -10,7 +10,7 @@ import SwiftUI
 final class ToastCenter {
     /// 提示条显示在哪个页面。iPad 上侧栏和右边同时显示，只在发起操作的那一栏出现。
     enum Scope: Hashable {
-        case conversations, bookmarks, notes, compilations, mistakes, chat
+        case conversations, bookmarks, notes, compilations, mistakes, chat, canvases, investigations
     }
 
     struct Toast: Identifiable {

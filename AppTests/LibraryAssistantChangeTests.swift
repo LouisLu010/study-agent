@@ -37,6 +37,7 @@ import Testing
             { card.sourcesJSON = "[ ]" }, { card.noteID = nil },
             { card.sourceConversationID = nil }, { card.modelName = "新模型" },
             { card.mapX = nil }, { card.mapY = 0 },
+            { card.readingEvidenceData = Data([1, 2, 3]) },
         ]
         for edit in edits {
             edit()
