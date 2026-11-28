@@ -14,9 +14,13 @@ private enum BatchCollectorTestError: Error {
 private final class BatchCollectorService: ChatService, @unchecked Sendable {
     private let lock = NSLock()
     private var replies: [String]
+    private var reviewReplies: [String]?
     private var captured: [ChatRequest] = []
 
-    init(_ replies: [String]) { self.replies = replies }
+    init(_ replies: [String], reviewReplies: [String]? = nil) {
+        self.replies = replies
+        self.reviewReplies = reviewReplies
+    }
 
     var requests: [ChatRequest] {
         lock.lock()
@@ -24,10 +28,44 @@ private final class BatchCollectorService: ChatService, @unchecked Sendable {
         return captured
     }
 
+    var reviewRequests: [ChatRequest] { requests.filter(Self.isReview) }
+
+    private static func isReview(_ request: ChatRequest) -> Bool {
+        request.systemPrompt?.contains("is_question") == true
+    }
+
+    /// 默认复核只选择请求里实际提供的原块，测试可以单独指定删块或失败响应。
+    private static func preservingReview(_ request: ChatRequest) -> String? {
+        guard let text = request.messages.last?.text, let marker = text.range(of: "\n候选题：\n"),
+              let candidates = JSONValue.parse(String(text[marker.upperBound...]))?.arrayValue
+        else { return nil }
+        var items: [JSONValue] = []
+        for candidate in candidates {
+            guard let id = candidate["id"]?.stringValue, let blocks = candidate["blocks"]?.arrayValue else { return nil }
+            let question = blocks.filter { $0["origin"]?.stringValue == "question" }.compactMap { $0["id"]?.stringValue }
+            let answer = blocks.filter { $0["origin"]?.stringValue == "answer" }.compactMap { $0["id"]?.stringValue }
+            items.append([
+                "id": .string(id), "is_question": .bool(!question.isEmpty),
+                "question": .array(question.map(JSONValue.string)),
+                "answer": .array((question.isEmpty ? [] : answer).map(JSONValue.string)), "note": "测试保留原块",
+            ])
+        }
+        return JSONValue.object(["items": .array(items)]).jsonString
+    }
+
     func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         lock.lock()
         captured.append(request)
-        let reply = replies.isEmpty ? nil : replies.removeFirst()
+        let reply: String?
+        if Self.isReview(request) {
+            if reviewReplies != nil {
+                reply = reviewReplies!.isEmpty ? nil : reviewReplies!.removeFirst()
+            } else {
+                reply = Self.preservingReview(request)
+            }
+        } else {
+            reply = replies.isEmpty ? nil : replies.removeFirst()
+        }
         lock.unlock()
         return AsyncThrowingStream { continuation in
             guard let reply else {
@@ -107,7 +145,34 @@ private final class BatchCollectorFixture {
         ]).jsonString
     }
 
-    @Test func aKnownPaperSavesTwoOriginalQuestionsWithOneLocalRequest() async throws {
+    private func reviewReply(
+        _ candidate: CompilationQuestionReview.Candidate, question: [String], answer: [String] = [], isQuestion: Bool = true
+    ) -> String {
+        JSONValue.object(["items": .array([[
+            "id": .string(candidate.id), "is_question": .bool(isQuestion),
+            "question": .array(question.map(JSONValue.string)), "answer": .array(answer.map(JSONValue.string)),
+            "note": .string(isQuestion ? "已核实并保留原题" : "仅为网页导航与广告，不是题目"),
+        ]])]).jsonString
+    }
+
+    /// 选区与复核 ID 均取自实际提取结果，避免测试假定 Markdown 拆块数量。
+    private func fullPageCandidate(
+        html: String, number: String = "17"
+    ) throws -> (selection: String, candidate: CompilationQuestionReview.Candidate) {
+        let document = PaperDocument(html: html, url: pageURL)
+        let first = try #require(document.blocks.first)
+        let last = try #require(document.blocks.last)
+        let result = try document.extract(startID: first.id, endID: last.id).get()
+        let selected: JSONValue = [
+            "number": .string(number), "source_id": "S1", "start_id": .string(first.id), "end_id": .string(last.id), "group": false,
+        ]
+        return (
+            selection(questions: [selected]),
+            CompilationQuestionReview.Candidate(id: "Q1", number: number, content: result.content, answer: result.answer)
+        )
+    }
+
+    @Test func aKnownPaperSavesTwoOriginalQuestionsWithBatchedSelectionAndReview() async throws {
         let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
         defer { fixture.removeFiles() }
         let document = PaperDocument(html: paperHTML, url: pageURL)
@@ -125,7 +190,8 @@ private final class BatchCollectorFixture {
         #expect(finished.collectionComplete)
         #expect(finished.state == .done)
         #expect(finished.found == 2)
-        #expect(service.requests.count == 1)
+        #expect(service.requests.count == 2)
+        #expect(service.reviewRequests.count == 1)
         #expect(service.requests.allSatisfy { !$0.webSearch && $0.tools.isEmpty })
         #expect(fixture.downloads == [pageURL])
         #expect(images == [URL(string: "https://example.org/route.png")!])
@@ -150,8 +216,9 @@ private final class BatchCollectorFixture {
 
         #expect(finished.collectionComplete)
         #expect(finished.found == 1)
-        #expect(service.requests.count == 2)
-        #expect(service.requests.map(\.webSearch) == [true, false])
+        #expect(service.requests.count == 3)
+        #expect(service.reviewRequests.count == 1)
+        #expect(service.requests.map(\.webSearch) == [true, false, false])
         #expect(service.requests.first?.webSearchDialect == .deepSeek)
         #expect(service.requests.allSatisfy { $0.tools.isEmpty })
         #expect(fixture.downloads == [pageURL])
@@ -187,7 +254,8 @@ private final class BatchCollectorFixture {
 
         #expect(finished.collectionComplete)
         #expect(finished.found == 2)
-        #expect(service.requests.count == 3)
+        #expect(service.requests.count == 5)
+        #expect(service.reviewRequests.count == 2)
         #expect(service.requests.allSatisfy { !$0.webSearch && $0.tools.isEmpty })
         #expect(fixture.downloads == [pageURL, firstURL, secondURL])
         #expect(Set(fixture.compilation.sortedQuestions.map(\.number)) == Set(["17", "18"]))
@@ -220,6 +288,7 @@ private final class BatchCollectorFixture {
         await #expect(throws: CompilationTools.ArgumentError.self) { try await collector.collect() }
 
         #expect(service.requests.count == 1)
+        #expect(service.reviewRequests.isEmpty)
         #expect(fixture.compilation.sortedQuestions.isEmpty)
         #expect(fixture.compilation.papers.first?.collectionComplete == false)
     }
@@ -238,14 +307,15 @@ private final class BatchCollectorFixture {
 
         await #expect(throws: CancellationError.self) { try await task.value }
 
-        #expect(service.requests.count == 1)
+        #expect(service.requests.count == 2)
+        #expect(service.reviewRequests.count == 1)
         #expect(fixture.compilation.sortedQuestions.isEmpty)
         #expect(try fixture.context.fetchCount(FetchDescriptor<ExamQuestion>()) == 0)
         #expect(try fixture.context.fetchCount(FetchDescriptor<StoredImage>()) == 0)
         #expect(fixture.compilation.papers.first?.collectionComplete == false)
     }
 
-    @Test func previouslyVerifiedWholePaperIsCopiedWithoutAnyRequests() async throws {
+    @Test func previouslyCollectedWholePaperIsReviewedOnceBeforeReuse() async throws {
         let fixture = try BatchCollectorFixture(sources: [])
         defer { fixture.removeFiles() }
         let previous = Compilation(request: fixture.compilation.request)
@@ -270,12 +340,152 @@ private final class BatchCollectorFixture {
 
         #expect(finished.collectionComplete)
         #expect(finished.found == 1)
-        #expect(service.requests.isEmpty)
+        #expect(service.requests.count == 1)
+        #expect(service.reviewRequests.count == 1)
+        #expect(service.requests.allSatisfy { !$0.webSearch && $0.tools.isEmpty })
         #expect(fixture.downloads.isEmpty)
         let copied = try #require(fixture.compilation.sortedQuestions.first)
         #expect(copied.id != original.id)
         #expect(copied.content == original.content)
+        #expect(CompilationQuestionReviewer.isReviewed(copied))
         #expect(previous.sortedQuestions.count == 1)
+
+        let cachedService = BatchCollectorService([], reviewReplies: [])
+        let repeated = try await fixture.collector(service: cachedService, pages: [:]).collect()
+        #expect(repeated.collectionComplete)
+        #expect(cachedService.requests.isEmpty)
+        #expect(fixture.compilation.sortedQuestions.map(\.id) == [copied.id])
+    }
+
+    @Test func reviewRemovesWebsiteNoiseAndSeparatesAnUnmarkedAnswer() async throws {
+        let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
+        defer { fixture.removeFiles() }
+        let html = """
+        <html><body><p>首页 · 题库导航</p>
+        <p>17．有机物甲与溴水反应，写出产物并说明原因。</p>
+        <p>参考结论：产物为二溴代物，因为碳碳双键发生加成。</p>
+        <p>下载 App 解锁更多试题。</p></body></html>
+        """
+        let input = try fullPageCandidate(html: html)
+        #expect(input.candidate.answer.isEmpty)
+        let question = try #require(input.candidate.blocks.first { $0.text.contains("有机物甲与溴水") })
+        let answer = try #require(input.candidate.blocks.first { $0.text.contains("参考结论") })
+        let service = BatchCollectorService([input.selection], reviewReplies: [
+            reviewReply(input.candidate, question: [question.id], answer: [answer.id]),
+        ])
+
+        let finished = try await fixture.collector(service: service, pages: [pageURL.absoluteString: html]).collect()
+
+        #expect(finished.collectionComplete)
+        #expect(service.requests.count == 2)
+        #expect(service.reviewRequests.count == 1)
+        #expect(service.requests.allSatisfy { !$0.webSearch && $0.tools.isEmpty })
+        let saved = try #require(ModelContext(fixture.container).fetch(FetchDescriptor<ExamQuestion>()).first)
+        #expect(saved.content == question.text)
+        #expect(saved.answer == answer.text)
+        #expect(!saved.content.contains("参考结论"))
+        #expect(!saved.content.contains("题库导航"))
+        #expect(!saved.content.contains("下载 App"))
+        #expect(saved.answerKind == .site)
+        #expect(saved.answerSite == CompilationPlanner.siteName(for: pageURL))
+        #expect(CompilationQuestionReviewer.isReviewed(saved))
+    }
+
+    @Test func reviewOnlyDownloadsRetainedQuestionAndAnswerImagesAndRemapsTheirIndices() async throws {
+        let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
+        defer { fixture.removeFiles() }
+        let html = """
+        <html><body><p>17．有机物甲的合成路线如下，完成反应式。</p>
+        <p><img src="/advert.png"></p><p><img src="/question.png"></p>
+        <p>参考结论：反应产物如下。</p><p><img src="/answer.png"></p></body></html>
+        """
+        let input = try fullPageCandidate(html: html)
+        let stem = try #require(input.candidate.blocks.first { $0.text.contains("有机物甲的合成路线") })
+        let questionImage = try #require(input.candidate.blocks.first { $0.text.contains("sa-image:1") })
+        let answer = try #require(input.candidate.blocks.first { $0.text.contains("参考结论") })
+        let answerImage = try #require(input.candidate.blocks.first { $0.text.contains("sa-image:2") })
+        let service = BatchCollectorService([input.selection], reviewReplies: [
+            reviewReply(input.candidate, question: [stem.id, questionImage.id], answer: [answer.id, answerImage.id]),
+        ])
+        var images: [URL] = []
+        let finished = try await fixture.collector(service: service, pages: [pageURL.absoluteString: html], imageLoader: { url, _ in
+            images.append(url)
+            return (Data(url.lastPathComponent.utf8), "image/png")
+        }).collect()
+
+        #expect(finished.collectionComplete)
+        #expect(images == [URL(string: "https://example.org/question.png")!, URL(string: "https://example.org/answer.png")!])
+        let context = ModelContext(fixture.container)
+        let saved = try #require(context.fetch(FetchDescriptor<ExamQuestion>()).first)
+        let questionAsset = try #require(saved.images?.first { $0.data == Data("question.png".utf8) })
+        let answerAsset = try #require(saved.images?.first { $0.data == Data("answer.png".utf8) })
+        #expect(saved.content.contains("sa-asset:\(questionAsset.id.uuidString)"))
+        #expect(saved.answer.contains("sa-asset:\(answerAsset.id.uuidString)"))
+        #expect(!saved.content.contains("sa-asset:\(answerAsset.id.uuidString)"))
+        #expect(!saved.answer.contains("sa-asset:\(questionAsset.id.uuidString)"))
+        #expect(!saved.content.contains("sa-image:"))
+        #expect(!saved.answer.contains("sa-image:"))
+        #expect(try context.fetchCount(FetchDescriptor<StoredImage>()) == 2)
+        #expect(saved.status == .complete)
+    }
+
+    @Test func rejectedWebsiteElementsAreNeverSavedAsAQuestion() async throws {
+        let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
+        defer { fixture.removeFiles() }
+        let html = "<html><body><p>首页 · 高考题库导航</p><p>下载 App 查看更多试题。</p><p><img src=\"/advert.png\"></p></body></html>"
+        let input = try fullPageCandidate(html: html)
+        let service = BatchCollectorService([input.selection, #"{"sources":[]}"#], reviewReplies: [
+            reviewReply(input.candidate, question: [], isQuestion: false),
+        ])
+        var imageAttempts = 0
+
+        let finished = try await fixture.collector(service: service, pages: [pageURL.absoluteString: html], imageLoader: { _, _ in
+            imageAttempts += 1
+            throw BatchCollectorTestError.unexpectedImage
+        }).collect()
+
+        #expect(!finished.collectionComplete)
+        #expect(finished.found == 0)
+        #expect(imageAttempts == 0)
+        #expect(service.reviewRequests.count == 1)
+        #expect(try fixture.context.fetchCount(FetchDescriptor<ExamQuestion>()) == 0)
+        #expect(try fixture.context.fetchCount(FetchDescriptor<StoredImage>()) == 0)
+    }
+
+    @Test func aMalformedReviewCannotSaveAnyQuestionOrDownloadImages() async throws {
+        let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
+        defer { fixture.removeFiles() }
+        let document = PaperDocument(html: paperHTML, url: pageURL)
+        let response = try selection(questions: [range("17", in: document, marker: "有机物甲"), range("18", in: document, marker: "有机物乙")])
+        let service = BatchCollectorService([response], reviewReplies: [#"{"items":[]}"#])
+        var imageAttempts = 0
+        let collector = fixture.collector(service: service, pages: [pageURL.absoluteString: paperHTML], imageLoader: { _, _ in
+            imageAttempts += 1
+            throw BatchCollectorTestError.unexpectedImage
+        })
+
+        await #expect(throws: CompilationQuestionReview.ParseError.self) { try await collector.collect() }
+
+        #expect(service.requests.count == 2)
+        #expect(service.reviewRequests.count == 1)
+        #expect(imageAttempts == 0)
+        #expect(fixture.compilation.papers.first?.collectionComplete == false)
+        #expect(try fixture.context.fetchCount(FetchDescriptor<ExamQuestion>()) == 0)
+        #expect(try fixture.context.fetchCount(FetchDescriptor<StoredImage>()) == 0)
+    }
+
+    @Test func aFailedReviewRequestCannotSaveTheSelectedQuestion() async throws {
+        let fixture = try BatchCollectorFixture(sources: [pageURL.absoluteString])
+        defer { fixture.removeFiles() }
+        let response = try selection(questions: [range("17", in: PaperDocument(html: paperHTML, url: pageURL), marker: "有机物甲")])
+        let service = BatchCollectorService([response], reviewReplies: [])
+        let collector = fixture.collector(service: service, pages: [pageURL.absoluteString: paperHTML])
+
+        await #expect(throws: BatchCollectorTestError.self) { try await collector.collect() }
+
+        #expect(service.reviewRequests.count == 1)
+        #expect(fixture.compilation.sortedQuestions.isEmpty)
+        #expect(try fixture.context.fetchCount(FetchDescriptor<StoredImage>()) == 0)
     }
 
     @Test func refreshingACompleteQuestionReplacesItsEquallyCompleteText() async throws {
@@ -295,7 +505,8 @@ private final class BatchCollectorFixture {
         let finished = try await fixture.collector(service: service, pages: [pageURL.absoluteString: html], onlyNumber: "17").collect()
 
         #expect(finished.found == 1)
-        #expect(service.requests.count == 1)
+        #expect(service.requests.count == 2)
+        #expect(service.reviewRequests.count == 1)
         #expect(service.requests.allSatisfy { !$0.webSearch })
         let saved = try #require(ModelContext(fixture.container).fetch(FetchDescriptor<ExamQuestion>()).first)
         #expect(saved.id == originalID)
@@ -369,7 +580,8 @@ private final class BatchCollectorFixture {
         #expect(finished.collectionComplete)
         #expect(finished.state == .done)
         #expect(finished.found == 1)
-        #expect(service.requests.count == 4)
+        #expect(service.requests.count == 5)
+        #expect(service.reviewRequests.count == 1)
         #expect(service.requests.allSatisfy { !$0.webSearch && $0.tools.isEmpty })
         #expect(fixture.downloads == [pageURL, firstURL, detailURL, secondURL])
         #expect(fixture.downloads.filter { $0 == detailURL }.count == 1)
@@ -396,8 +608,9 @@ private final class BatchCollectorFixture {
         #expect(!finished.collectionComplete)
         #expect(finished.state == .failed)
         #expect(finished.found == 1)
-        #expect(service.requests.count == 4)
-        #expect(service.requests.map(\.webSearch) == [false, false, false, true])
+        #expect(service.requests.count == 5)
+        #expect(service.reviewRequests.count == 1)
+        #expect(service.requests.map(\.webSearch) == [false, false, false, false, true])
         #expect(service.requests.allSatisfy { $0.tools.isEmpty })
         #expect(fixture.downloads == [pageURL, detailURL])
         #expect(fixture.downloads.filter { $0 == detailURL }.count == 1)

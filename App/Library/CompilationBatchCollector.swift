@@ -94,18 +94,24 @@ final class CompilationBatchCollector {
 
     func collect() async throws -> PaperPlan {
         try Task.checkCancellation()
+        let reviewer = CompilationQuestionReviewer(session: session, context: context)
+        if onlyNumber == nil { try await reviewer.ensureReviewed(questions) }
         let candidates = try CompilationReuse.candidates(for: paper, in: compilation, context: context)
         if onlyNumber == nil, let ready = candidates.first(where: \.canReuseAll) {
+            // 相同要求的旧卷先在原记录补审，之后跨汇编复用也不必重复付费。
+            try await reviewer.ensureReviewed(ready.questions)
             let copied = CompilationReuse.copy(ready, into: compilation, paper: paper, context: context)
             try context.save()
             paper.sourceURLs = CompilationBatch.validSourceURLs(paper.sourceURLs + ready.sourceURLs)
             session.log(.success, "复用本地已完成试卷，共 \(copied.count) 题")
-            return finish(complete: true)
+            if ready.questions.allSatisfy(CompilationQuestionReviewer.isReviewed),
+               questions.allSatisfy(CompilationQuestionReviewer.isReviewed) { return finish(complete: true) }
         }
         for candidate in candidates {
             paper.sourceURLs = CompilationBatch.validSourceURLs(paper.sourceURLs + candidate.sourceURLs)
             if onlyNumber != nil { continue }
             for question in candidate.questions {
+                if CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected { continue }
                 if let onlyNumber, !CompilationTools.sameNumber(question.number, onlyNumber) { continue }
                 if reusable.values.contains(where: { CompilationTools.sameNumber($0.1.number, question.number) }) { continue }
                 reusable["R\(reusable.count + 1)"] = (candidate, question)
@@ -128,6 +134,7 @@ final class CompilationBatchCollector {
                 try context.save()
             }
             reusable.removeAll()
+            try await reviewer.ensureReviewed(questions)
         }
 
         // 相同来源通常已在本机，不必为新的选题要求再次搜索。
@@ -137,7 +144,7 @@ final class CompilationBatchCollector {
             discovered = true
             session.log(.step, "集中查找\(paper.shortTitle.isEmpty ? paper.title : paper.shortTitle)的整卷或题目目录")
             var searchTask = task
-            let complete = questions.filter { $0.status == .complete && onlyNumber == nil }.map(\.number)
+            let complete = questions.filter { $0.status == .complete && onlyNumber == nil && CompilationQuestionReviewer.isReviewed($0) }.map(\.number)
             if !complete.isEmpty { searchTask += "\n已完整取得第 \(complete.joined(separator: "、")) 题，只寻找其余缺失内容的来源。" }
             if !visited.isEmpty { searchTask += "\n以下页面已尝试，仍未完整取到，请寻找其他出处：\n" + visited.sorted().joined(separator: "\n") }
             let text = try await session.reply(to: CompilationBatch.discoveryRequest(
@@ -235,15 +242,33 @@ final class CompilationBatchCollector {
             }
         }
         // 全部批次都核对过卷名后再保存，避免后续批次发现错卷时留下错误原题。
+        var extracted: [(CompilationBatch.QuestionRange, [PaperDocument.Block], QuestionExtractor.Result)] = []
         for (range, blocks) in pending {
-            if onlyNumber == nil, questions.contains(where: { CompilationTools.sameNumber($0.number, range.number) && $0.status == .complete }) { continue }
+            if onlyNumber == nil, questions.contains(where: {
+                CompilationTools.sameNumber($0.number, range.number) && $0.status == .complete && CompilationQuestionReviewer.isReviewed($0)
+            }) { continue }
+            if extracted.contains(where: { CompilationTools.sameNumber($0.0.number, range.number) }) { continue }
             switch document.extract(startID: range.startID, endID: range.endID, group: range.group) {
             case let .success(result):
-                if !(try await save(result, number: range.number, document: document, blocks: blocks, range: range)) { complete = false }
+                extracted.append((range, blocks, result))
             case .failure:
                 complete = false
                 session.log(.warning, "第 \(range.number) 题的正文范围无效，保留为待补取")
             }
+        }
+        let candidates = extracted.enumerated().map { index, item in
+            CompilationQuestionReview.Candidate(id: "Q\(index + 1)", number: item.0.number, content: item.2.content, answer: item.2.answer)
+        }
+        let reviewed = try await CompilationQuestionReviewer(session: session, context: context).review(candidates, paper: paper)
+        for (item, review) in zip(extracted, reviewed) {
+            let (range, blocks, original) = item
+            guard review.isQuestion else {
+                complete = false
+                session.log(.warning, "第 \(range.number) 题未通过复核：\(review.note.isEmpty ? "网页内容不是完整题目" : review.note)")
+                continue
+            }
+            let result = Self.cleanedResult(original, content: review.content, answer: review.answer)
+            if !(try await save(result, number: range.number, document: document, blocks: blocks, range: range)) { complete = false }
         }
         // 一份目录可以直接下载多道题，整个过程不调用搜索 API。
         for link in links {
@@ -276,7 +301,10 @@ final class CompilationBatchCollector {
         try Task.checkCancellation()
         let attempt = QuestionFetch.Attempt(url: document.url, result: result, images: images, viaFetch: false)
         let existing = questions.first { CompilationTools.sameNumber($0.number, number) }
-        if CompilationTools.isBetter(attempt.status, than: existing?.status) || (onlyNumber != nil && attempt.status == .complete) {
+        let existingStatus = existing.flatMap {
+            CompilationQuestionReviewer.hasCurrentReview($0) && $0.reviewRejected ? nil : $0.status
+        }
+        if CompilationTools.isBetter(attempt.status, than: existingStatus) || (onlyNumber != nil && attempt.status == .complete) {
             let question = existing ?? ExamQuestion(
                 paperTitle: paper.title, year: paper.year, number: CompilationTools.normalizeNumber(number),
                 index: (compilation.questions?.map(\.index).max() ?? -1) + 1
@@ -286,17 +314,25 @@ final class CompilationBatchCollector {
             question.anchor = String((blocks.first { $0.id == range.startID }?.text ?? "").prefix(30))
             question.lastAnchor = String((blocks.first { $0.id == range.endID }?.text ?? "").prefix(30))
             question.candidateURLs = [document.url.absoluteString]
+            let retainedUnreviewedAnswer = question.answerKind == .ai && !question.answer.isEmpty && !CompilationQuestionReviewer.isReviewed(question)
             QuestionFetch.apply(attempt, to: question, context: context)
+            if retainedUnreviewedAnswer {
+                try await CompilationQuestionReviewer(session: session, context: context).ensureReviewed([question])
+            } else {
+                CompilationQuestionReviewer.markReviewed(question)
+            }
             try context.save()
-            if onlyNumber != nil, attempt.status == .complete { refreshed = true }
+            if onlyNumber != nil, attempt.status == .complete, CompilationQuestionReviewer.isReviewed(question) { refreshed = true }
         }
-        session.log(attempt.status == .complete ? .success : .warning,
-                    "本地提取第 \(number) 题 · \(attempt.status == .complete ? "完整" : "有图未能获取")")
-        return attempt.status == .complete
+        let saved = questions.first { CompilationTools.sameNumber($0.number, number) }
+        let complete = saved.map { $0.status == .complete && CompilationQuestionReviewer.isReviewed($0) } ?? false
+        session.log(complete ? .success : .warning,
+                    "本地提取第 \(number) 题 · \(complete ? "完整并通过复核" : "待核对题目或补取图片")")
+        return complete
     }
 
     private func existingDescription() -> String {
-        let current = questions.filter { $0.status == .complete && onlyNumber == nil }.map { "已取得第 \($0.number) 题，不必重复提取。" }
+        let current = questions.filter { $0.status == .complete && onlyNumber == nil && CompilationQuestionReviewer.isReviewed($0) }.map { "已取得第 \($0.number) 题，不必重复提取。" }
         let candidates = reusable.keys.sorted().compactMap { id -> String? in
             guard let (_, question) = reusable[id] else { return nil }
             return "\(id) 第 \(question.number) 题：\(CompilationTools.textForModel(question.content, limit: 2500))"
@@ -315,12 +351,37 @@ final class CompilationBatchCollector {
 
     private func finish(complete: Bool) -> PaperPlan {
         paper.found = questions.count
-        paper.collectionComplete = complete && questions.allSatisfy { $0.status == .complete }
+        paper.collectionComplete = complete && questions.allSatisfy { $0.status == .complete && CompilationQuestionReviewer.isReviewed($0) }
         paper.state = paper.collectionComplete ? .done : .failed
         paper.note = paper.collectionComplete
             ? (paper.found == 0 ? "已核对来源，没有符合要求的题" : "")
-            : "已保留 \(paper.found) 题；来源或原图不完整，可继续补取"
+            : "已保留 \(paper.found) 题；有内容未通过题目复核，或来源、原图不完整，可继续补取"
         return paper
+    }
+
+    /// 复核删除网页元素后，只下载仍被题干或答案引用的图片，并重新编号。
+    static func cleanedResult(_ original: QuestionExtractor.Result, content: String, answer: String) -> QuestionExtractor.Result {
+        let pattern = try! NSRegularExpression(pattern: #"sa-image:(\d+)"#)
+        let combined = (content + "\n" + answer) as NSString
+        let used = Set(pattern.matches(in: combined as String, range: NSRange(location: 0, length: combined.length)).compactMap {
+            Int(combined.substring(with: $0.range(at: 1)))
+        })
+        let indices = original.imageURLs.indices.filter { used.contains($0) }
+        let mapping = Dictionary(uniqueKeysWithValues: indices.enumerated().map { ($0.element, $0.offset) })
+        func rewrite(_ text: String) -> String {
+            let value = NSMutableString(string: text)
+            for match in pattern.matches(in: text, range: NSRange(location: 0, length: value.length)).reversed() {
+                guard let old = Int((text as NSString).substring(with: match.range(at: 1))), let new = mapping[old] else { continue }
+                value.replaceCharacters(in: match.range, with: "sa-image:\(new)")
+            }
+            return value as String
+        }
+        var result = original
+        result.content = rewrite(content)
+        result.answer = rewrite(answer)
+        result.imageURLs = indices.map { original.imageURLs[$0] }
+        result.questionLength = content.count
+        return result
     }
 
     struct PageBatch {

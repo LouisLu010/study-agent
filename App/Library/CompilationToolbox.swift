@@ -461,8 +461,11 @@ enum QuestionFetch {
 
     /// 把取到的原文、图和网站解析存进这道题，替换原来的。
     static func apply(_ attempt: Attempt, to question: ExamQuestion, context: ModelContext) {
-        for image in question.images ?? [] { context.delete(image) }
-        question.images = []
+        let keepAnswer = question.answerKind == .ai && !question.answer.isEmpty
+        let answerImages = keepAnswer ? Set(CompilationCenter.imageIDs(in: question.answer)) : []
+        let retainedImages = (question.images ?? []).filter { answerImages.contains($0.id) }
+        for image in question.images ?? [] where !answerImages.contains(image.id) { context.delete(image) }
+        question.images = retainedImages
         var assets: [Int: UUID] = [:]
         for (index, image) in attempt.images {
             let stored = StoredImage(data: image.0, contentType: image.1)
@@ -472,12 +475,17 @@ enum QuestionFetch {
         }
         question.content = CompilationPlanner.assemble(attempt.result.content, assets: assets)
         question.sourceURL = attempt.url.absoluteString
-        if !attempt.result.answer.isEmpty, question.answerKind != .ai || question.answer.isEmpty {
+        if !keepAnswer {
             question.answer = CompilationPlanner.assemble(attempt.result.answer, assets: assets)
-            question.answerKind = .site
-            question.answerSite = CompilationPlanner.siteName(for: attempt.url)
+            question.answerKind = question.answer.isEmpty ? .none : .site
+            question.answerSite = question.answer.isEmpty ? "" : CompilationPlanner.siteName(for: attempt.url)
         }
         question.status = attempt.status
+        question.reviewFingerprint = ""
+        question.reviewRejected = false
+        question.reviewNote = ""
         question.compilation?.pdfData = nil
+        question.compilation?.pdfGeneratedAt = nil
+        question.compilation?.pdfPending = false
     }
 }

@@ -170,6 +170,7 @@ struct CompilationDetailView: View {
     @Environment(CompilationCenter.self) private var center
     @State private var pdfItem: PDFItem?
     @State private var isMakingPDF = false
+    @State private var isReviewing = false
     @State private var errorMessage: String?
     @State private var editMode: EditMode = .inactive
 
@@ -377,20 +378,26 @@ struct CompilationDetailView: View {
         } header: {
             Text("\(questions.count) 题")
         } footer: {
-            if questions.contains(where: { $0.status != .complete }) {
+            if questions.contains(where: { CompilationQuestionReviewer.hasCurrentReview($0) && $0.reviewRejected }) {
+                Text("未通过题目检查的内容已保留，请编辑或重新获取后再生成 PDF。")
+            } else if questions.contains(where: { $0.status != .complete }) {
                 Text("标\"未能获取\"的题可以点进去重新获取。")
             }
         }
         if compilation.status == .done || !questions.isEmpty {
             Section {
-                Toggle("PDF 附答案和解析", isOn: Binding(
+                Toggle("PDF 末尾附答案和解析", isOn: Binding(
                     get: { compilation.includeAnswers },
                     set: { compilation.includeAnswers = $0; compilation.pdfData = nil; try? context.save() }
                 ))
+                Button("检查并清理题目", systemImage: "checkmark.shield") {
+                    reviewQuestions()
+                }
+                .disabled(isMakingPDF || isReviewing || questions.isEmpty || isRunning)
                 Button(compilation.pdfData == nil ? "生成 PDF" : "重新生成 PDF", systemImage: "doc.richtext", action: makePDF)
-                    .disabled(isMakingPDF || questions.isEmpty || isRunning)
-                if isMakingPDF {
-                    HStack { ProgressView(); Text("正在排版…").foregroundStyle(.secondary) }
+                    .disabled(isMakingPDF || isReviewing || questions.isEmpty || isRunning)
+                if isMakingPDF || isReviewing {
+                    HStack { ProgressView(); Text(isReviewing ? "正在检查题目…" : "正在排版…").foregroundStyle(.secondary) }
                 }
                 if let data = compilation.pdfData {
                     Button("查看和分享 PDF", systemImage: "square.and.arrow.up") {
@@ -417,8 +424,11 @@ struct CompilationDetailView: View {
     private func makePDF() {
         isMakingPDF = true
         Task {
-            defer { isMakingPDF = false }
+            defer { isMakingPDF = false; isReviewing = false }
             do {
+                isReviewing = true
+                try await center.reviewQuestions(compilation, context: context)
+                isReviewing = false
                 let snapshot = CompilationPDF.document(for: compilation)
                 let data = try await CompilationPDF.make(snapshot)
                 try CompilationPDF.publish(data, for: compilation, snapshot: snapshot)
@@ -426,6 +436,18 @@ struct CompilationDetailView: View {
                 pdfItem = PDFItem(data: data, title: compilation.title)
             } catch {
                 errorMessage = "生成 PDF 失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func reviewQuestions() {
+        isReviewing = true
+        Task {
+            defer { isReviewing = false }
+            do {
+                try await center.reviewQuestions(compilation, context: context)
+            } catch {
+                errorMessage = "题目检查未完成：\(error.localizedDescription)"
             }
         }
     }
@@ -438,6 +460,9 @@ private struct ExamQuestionRow: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(question.label).font(.callout.bold())
+                if CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected {
+                    Tag(text: "待核对题目", color: .orange)
+                }
                 switch question.status {
                 case .complete: EmptyView()
                 case .imagesMissing: Tag(text: "有图未能获取", color: .orange)
@@ -496,6 +521,9 @@ struct ExamQuestionDetailView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 6) {
                     Text(question.label).font(.headline)
+                    if CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected {
+                        Tag(text: "待核对题目", color: .orange)
+                    }
                     switch question.status {
                     case .complete: EmptyView()
                     case .imagesMissing: Tag(text: "有图未能获取", color: .orange)
@@ -526,6 +554,8 @@ struct ExamQuestionDetailView: View {
                         if question.answer.isEmpty { question.answerKind = .none }
                         if !question.content.isEmpty, question.status == .notFetched { question.status = .complete }
                         question.compilation?.pdfData = nil
+                        question.compilation?.pdfGeneratedAt = nil
+                        question.compilation?.pdfPending = false
                         if let compilation = question.compilation {
                             var papers = compilation.papers
                             if let index = papers.firstIndex(where: { $0.title == question.paperTitle && $0.year == question.year }) {
@@ -570,6 +600,11 @@ struct ExamQuestionDetailView: View {
 
     @ViewBuilder
     private var content: some View {
+        if CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected {
+            Text(question.reviewNote.isEmpty ? "未能确认这段内容是完整题目，请编辑或重新获取。" : question.reviewNote)
+                .font(.callout)
+                .foregroundStyle(.orange)
+        }
         if isBusy {
             HStack(spacing: Theme.Spacing.s) {
                 ActivityOrb(activity: center.isRefetching(question) ? .retrying : .working)

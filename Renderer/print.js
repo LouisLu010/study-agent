@@ -11,11 +11,14 @@
 
   function waitForImages(root, timeout) {
     const pending = Array.from(root.querySelectorAll('img')).filter((img) => !img.complete);
+    if (!pending.length) return Promise.resolve();
     const all = Promise.all(pending.map((img) => new Promise((resolve) => {
       img.addEventListener('load', resolve, { once: true });
       img.addEventListener('error', resolve, { once: true });
     })));
-    return Promise.race([all, new Promise((resolve) => setTimeout(resolve, timeout))]);
+    let timer;
+    return Promise.race([all, new Promise((resolve) => { timer = setTimeout(resolve, timeout); })])
+      .finally(() => clearTimeout(timer));
   }
 
   function buildPrintHTML(doc) {
@@ -35,14 +38,13 @@
         (q.content ? R.renderMarkdown(q.content) : '<p class="print-missing">（未能获取原文）</p>') +
         '<div class="print-space"></div></section>';
     });
-    const answered = questions.filter((q) => q.answer);
-    if (doc.includeAnswers && answered.length) {
+    const hasAnswers = questions.map((q) => !!(q.answer && q.answer.trim()));
+    if (doc.includeAnswers && hasAnswers.some(Boolean)) {
       html += '<section class="print-answers"><h2>答案与解析</h2>';
       questions.forEach((q, i) => {
-        if (!q.answer) return;
         html += '<div class="print-answer"><div class="print-label">' + (i + 1) + '．' + esc(q.label || '') +
-          (q.answerLabel ? '<span class="print-kind">' + esc(q.answerLabel) + '</span>' : '') + '</div>' +
-          R.renderMarkdown(q.answer) + '</div>';
+          (hasAnswers[i] && q.answerLabel ? '<span class="print-kind">' + esc(q.answerLabel) + '</span>' : '') + '</div>' +
+          (hasAnswers[i] ? R.renderMarkdown(q.answer) : '<p class="print-missing">（暂无答案）</p>') + '</div>';
       });
       html += '</section>';
     }

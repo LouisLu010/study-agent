@@ -9,12 +9,14 @@ enum CompilationError: LocalizedError {
     case modelCannotSearch
     /// 未能取得有效试卷列表。
     case noPapers(String)
+    case unverifiedQuestions(String)
 
     var errorDescription: String? {
         switch self {
         case .noModel: "这个汇编用的模型已经删除了，请新建汇编。"
         case .modelCannotSearch: "这个模型没有打开\"支持联网搜索\"，汇编需要联网搜索。"
         case let .noPapers(reason): reason
+        case let .unverifiedQuestions(labels): "以下内容未通过题目复核：\(labels)。请编辑或重新获取后，再生成 PDF。"
         }
     }
 }
@@ -334,6 +336,22 @@ final class CompilationCenter {
 
     // MARK: - 第三步：整理和生成 PDF
 
+    /// 新题在保存前复核，旧题或编辑过的题在排版前补审；相同正文不重复请求模型。
+    func reviewQuestions(_ compilation: Compilation, context: ModelContext) async throws {
+        defer { try? context.save() }
+        let questions = compilation.sortedQuestions
+        if questions.contains(where: { !CompilationQuestionReviewer.hasCurrentReview($0) }) {
+            let (model, service) = try Self.resolve(compilation, context: context, needsSearch: false)
+            let session = CompilationBatchSession(compilation: compilation, model: model, service: service, log: logger(for: compilation.id))
+            try await CompilationQuestionReviewer(session: session, context: context).ensureReviewed(questions)
+        }
+        try Task.checkCancellation()
+        let unverified = compilation.sortedQuestions.filter { !CompilationQuestionReviewer.isReviewed($0) }
+        guard unverified.isEmpty else {
+            throw CompilationError.unverifiedQuestions(unverified.map(\.label).joined(separator: "、"))
+        }
+    }
+
     /// 全部试卷查完后，请模型定标题、顺序和分组，再生成 PDF。失败时保留原来的顺序，不影响已经取到的题。
     private func arrange(
         _ compilation: Compilation, model: ChatModel, service: any ChatService, context: ModelContext, log: @escaping Logger
@@ -372,14 +390,17 @@ final class CompilationCenter {
             log?(.step, "生成 PDF：App 在后台，回到格物后再生成")
             return
         }
-        progress[compilation.id] = "正在生成 PDF…"
         do {
+            progress[compilation.id] = "正在检查题目…"
+            try await reviewQuestions(compilation, context: context)
+            progress[compilation.id] = "正在生成 PDF…"
             let snapshot = CompilationPDF.document(for: compilation)
             let data = try await CompilationPDF.make(snapshot)
             try CompilationPDF.publish(data, for: compilation, snapshot: snapshot)
             log?(.success, "生成了 PDF")
         } catch {
             compilation.pdfPending = false
+            compilation.errorText = "生成 PDF 失败：\(error.localizedDescription)"
             log?(.warning, "生成 PDF 失败：\(error.localizedDescription)")
         }
         try? context.save()
@@ -410,7 +431,7 @@ final class CompilationCenter {
             defer {
                 busyQuestions.remove(question.id)
                 refetchingQuestions.remove(question.id)
-                BackgroundKeeper.shared.end(id: question.id, success: question.status == .complete)
+                BackgroundKeeper.shared.end(id: question.id, success: question.status == .complete && CompilationQuestionReviewer.isReviewed(question))
             }
             let log = logger(for: compilation.id)
             log(.step, "重新获取\(question.label)")
@@ -564,7 +585,8 @@ final class CompilationCenter {
             }
             if attempt.status == .complete { break }
         }
-        guard let best, CompilationTools.isBetter(best.status, than: question.content.isEmpty ? nil : question.status) else {
+        let rejected = CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected
+        guard let best, CompilationTools.isBetter(best.status, than: question.content.isEmpty || rejected ? nil : question.status) else {
             if question.content.isEmpty { question.status = .notFetched }
             log?(.warning, "\(question.label)：按原来的网页没能取到更完整的原文")
             return

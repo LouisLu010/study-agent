@@ -213,6 +213,10 @@ public final class ExamQuestion {
     public var lastAnchor: String = ""
     /// 整理时模型给的组名（按知识点或年份），印在 PDF 里。不分组时为空。
     public var groupName: String = ""
+    /// 复核版本和题干、答案的摘要；正文变化后自动失效，旧题默认为待复核。
+    public var reviewFingerprint: String = ""
+    public var reviewRejected: Bool = false
+    public var reviewNote: String = ""
 
     public var compilation: Compilation?
 

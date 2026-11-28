@@ -88,6 +88,14 @@ enum CompilationReuse {
             question.anchor = source.anchor
             question.lastAnchor = source.lastAnchor
             question.groupName = source.groupName
+            // 图片复制会改写 UUID，摘要必须基于复制后的原文重新计算。
+            if CompilationQuestionReviewer.isReviewed(source) {
+                CompilationQuestionReviewer.markReviewed(question)
+            } else {
+                question.reviewFingerprint = ""
+                question.reviewRejected = false
+                question.reviewNote = ""
+            }
             copied.append(question)
         }
         if !copied.isEmpty {
@@ -102,6 +110,7 @@ enum CompilationReuse {
     /// 状态为完整还不够：题干和它引用的图片必须实际存在。
     private static func isComplete(_ question: ExamQuestion) -> Bool {
         guard question.statusRaw == ExamQuestionStatus.complete.rawValue,
+              !(CompilationQuestionReviewer.hasCurrentReview(question) && question.reviewRejected),
               !question.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !CompilationTools.normalizeNumber(question.number).isEmpty
         else { return false }
