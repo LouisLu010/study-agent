@@ -13,11 +13,17 @@ struct InvestigationsView: View {
                 NavigationLink { ComparisonComposer() } label: {
                     Label("多解对照", systemImage: InvestigationKind.comparison.symbol)
                 }
+                NavigationLink { KnowledgeGapComposer() } label: {
+                    Label("知识缺口定位", systemImage: InvestigationKind.gaps.symbol)
+                }
             }
             Section("已保存的探索") {
                 if records.isEmpty { Text("分析材料、作答和结果会保存在这里。").foregroundStyle(.secondary) }
                 ForEach(records) { record in
-                    NavigationLink { InvestigationDetailView(record: record) } label: {
+                    NavigationLink {
+                        if record.kind == .gaps { KnowledgeGapDetailView(record: record) }
+                        else { InvestigationDetailView(record: record) }
+                    } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(record.title).lineLimit(2)
                             Text((record.kind?.title ?? "学习探索") + " · " + record.updatedAt.formatted(.relative(presentation: .named)))

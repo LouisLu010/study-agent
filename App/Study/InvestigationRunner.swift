@@ -19,7 +19,7 @@ final class InvestigationRunner {
     }
 
     func run(record: StudyInvestigation, request: ChatRequest, model: ChatModel, context: ModelContext,
-             service: any ChatService, validate: (String) throws -> String) async throws {
+             service: any ChatService, savesDetail: Bool = false, validate: (String) throws -> String) async throws {
         guard !Self.activeIDs.contains(record.id) else { throw StudyToolError.invalidInput("这份内容正在分析。") }
         guard !record.isDeleted, record.modelContext != nil else { throw CancellationError() }
         Self.activeIDs.insert(record.id)
@@ -56,7 +56,8 @@ final class InvestigationRunner {
             try Task.checkCancellation()
             let result = try validate(raw)
             account(); accounted = true
-            record.resultJSON = result; record.statusRaw = "complete"
+            if savesDetail { record.detailJSON = result } else { record.resultJSON = result }
+            record.statusRaw = "complete"
             try context.save()
         } catch {
             if !record.isDeleted, record.modelContext != nil {

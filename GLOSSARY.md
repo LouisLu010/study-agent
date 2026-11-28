@@ -225,6 +225,12 @@ _Avoid_: 答案, 参考答案
 
 ### 界面
 
+<spec-entry category="coding" keywords="知识缺口定位,作答证据,前置" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/KnowledgeGap.swift:3">
+
+**知识缺口定位 (Knowledge Gap Check)**：沿知识卡的前置关联，通过少量检查题和真实作答提供补学建议。建议必须附作答证据，未作答不等于不会，单次答对不等于全面掌握。
+
+</spec-entry>
+
 <spec-entry category="coding" keywords="多解对照,学习探索" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/SolutionComparison.swift:44">
 
 **多解对照 (Solution Comparison)**：把同一道题的不同解法按共同目标并排，显示使用条件、关键转折与原解法证据。它是保存在“学习探索”中的 AI 分析，不等同于官方答案。
