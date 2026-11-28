@@ -225,6 +225,12 @@ _Avoid_: 答案, 参考答案
 
 ### 界面
 
+<spec-entry category="coding" keywords="多解对照,学习探索" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/SolutionComparison.swift:44">
+
+**多解对照 (Solution Comparison)**：把同一道题的不同解法按共同目标并排，显示使用条件、关键转折与原解法证据。它是保存在“学习探索”中的 AI 分析，不等同于官方答案。
+
+</spec-entry>
+
 <spec-entry category="coding" keywords="学习画布,专题,副本" date="2026-11-28" source="StudyKit/Sources/StudyKit/Persistence/CanvasModels.swift:5">
 
 **学习画布 (Study Canvas)**：持久保存一个专题的原题、知识卡、会话内容和手写的空间。每份内容是独立副本，可以自由摆放、框选并提问。它和表示知识关联的“关系图”不同。

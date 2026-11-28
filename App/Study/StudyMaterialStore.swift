@@ -6,13 +6,17 @@ import UIKit
 enum StudyMaterialStore {
     static func message(_ message: Message) -> StudyMaterial {
         let conversation = message.conversation
-        return StudyMaterial(
+        var material = StudyMaterial(
             title: conversation?.title ?? "会话消息", content: message.contentWithStudySources,
             location: "第 \(message.index + 1) 条消息 · \(message.role == .user ? "用户" : "模型")",
             reference: conversation.map { StudyReference(number: 1, kind: .conversation, recordID: $0.id, title: $0.title) },
             componentStateJSON: message.componentStateJSON,
             images: message.imageData.map { .init(data: $0) }
         )
+        if let context = message.modelContext {
+            material.images += referencedImages(in: message.content, context: context)
+        }
+        return material
     }
 
     static func record(_ record: StudyRecord, context: ModelContext) -> StudyMaterial {

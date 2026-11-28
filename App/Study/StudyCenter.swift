@@ -9,6 +9,7 @@ enum SidebarItem: Hashable {
     case today
     case assistant
     case canvases
+    case investigations
     case conversation(Conversation)
     case mistakes
     case review
