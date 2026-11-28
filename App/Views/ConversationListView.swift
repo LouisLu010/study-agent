@@ -29,6 +29,7 @@ struct ConversationListView: View {
             if searchText.isEmpty {
                 Section {
                     entry("今天", systemImage: "sun.max", item: .today)
+                    entry("学习助手", systemImage: "sparkles", item: .assistant)
                 }
                 Section("学习") {
                     entry("错题本", systemImage: "exclamationmark.bubble", item: .mistakes)
@@ -50,7 +51,7 @@ struct ConversationListView: View {
                             Text(conversation.title)
                                 .fontWeight(.medium)
                                 .lineLimit(1)
-                            Text((conversation.model?.name ?? "未选择模型") + " · " + conversation.updatedAt.formatted(.relative(presentation: .named)))
+                            Text((conversation.isStudyAssistant ? "学习助手 · " : "") + (conversation.model?.name ?? "未选择模型") + " · " + conversation.updatedAt.formatted(.relative(presentation: .named)))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)

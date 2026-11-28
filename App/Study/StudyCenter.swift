@@ -7,6 +7,7 @@ import SwiftData
 enum SidebarItem: Hashable {
     /// 今天（见 GLOSSARY「今天」），打开 App 默认进这里。
     case today
+    case assistant
     case conversation(Conversation)
     case mistakes
     case review
@@ -111,7 +112,7 @@ enum StudyCenter {
     ) -> Mistake {
         let mistake = Mistake(kind: .manual)
         mistake.questionText = question.content
-        mistake.solution = solution.content
+        mistake.solution = solution.contentWithStudySources
         mistake.solutionStateJSON = solution.componentStateJSON
         mistake.note = note.trimmingCharacters(in: .whitespacesAndNewlines)
         mistake.sourceConversationID = conversation.id

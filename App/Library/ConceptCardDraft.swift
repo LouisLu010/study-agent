@@ -50,7 +50,7 @@ struct NoteDraftRequest: Identifiable {
     }
 
     private static func item(for message: Message) -> ResearchNoteWriter.Item {
-        var content = message.content
+        var content = message.contentWithStudySources
         if message.role == .user, !message.imageData.isEmpty {
             content = "（附了 \(message.imageData.count) 张图片）\n" + content
         }

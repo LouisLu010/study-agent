@@ -102,7 +102,18 @@ struct ChatView: View {
             }
             .overlay {
                 if messages.isEmpty {
-                    EmptyChatView { draft = $0 }
+                    if conversation.isStudyAssistant {
+                        VStack(spacing: Theme.Spacing.l) {
+                            Text("学习助手").font(.title2.bold())
+                            ForEach(StudyAssistantExamples.prompts, id: \.self) { prompt in
+                                Button(prompt) { draft = prompt }
+                                    .buttonStyle(.bordered)
+                            }
+                        }
+                        .padding()
+                    } else {
+                        EmptyChatView { draft = $0 }
+                    }
                 }
             }
             .overlay(alignment: .bottom) {
@@ -126,7 +137,7 @@ struct ChatView: View {
         .sensoryFeedback(trigger: quizFeedback) { _, feedback in
             feedback.map { $0.correct ? SensoryFeedback.success : SensoryFeedback.error }
         }
-        .navigationTitle(conversation.title)
+        .navigationTitle(conversation.isStudyAssistant && conversation.title == Conversation.defaultTitle ? "学习助手" : conversation.title)
         .navigationBarTitleDisplayMode(.inline)
         // 模型名在输入框里（第八版），导航栏右边不放东西。
         // 点导航栏标题弹出的菜单：会话级别的操作。
@@ -235,14 +246,15 @@ struct ChatView: View {
             onStop: { generation.stop(conversation) },
             onImagesNotAllowed: { errorMessage = GenerationError.modelDoesNotSupportImages.localizedDescription },
             webSearchEnabled: $conversation.webSearchEnabled,
-            webSearchAllowed: conversation.model?.supportsWebSearch ?? false,
+            webSearchAllowed: !conversation.isStudyAssistant && (conversation.model?.supportsWebSearch ?? false),
             onWebSearchNotAllowed: {
                 errorMessage = "当前模型不支持联网搜索。请切换到支持的模型，或在设置里为这个模型打开\"支持联网搜索\"。"
             },
             model: $conversation.model,
             autoFocus: conversation.messages?.isEmpty ?? true,
             autoOpenCamera: navigation.cameraConversationID == conversation.id,
-            onCameraOpened: { navigation.cameraConversationID = nil }
+            onCameraOpened: { navigation.cameraConversationID = nil },
+            showsWebSearch: !conversation.isStudyAssistant
         )
         .frame(maxWidth: 820)
         .frame(maxWidth: .infinity)

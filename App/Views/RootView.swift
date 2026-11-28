@@ -23,6 +23,8 @@ struct RootView: View {
                 switch navigation.selection {
                 case .today:
                     TodayView()
+                case .assistant:
+                    StudyAssistantHomeView()
                 case let .conversation(conversation):
                     ChatView(conversation: conversation)
                         .id(conversation.id)
@@ -47,6 +49,7 @@ struct RootView: View {
             OnboardingView()
         }
         .task {
+            generation.studyToasts = toasts
             generation.recoverInterruptedMessages(in: context)
             compilations.recoverInterrupted(in: context)
             compilations.makePendingPDFs(in: context)

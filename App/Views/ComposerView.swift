@@ -35,6 +35,8 @@ struct ComposerView: View {
     /// 打开页面时直接弹出相机（快捷菜单"拍题"）。用过之后调用 `onCameraOpened`，不会再弹第二次。
     var autoOpenCamera = false
     var onCameraOpened: () -> Void = {}
+    /// 学习助手通过本地工具查找内容，输入框不显示联网开关。
+    var showsWebSearch = true
 
     @FocusState private var isFocused: Bool
     @State private var showPhotoPicker = false
@@ -71,7 +73,7 @@ struct ComposerView: View {
 
             HStack(spacing: Theme.Spacing.xs) {
                 attachmentMenu
-                webSearchButton
+                if showsWebSearch { webSearchButton }
                 ModelPickerMenu(selection: $model, style: .compact)
                 Spacer(minLength: Theme.Spacing.xs)
                 sendButton

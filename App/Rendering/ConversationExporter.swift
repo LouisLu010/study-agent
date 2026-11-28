@@ -24,7 +24,7 @@ enum ConversationExporter {
                 if message.content.isEmpty {
                     lines.append(message.status == .failed ? "（生成失败）" : "（没有内容）")
                 } else {
-                    lines.append(PlainTextExporter.plainText(from: message.content))
+                    lines.append(PlainTextExporter.plainText(from: message.contentWithStudySources))
                     if let sources = message.webSearch?.sourcesText {
                         lines.append("")
                         lines.append(sources)

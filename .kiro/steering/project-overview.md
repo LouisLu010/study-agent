@@ -36,6 +36,7 @@ iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。�
 - **数据**：SwiftData，没有 `VersionedSchema`，靠轻量迁移。规则：每个属性可选或有默认值，不加唯一约束，关系都是可选的（`Models.swift` 开头）。API Key 存钥匙串（`KeychainStore`）。设置存 UserDefaults，界面里用 `@AppStorage`。
 - **错题、收藏、资料都是独立副本**，删会话不影响它们（ADR-0009）。
 - **知识卡和关系图**（第十版）：资料由 `ConceptCard` 组成，关联是单独的 `ConceptLink` 表、用 ID 指向两头（ADR-0015）。整理提示词在 `Prompts/cards.md`，解析在 `ConceptCardWriter`，读写在 `App/Library/ConceptCardStore.swift`，弹窗 `ConceptCardPopup`，关系图 `ConceptMapView` + StudyKit 的 `ConceptMapLayout`。
+- **学习助手**（第十一版）：`Conversation.isStudyAssistant` 标记普通会话，侧栏入口 `StudyAssistantHomeView`。`StudyAssistantTools` 提供只读查找和分段读取，`StudyRecordStore` 统一定位会话、错题、知识卡、汇编和原题，`StudyAssistantToolbox` 分页检索，`StudyAssistantReply` 通过工具循环写入普通消息。`Message.studyReferencesJSON` 保存真实本地引用，回答版本同步保存；`StudyReferenceSheet` 打开原记录。首版不联网、不修改原记录、不读取记录中的图片。后续方向见 `docs/future-goals.md`。
 - **联网搜索**只用服务商自带的（ADR-0011）；汇编用 App 内置的工具（ADR-0014）。
 - **后台运行**：`App/Library/BackgroundKeeper.swift`，聊天和汇编共用（ADR-0012）。
 

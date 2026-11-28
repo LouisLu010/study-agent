@@ -158,6 +158,12 @@ private struct AssistantMessageView: View {
             if let search, !search.displayedSources.isEmpty {
                 SourceStripView(sources: search.displayedSources, numbered: !search.sources.isEmpty)
             }
+            if !message.studyReferences.isEmpty {
+                StudyReferenceStrip(references: message.studyReferences)
+            }
+            if isStreaming, let id = message.conversation?.id, let activity = generation.studyActivity[id] {
+                Text(activity).font(.caption).foregroundStyle(.secondary)
+            }
 
             if !message.reasoning.isEmpty {
                 ReasoningView(
@@ -374,7 +380,7 @@ private struct AssistantMessageView: View {
     private var copyAndRegenerate: some View {
             Button {
                 // 组件代码块换成可读的文字再复制。
-                var text = PlainTextExporter.plainText(from: message.content)
+                var text = PlainTextExporter.plainText(from: message.contentWithStudySources)
                 if let sources = message.webSearch?.sourcesText { text += "\n\n" + sources }
                 UIPasteboard.general.string = text
                 didCopy = true

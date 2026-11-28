@@ -18,7 +18,7 @@ extension StudyCenter {
             return false
         }
         let conversation = message.conversation
-        let bookmark = Bookmark(title: conversation?.title ?? "收藏", content: message.content)
+        let bookmark = Bookmark(title: conversation?.title ?? "收藏", content: message.contentWithStudySources)
         bookmark.componentStateJSON = message.componentStateJSON
         bookmark.modelName = conversation?.model?.name ?? ""
         bookmark.sourceConversationID = conversation?.id
