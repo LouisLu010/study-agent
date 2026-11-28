@@ -125,7 +125,7 @@ struct NewCompilationSheet: View {
                         }
                     }
                 } footer: {
-                    Text("模型要支持工具调用。")
+                    Text("先找整卷或题目目录，再批量选题。已保存的来源和原题会优先复用。")
                 }
             }
             .navigationTitle("新建汇编")
@@ -285,11 +285,10 @@ struct CompilationDetailView: View {
         let model = compilation.modelID.flatMap { id in
             try? context.fetch(FetchDescriptor<ChatModel>(predicate: #Predicate { $0.id == id })).first
         }
-        let estimate = CompilationPlanner.estimateCostCNY(papers: selected, price: model?.price(), usdToCNY: AppSettingsKey.usdToCNYRate)
         let minutes = max(1, selected / 2)
         var text = "已选 \(selected) 份，大约需要 \(minutes) 分钟"
-        if let estimate { text += "，预估费用" + UsageFormatting.cost(estimate) }
-        return text + "。生成期间可以切到别的 App，进度会随时保存。"
+        if model?.webSearchDialect == .deepSeek { text += "。使用内置联网搜索，模型仍按用量收费" }
+        return text + "。优先复用本地来源，费用取决于网页长度和选题次数。生成期间可以切到别的 App，进度会随时保存。"
     }
 
     @ViewBuilder
@@ -357,7 +356,14 @@ struct CompilationDetailView: View {
                 }
             }
             .onDelete { offsets in
-                offsets.map { questions[$0] }.forEach(context.delete)
+                let removed = offsets.map { questions[$0] }
+                let titles = Set(removed.map(\.paperTitle))
+                var papers = compilation.papers
+                for index in papers.indices where titles.contains(papers[index].title) {
+                    papers[index].collectionComplete = false
+                }
+                compilation.papers = papers
+                removed.forEach(context.delete)
                 compilation.pdfData = nil
                 try? context.save()
             }
@@ -520,6 +526,13 @@ struct ExamQuestionDetailView: View {
                         if question.answer.isEmpty { question.answerKind = .none }
                         if !question.content.isEmpty, question.status == .notFetched { question.status = .complete }
                         question.compilation?.pdfData = nil
+                        if let compilation = question.compilation {
+                            var papers = compilation.papers
+                            if let index = papers.firstIndex(where: { $0.title == question.paperTitle && $0.year == question.year }) {
+                                papers[index].collectionComplete = false
+                                compilation.papers = papers
+                            }
+                        }
                         try? context.save()
                         isEditing = false
                     }

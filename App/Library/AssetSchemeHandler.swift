@@ -59,16 +59,21 @@ final class AssetSchemeHandler: NSObject, WKURLSchemeHandler {
 
 /// 下载题库网页和图片。用 iPhone Safari 的 User-Agent，有的网站会拒绝其他客户端。
 enum PageFetcher {
+    static let maxHTMLBytes = 10 * 1024 * 1024
     static let userAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
     enum FetchError: LocalizedError {
         case http(Int)
         case notImage
+        case pageTooLarge
+        case notHTML
 
         var errorDescription: String? {
             switch self {
             case let .http(status): "网页返回 HTTP \(status)"
             case .notImage: "不是图片"
+            case .pageTooLarge: "网页过大，无法作为试卷正文读取"
+            case .notHTML: "这个链接不是可读取的网页正文"
             }
         }
     }
@@ -88,6 +93,10 @@ enum PageFetcher {
             throw FetchError.http(http.statusCode)
         }
         let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        guard data.count <= maxHTMLBytes else { throw FetchError.pageTooLarge }
+        if data.starts(with: Array("%PDF".utf8)) || header.lowercased().contains("application/pdf") {
+            throw FetchError.notHTML
+        }
         let head = String(decoding: data.prefix(4096), as: UTF8.self)
         let declared = (header + " " + head).lowercased()
         if declared.contains("gb2312") || declared.contains("gbk") || declared.contains("gb18030") {

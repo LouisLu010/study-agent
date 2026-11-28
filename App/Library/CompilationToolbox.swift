@@ -20,8 +20,7 @@ final class CompilationToolbox {
     let service: any ChatService
     let phase: Phase
     private let log: CompilationCenter.Logger
-    /// DeepSeek 官方地址：找寻用 Search API，网站拒绝下载时用 Fetch API 读正文（同一个 Key）。
-    private let deepSeek: (base: URL, key: String)?
+    private let sourceStore = CompilationSourceStore()
 
     /// submit_papers 交上来的试卷。
     private(set) var submitted: CompilationPlanner.PaperList?
@@ -36,9 +35,6 @@ final class CompilationToolbox {
     private var arrangeIDs: [String: ExamQuestion] = [:]
     private var arrangeOrder: [String] = []
 
-    /// DeepSeek Search API 和 Fetch API 每次成功请求的价格（美元）。
-    static let deepSeekToolPriceUSD = 0.75 / 1000
-
     init(
         compilation: Compilation, context: ModelContext, model: ChatModel, service: any ChatService,
         phase: Phase, log: @escaping CompilationCenter.Logger
@@ -49,13 +45,6 @@ final class CompilationToolbox {
         self.service = service
         self.phase = phase
         self.log = log
-        if let provider = model.provider,
-           let base = CompilationTools.deepSeekToolsBase(kind: provider.kind, baseURL: provider.baseURL),
-           let key = KeychainStore.apiKey(for: provider.id), !key.isEmpty {
-            deepSeek = (base, key)
-        } else {
-            deepSeek = nil
-        }
     }
 
     // MARK: - 用量
@@ -135,25 +124,12 @@ final class CompilationToolbox {
         log(.search, "搜索：\(query)")
         var results: [CompilationTools.SearchResult] = []
         var problem: String?
-        if let deepSeek {
-            do {
-                let data = try await post(deepSeek, "search", ["query": .string(String(query.prefix(128))), "count": 8], timeout: 30)
-                results = CompilationTools.parseSearchAPI(data)
-                compilation.searches += 1
-                if !results.isEmpty { compilation.costCNY += Self.deepSeekToolPriceUSD * AppSettingsKey.usdToCNYRate }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                problem = ChatErrorDescription.describe(error)
-            }
-        } else {
-            do {
-                results = try await searchWithModel(query)
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                problem = ChatErrorDescription.describe(error)
-            }
+        do {
+            results = try await searchWithModel(query)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            problem = ChatErrorDescription.describe(error)
         }
         if let problem {
             log(.warning, "搜索失败：\(problem)")
@@ -166,7 +142,7 @@ final class CompilationToolbox {
         return Step(outcome: ToolLoop.Outcome(["results": .array(results.map(\.json))]))
     }
 
-    /// 不是 DeepSeek 官方地址时：同一个模型另发一次只开服务商自带搜索的请求。
+    /// 补充搜索仍用服务商内置搜索，不调用独立按次收费的 Search API。
     private func searchWithModel(_ query: String) async throws -> [CompilationTools.SearchResult] {
         let request = CompilationTools.searchRequest(model: model.modelID, query: query, dialect: model.webSearchDialect)
         var text = ""
@@ -197,19 +173,13 @@ final class CompilationToolbox {
 
     private func load(_ url: URL) async throws -> QuestionFetch.Page {
         do {
-            return .html(try await PageFetcher.html(url))
+            return .html(try await sourceStore.html(for: url))
         } catch is CancellationError {
             throw CancellationError()
         } catch {
             if Task.isCancelled { throw CancellationError() }
             var status = CompilationTools.FetchStatus.failed
             if case let .http(code)? = error as? PageFetcher.FetchError { status = .forHTTP(code) }
-            if let deepSeek, let data = try? await post(deepSeek, "fetch", ["url": .string(url.absoluteString)], timeout: 60),
-               let value = try? JSONDecoder().decode(JSONValue.self, from: data),
-               let markdown = value["content"]?.stringValue, !markdown.isEmpty {
-                compilation.costCNY += Self.deepSeekToolPriceUSD * AppSettingsKey.usdToCNYRate
-                return .fetched(title: value["title"]?.stringValue ?? "", markdown: markdown)
-            }
             return .failed(status, ChatErrorDescription.describe(error))
         }
     }
@@ -425,20 +395,6 @@ final class CompilationToolbox {
         return Step(outcome: ToolLoop.Outcome(["ok": true], stop: true))
     }
 
-    // MARK: - DeepSeek Search API / Fetch API
-
-    private func post(_ api: (base: URL, key: String), _ path: String, _ body: JSONValue, timeout: TimeInterval) async throws -> Data {
-        var request = URLRequest(url: api.base.appending(path: path), timeoutInterval: timeout)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(api.key)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw ChatServiceError.http(status: http.statusCode, message: APIErrorMessage.extract(from: data))
-        }
-        return data
-    }
 }
 
 /// 从一个网页取一道原题：下载、按那几个字定位、下载图片。工具和"重新获取"共用。
@@ -470,7 +426,7 @@ enum QuestionFetch {
         case failure(CompilationTools.FetchStatus, String?)
     }
 
-    /// load 负责下载网页（工具里还会在被拒绝时改用 Fetch API）。
+    /// load 负责读取原始网页；历史 Markdown 输入保留兼容。
     static func attempt(
         url: URL, anchor: String, lastAnchor: String, number: String,
         load: (URL) async throws -> Page

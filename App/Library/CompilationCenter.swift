@@ -7,7 +7,7 @@ import UIKit
 enum CompilationError: LocalizedError {
     case noModel
     case modelCannotSearch
-    /// 列试卷时模型没有调用 submit_papers。
+    /// 未能取得有效试卷列表。
     case noPapers(String)
 
     var errorDescription: String? {
@@ -19,11 +19,12 @@ enum CompilationError: LocalizedError {
     }
 }
 
-/// 生成汇编：模型调用 App 的工具列试卷、逐份试卷取原题、整理并生成 PDF（见 docs/adr/0013、0014）。
+/// 生成汇编：集中发现来源、本地批量提取原题，再整理生成 PDF。
 /// 放在 App 层级，切换页面时不中断。
 @MainActor
 @Observable
 final class CompilationCenter {
+    private let sourceStore = CompilationSourceStore()
     private var tasks: [UUID: Task<Void, Never>] = [:]
     /// 正在做什么，例如"正在查第 3/12 份：北京卷"。
     private(set) var progress: [UUID: String] = [:]
@@ -92,12 +93,26 @@ final class CompilationCenter {
         compilation.modelName = model.name
         context.insert(compilation)
         try? context.save()
-        listPapers(compilation, context: context)
+        listPapers(compilation, context: context, reuseRecent: true)
         return compilation
     }
 
-    func listPapers(_ compilation: Compilation, context: ModelContext) {
+    func listPapers(_ compilation: Compilation, context: ModelContext, reuseRecent: Bool = false) {
         guard tasks[compilation.id] == nil else { return }
+        if reuseRecent, let previous = Self.recentCompletedList(for: compilation, context: context) {
+            compilation.title = previous.title
+            compilation.subject = previous.subject
+            compilation.papers = previous.papers.map { source in
+                var paper = PaperPlan(title: source.title, shortTitle: source.shortTitle, year: source.year)
+                paper.sourceURLs = source.sourceURLs
+                return paper
+            }
+            compilation.status = .choosing
+            compilation.errorText = nil
+            try? context.save()
+            log(compilation.id, .success, "复用最近核实过的试卷列表与出处")
+            return
+        }
         compilation.status = .listing
         compilation.errorText = nil
         try? context.save()
@@ -119,25 +134,12 @@ final class CompilationCenter {
             }
             do {
                 let (model, service) = try Self.resolve(compilation, context: context)
-                let toolbox = CompilationToolbox(
-                    compilation: compilation, context: context, model: model, service: service, phase: .listing, log: log
-                )
-                let result = try await Self.loop(
-                    toolbox,
-                    CompilationTools.listingRequest(model: model.modelID, request: compilation.request, reasoningEffort: Self.effort(for: model)),
-                    maxCalls: CompilationTools.maxCallsForListing,
-                    nudge: "核实完了就调用 submit_papers 交上试卷列表；还没核实完就继续用工具。"
-                )
+                let session = CompilationBatchSession(compilation: compilation, model: model, service: service, log: log)
+                let text = try await session.reply(to: CompilationBatch.listingRequest(
+                    model: model.modelID, request: compilation.request, dialect: model.webSearchDialect
+                ))
                 try Task.checkCancellation()
-                guard let list = toolbox.submitted else {
-                    switch result.ending {
-                    case let .answered(text):
-                        let reason = text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw CompilationError.noPapers(reason.isEmpty ? "模型没有列出试卷，请把要求说具体一些再试。" : "模型没有列出试卷：\(reason.prefix(200))")
-                    default:
-                        throw CompilationError.noPapers("用满 \(CompilationTools.maxCallsForListing) 次调用也没有列出试卷，请把要求说具体一些再试。")
-                    }
-                }
+                let list = try CompilationBatch.parseListing(text, fallbackTitle: compilation.request).get()
                 compilation.title = list.title
                 compilation.subject = list.subject ?? .other
                 compilation.papers = list.papers
@@ -272,39 +274,13 @@ final class CompilationCenter {
             var updated = paper
             let started = Date.now
             log(.step, "第 \(done + 1)/\(selected.count) 份：\(name)")
-            let toolbox = CompilationToolbox(
-                compilation: compilation, context: context, model: model, service: service, phase: .paper(paper), log: log
-            )
             do {
-                // 中断后这份试卷从头再来：已经取到的题列在开头，模型不会重复取。
-                let existing = Self.questions(of: paper, in: compilation).map {
-                    CompilationTools.ExistingQuestion(number: $0.number, status: $0.status)
-                }
-                let result = try await Self.loop(
-                    toolbox,
-                    CompilationTools.paperRequest(
-                        model: model.modelID, request: compilation.request, paper: paper, existing: existing,
-                        reasoningEffort: Self.effort(for: model)
-                    ),
-                    maxCalls: CompilationTools.maxCallsPerPaper,
-                    nudge: "这份试卷查完了就调用 finish_paper；还没取完就继续用工具。"
+                let session = CompilationBatchSession(compilation: compilation, model: model, service: service, log: log)
+                let collector = CompilationBatchCollector(
+                    session: session, context: context, paper: paper, store: sourceStore
                 )
+                updated = try await collector.collect()
                 try Task.checkCancellation()
-                let count = Self.questions(of: paper, in: compilation).count
-                updated.state = .done
-                updated.found = count
-                if toolbox.stagnated {
-                    updated.note = count == 0
-                        ? "未能获取原文：连续 \(CompilationTools.maxCallsWithoutProgress) 次调用没有新进展"
-                        : "连续 \(CompilationTools.maxCallsWithoutProgress) 次调用没有新进展，按已取到的 \(count) 题结束"
-                } else if result.ending == .limitReached {
-                    updated.note = "用满 \(CompilationTools.maxCallsPerPaper) 次调用，按已取到的 \(count) 题结束"
-                    log(.warning, updated.note)
-                } else if count == 0 {
-                    updated.note = toolbox.finishNote.flatMap { $0.isEmpty ? nil : $0 } ?? "这份试卷里没有符合要求的题"
-                } else {
-                    updated.note = ""
-                }
             } catch {
                 if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     stopped = true
@@ -327,7 +303,11 @@ final class CompilationCenter {
                 }
             }
             var papers = compilation.papers
-            if let index = papers.firstIndex(where: { $0.id == paper.id }) { papers[index] = updated }
+            if let index = papers.firstIndex(where: { $0.id == paper.id }) {
+                // 集中检索刚保存的出处在失败或取消时也要保留。
+                updated.sourceURLs = CompilationBatch.validSourceURLs(papers[index].sourceURLs + updated.sourceURLs)
+                papers[index] = updated
+            }
             compilation.papers = papers
             compilation.updatedAt = .now
             // 每查完一份保存一次进度，被系统中断后从这里继续。
@@ -420,7 +400,7 @@ final class CompilationCenter {
 
     // MARK: - 单道题
 
-    /// 重新获取一道题：先按原来的网页再取一次；还不行就请模型用工具重新找这道题。
+    /// 重新获取一道题：复用出处，必要时集中补查一次，再从原页提取。
     func refetch(_ question: ExamQuestion, context: ModelContext) {
         guard !busyQuestions.contains(question.id), let compilation = question.compilation else { return }
         busyQuestions.insert(question.id)
@@ -434,29 +414,24 @@ final class CompilationCenter {
             }
             let log = logger(for: compilation.id)
             log(.step, "重新获取\(question.label)")
-            await Self.fetch(question, context: context, log: log)
-            if question.status != .complete, !question.number.isEmpty, let resolved = try? Self.resolve(compilation, context: context) {
+            if !question.number.isEmpty, let resolved = try? Self.resolve(compilation, context: context) {
                 let (model, service) = resolved
-                let paper = PaperPlan(title: question.paperTitle, shortTitle: question.paperShortTitle, year: question.year)
-                let toolbox = CompilationToolbox(
-                    compilation: compilation, context: context, model: model, service: service, phase: .paper(paper), log: log
-                )
-                let existing = Self.questions(of: paper, in: compilation).map {
-                    CompilationTools.ExistingQuestion(number: $0.number, status: $0.status)
+                var paper = compilation.papers.first(where: { $0.title == question.paperTitle && $0.year == question.year })
+                    ?? PaperPlan(title: question.paperTitle, shortTitle: question.paperShortTitle, year: question.year)
+                paper.sourceURLs = CompilationBatch.validSourceURLs([question.sourceURL] + question.candidateURLs + paper.sourceURLs)
+                for raw in paper.sourceURLs {
+                    if let url = URL(string: raw) { sourceStore.invalidate(for: url) }
                 }
+                let session = CompilationBatchSession(compilation: compilation, model: model, service: service, log: log)
                 do {
-                    _ = try await Self.loop(
-                        toolbox,
-                        CompilationTools.paperRequest(
-                            model: model.modelID, request: compilation.request, paper: paper, existing: existing,
-                            onlyNumber: question.number, reasoningEffort: Self.effort(for: model)
-                        ),
-                        maxCalls: CompilationTools.maxCallsPerPaper / 2,
-                        nudge: "取完了就调用 finish_paper。"
-                    )
+                    _ = try await CompilationBatchCollector(
+                        session: session, context: context, paper: paper, store: sourceStore, onlyNumber: question.number
+                    ).collect()
                 } catch {
                     if !Task.isCancelled { log(.warning, "重新获取没有完成：\(ChatErrorDescription.describe(error))") }
                 }
+            } else {
+                await Self.fetch(question, context: context, log: log)
             }
             try? context.save()
         }
@@ -524,6 +499,18 @@ final class CompilationCenter {
 
     // MARK: - 内部
 
+    /// 相同要求在一天内重复生成，复用完整列表；相对日期跨天后重新核实。
+    static func recentCompletedList(for compilation: Compilation, context: ModelContext, today: Date = .now) -> Compilation? {
+        let request = compilation.request.trimmingCharacters(in: .whitespacesAndNewlines)
+        let all = (try? context.fetch(FetchDescriptor<Compilation>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)]))) ?? []
+        return all.first {
+            $0.id != compilation.id && $0.request.trimmingCharacters(in: .whitespacesAndNewlines) == request
+                && Calendar.current.isDate($0.createdAt, inSameDayAs: today)
+                && $0.status == .done && !$0.papers.isEmpty
+                && $0.papers.allSatisfy { $0.collectionComplete }
+        }
+    }
+
     private static func resolve(_ compilation: Compilation, context: ModelContext, needsSearch: Bool = true) throws -> (ChatModel, any ChatService) {
         guard let id = compilation.modelID,
               let model = try context.fetch(FetchDescriptor<ChatModel>(predicate: #Predicate { $0.id == id })).first
@@ -532,10 +519,10 @@ final class CompilationCenter {
         return (model, try ModelLookup.service(for: model))
     }
 
-    /// DeepSeek 打开思考时会自己多轮搜索、打开网页核对，适合找原题。
+    /// 整理不需要联网或高强度推理，沿用用户设置，否则用低强度。
     private static func effort(for model: ChatModel) -> ReasoningEffort? {
         if let effort = model.reasoningEffort { return effort }
-        return model.webSearchDialect == .deepSeek && model.provider?.kind == .openAICompatible ? .high : nil
+        return .low
     }
 
     /// 跑一轮工具循环：工具由 toolbox 执行，用量记到汇编上，每个流式事件让后台进度往前走一点。
