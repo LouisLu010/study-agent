@@ -25,6 +25,8 @@ struct RootView: View {
                     TodayView()
                 case .assistant:
                     StudyAssistantHomeView()
+                case .canvases:
+                    StudyCanvasesView()
                 case let .conversation(conversation):
                     ChatView(conversation: conversation)
                         .id(conversation.id)

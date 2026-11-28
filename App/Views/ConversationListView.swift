@@ -32,6 +32,7 @@ struct ConversationListView: View {
                     entry("学习助手", systemImage: "sparkles", item: .assistant)
                 }
                 Section("学习") {
+                    entry("学习画布", systemImage: "rectangle.3.group", item: .canvases)
                     entry("错题本", systemImage: "exclamationmark.bubble", item: .mistakes)
                     entry("复习", systemImage: "arrow.counterclockwise.circle", item: .review)
                         .badge(dueCount)

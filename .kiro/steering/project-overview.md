@@ -8,7 +8,7 @@ inclusion: always
 
 ## 是什么
 
-iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。用户自带 API Key 直连服务商，没有后端（ADR-0001），数据只存本机（ADR-0004）。没有 Mac：靠 XcodeGen + GitHub Actions 编译，侧载未签名 ipa（ADR-0005）。
+iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。用户自带 API Key 直连服务商，没有后端（ADR-0001），数据只存本机（ADR-0004）。使用 XcodeGen 生成工程，在可用的 Mac 上构建和测试；GitHub Actions 也会编译并打包（ADR-0005 记录的是早期没有 Mac 时的取舍）。
 
 ## 先读哪些文件
 
@@ -43,7 +43,7 @@ iPhone / iPad 上的大模型学习聊天 App，SwiftUI，界面全是中文。�
 ## 构建和测试
 
 - CI（`.github/workflows/ci.yml`，macOS）：`swift test --package-path StudyKit`、`node --test RendererTests/*.test.js`、`xcodegen generate` 后编译模拟器和真机版，打包未签名 ipa。
-- 这个沙箱是 Linux：可以跑 `node --test RendererTests/*.test.js`；StudyKit 依赖 SwiftData 和 URLSession，整个包在 Linux 上编译不了。只依赖 Foundation 的几个文件（例如 `Persona.swift`、`SystemPrompt.swift`、`ConceptCardWriter.swift`、`ConceptMapLayout.swift`）可以复制到一个临时 Swift 包里跑测试，其余 Swift 改动只能靠 CI 验证。推送后用 `gh run list` / `gh run view <id> --log-failed` 看结果。
+- 先检查实际环境；当前工作区可在 macOS 上运行 `swift test --package-path StudyKit` 和 iOS Simulator 的 `xcodebuild test`。Linux 缺少 SwiftData，不能在那里验证整个包。不要因早期环境记录而跳过当前可运行的构建与测试。
 - 改了 `Prompts/` 或组件格式：用 `tools/eval/run.js` 跑真实模型（Key 只从环境变量 `STUDY_TEST_API_KEY` 读，绝不写进仓库），用法见 README"用真实模型测试组件"。
 - 版本号在 `project.yml` 的 `MARKETING_VERSION`。
 

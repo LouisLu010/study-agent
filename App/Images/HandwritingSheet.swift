@@ -5,6 +5,8 @@ import UIKit
 /// 手写画板。写完后导出成白底图片作为附件，由模型识别（App 本身不识别手写）。
 struct HandwritingSheet: View {
     let onDone: (Data) -> Void
+    var initialDrawing: Data?
+    var onDrawingDone: ((Data, Data) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var canvas = HandwritingCanvasController()
@@ -28,6 +30,7 @@ struct HandwritingSheet: View {
                             .disabled(isEmpty)
                         Button("完成") {
                             if let data = canvas.exportJPEG() {
+                                onDrawingDone?(canvas.canvasView.drawing.dataRepresentation(), data)
                                 onDone(data)
                             }
                             dismiss()
@@ -38,6 +41,12 @@ struct HandwritingSheet: View {
                 }
         }
         .interactiveDismissDisabled(!isEmpty)
+        .onAppear {
+            if let initialDrawing, let drawing = try? PKDrawing(data: initialDrawing) {
+                canvas.canvasView.drawing = drawing
+                isEmpty = drawing.strokes.isEmpty
+            }
+        }
     }
 }
 

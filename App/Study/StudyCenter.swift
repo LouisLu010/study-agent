@@ -8,6 +8,7 @@ enum SidebarItem: Hashable {
     /// 今天（见 GLOSSARY「今天」），打开 App 默认进这里。
     case today
     case assistant
+    case canvases
     case conversation(Conversation)
     case mistakes
     case review

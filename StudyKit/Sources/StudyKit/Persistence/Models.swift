@@ -111,6 +111,8 @@ public final class Conversation {
     public var webSearchEnabled: Bool = false
     /// 第十一版：这个会话可用只读工具查找本机学习内容。
     public var isStudyAssistant: Bool = false
+    /// 从画布提问产生的会话，删除画布不删除会话。
+    public var sourceCanvasID: UUID?
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 

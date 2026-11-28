@@ -260,6 +260,7 @@ public final class StoredImage {
     public var contentType: String = "image/png"
     public var question: ExamQuestion?
     public var mistake: Mistake?
+    public var canvasItem: CanvasItem?
 
     public init(data: Data, contentType: String) {
         self.data = data

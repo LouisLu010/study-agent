@@ -225,6 +225,12 @@ _Avoid_: 答案, 参考答案
 
 ### 界面
 
+<spec-entry category="coding" keywords="学习画布,专题,副本" date="2026-11-28" source="StudyKit/Sources/StudyKit/Persistence/CanvasModels.swift:5">
+
+**学习画布 (Study Canvas)**：持久保存一个专题的原题、知识卡、会话内容和手写的空间。每份内容是独立副本，可以自由摆放、框选并提问。它和表示知识关联的“关系图”不同。
+
+</spec-entry>
+
 **今天 (Today)**:
 打开 App 默认看到的页面，汇总今天要复习的错题、连续学习天数和最近的会话，也可以直接在这里提问，提问会新建一个会话。
 _Avoid_: 首页, 主页, 仪表盘, dashboard
