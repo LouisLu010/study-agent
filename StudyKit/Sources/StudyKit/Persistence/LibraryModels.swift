@@ -20,8 +20,8 @@ public final class ResearchNote {
     public var sourcesJSON: String = ""
     public var modelName: String = ""
     public var sourceConversationID: UUID?
-    /// 这份资料由知识卡组成（第十版）。为 false 时是以前的一整篇总结，正文在 `content` 里。
-    /// 旧资料拆成知识卡后也是 true，原来的正文留着不删。
+    /// 旧版资料是否已拆为知识卡；迁移时在确认卡片保存完整后删除该原资料。
+    /// 新拆卡只保存知识卡，不再建立原资料容器。
     public var isCardBased: Bool = false
 
     public init(title: String, content: String) {
@@ -60,7 +60,7 @@ public final class ConceptCard {
     public var topic: String = ""
     /// 出处（`[WebSource]` 的 JSON），编号和正文里的角标一致。
     public var sourcesJSON: String = ""
-    /// 属于哪一份资料（`ResearchNote.id`）。
+    /// 卡片分组 ID；从原资料拆卡时沿用 `ResearchNote.id`，原资料可已删除。
     public var noteID: UUID?
     public var sourceConversationID: UUID?
     public var modelName: String = ""

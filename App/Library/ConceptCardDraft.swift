@@ -9,8 +9,10 @@ struct NoteDraftRequest: Identifiable {
     let fallbackTitle: String
     let model: ChatModel?
     let conversationID: UUID?
-    /// 拆旧资料（第十版）：整理出的知识卡挂到这份资料上。
-    var existingNote: ResearchNote?
+    /// 只保存快照，另一个预览完成拆卡后不会访问已经删除的模型。
+    var existingNoteID: UUID?
+    var existingSubject: Subject?
+    var existingTopic: String?
 
     /// 整个会话。
     static func conversation(_ conversation: Conversation) -> NoteDraftRequest {
@@ -41,7 +43,9 @@ struct NoteDraftRequest: Identifiable {
             fallbackTitle: note.title,
             model: model,
             conversationID: note.sourceConversationID,
-            existingNote: note
+            existingNoteID: note.id,
+            existingSubject: note.subject,
+            existingTopic: note.topic
         )
     }
 
@@ -97,7 +101,7 @@ struct NoteDraftSheet: View {
                     Section {
                         VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                             Text(draft.title).font(.headline)
-                            Text([(request.existingNote?.subject ?? draft.subject)?.rawValue ?? "", request.existingNote?.topic ?? draft.topic]
+                            Text([(request.existingSubject ?? draft.subject)?.rawValue ?? "", request.existingTopic ?? draft.topic]
                                 .filter { !$0.isEmpty }.joined(separator: " · "))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -130,7 +134,7 @@ struct NoteDraftSheet: View {
                     }
                 }
             }
-            .navigationTitle(request.existingNote == nil ? "整理成资料" : "拆成知识卡")
+            .navigationTitle(request.existingNoteID == nil ? "整理成资料" : "拆成知识卡")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -177,11 +181,11 @@ struct NoteDraftSheet: View {
             errorText = ChatErrorDescription.describe(error)
             return
         }
-        let ownCards = Set(ConceptCardStore.allCards(in: context).filter { $0.noteID != nil && $0.noteID == request.existingNote?.id }.map(\.id))
+        let ownCards = Set(ConceptCardStore.allCards(in: context).filter { $0.noteID != nil && $0.noteID == request.existingNoteID }.map(\.id))
         candidates = ConceptCardWriter.selectCandidates(
             ConceptCardStore.candidates(ConceptCardStore.allCards(in: context)).filter { !ownCards.contains($0.id) },
-            subject: request.existingNote?.subject,
-            topic: request.existingNote?.topic ?? ""
+            subject: request.existingSubject,
+            topic: request.existingTopic ?? ""
         )
         let chatRequest = ConceptCardWriter.request(
             model: model.modelID, material: prepared.text, candidates: candidates, reasoningEffort: model.reasoningEffort
@@ -219,18 +223,22 @@ struct NoteDraftSheet: View {
 
     private func save() {
         guard let draft else { return }
-        let note = ConceptCardStore.save(
-            draft,
-            candidates: candidates,
-            modelName: request.model?.name ?? "",
-            conversationID: request.conversationID,
-            into: request.existingNote,
-            context: context
-        )
-        // 整理完直接打开这次整理出的卡。
-        navigation.recentNoteID = note.id
-        navigation.selection = .notes
-        dismiss()
+        do {
+            let groupID = try ConceptCardStore.save(
+                draft,
+                candidates: candidates,
+                modelName: request.model?.name ?? "",
+                conversationID: request.conversationID,
+                into: request.existingNoteID,
+                context: context
+            )
+            // 整理完直接打开这次整理出的卡。
+            navigation.recentNoteID = groupID
+            navigation.selection = .notes
+            dismiss()
+        } catch {
+            errorText = ChatErrorDescription.describe(error)
+        }
     }
 }
 

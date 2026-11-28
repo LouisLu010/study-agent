@@ -134,6 +134,21 @@ public enum ResearchNoteWriter {
         return used.isEmpty ? (body, sources) : (result, used)
     }
 
+    /// 沿用完整来源表编号，适合精简与合并知识卡；出现来源表之外的角标时返回 nil。
+    /// 代码、公式里的字面量不作为引用检查。
+    public static func normalizedCitations(in body: String, sources: [WebSource]) -> String? {
+        let cited = citeSources(in: body, sources: sources).content
+        var hasUnknownSource = false
+        let normalized = replaceMarkers(in: cited) { url in
+            guard let index = sources.firstIndex(where: { $0.url == url }) else {
+                hasUnknownSource = true
+                return nil
+            }
+            return WebSearchRecorder.marker(number: index + 1, url: url)
+        }
+        return hasUnknownSource ? nil : normalized
+    }
+
     /// 删除第 `index` 个出处：去掉正文里指向它的角标，其余角标重新编号。
     public static func removeSource(at index: Int, sources: [WebSource], content: String) -> (content: String, sources: [WebSource]) {
         guard sources.indices.contains(index) else { return (content, sources) }

@@ -117,4 +117,26 @@ import Testing
         let prepared = ResearchNoteWriter.prepare([.init(role: .assistant, content: "`\(marker)`\n正文" + marker, sources: [a])])
         #expect(prepared.text.contains("`\(marker)`\n正文[1]"))
     }
+
+    @Test func normalizingCardCitationsKeepsSourceTableOrderAcrossFields() {
+        let sources = [a, b, c]
+        let content = "先引用乙[2]，再引用甲[[9]](<https://a.com/1>)。"
+        #expect(ResearchNoteWriter.normalizedCitations(in: content, sources: sources)
+            == "先引用乙[[2]](<https://b.com/2>)，再引用甲[[1]](<https://a.com/1>)。")
+        #expect(ResearchNoteWriter.normalizedCitations(in: "例子[3]", sources: sources)
+            == "例子[[3]](<https://c.com/3>)")
+    }
+
+    @Test func normalizingCardCitationsPreservesMathCodeAndMissingSources() {
+        let literal = "`[2]`\n$$a[1]$$\n```\n[[9]](<https://a.com/1>)\n```"
+        #expect(ResearchNoteWriter.normalizedCitations(in: literal + "\n正文[2]", sources: [a, b])
+            == literal + "\n正文[[2]](<https://b.com/2>)")
+        #expect(ResearchNoteWriter.normalizedCitations(in: "原文[1]", sources: []) == "原文[1]")
+    }
+
+    @Test func normalizingCardCitationsRejectsInventedSources() {
+        let unknown = "[[1]](<https://invented.example/>)"
+        #expect(ResearchNoteWriter.normalizedCitations(in: "正文" + unknown, sources: [a]) == nil)
+        #expect(ResearchNoteWriter.normalizedCitations(in: "`" + unknown + "`", sources: [a]) == "`" + unknown + "`")
+    }
 }

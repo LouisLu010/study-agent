@@ -52,9 +52,11 @@ struct ConceptCardPopup: View {
             }
         }
         .frame(minWidth: 360, idealWidth: 440, minHeight: 380, idealHeight: 620)
+        .accessibilityIdentifier("concept-card-popup")
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .presentationCompactAdaptation(.sheet)
+        .presentationBackground(Color(.systemBackground))
         .onAppear { if stack.isEmpty { stack = [startID] } }
         .sheet(item: $originalNote) { note in
             NavigationStack {
@@ -351,7 +353,7 @@ struct ConceptCardPopup: View {
 }
 
 extension View {
-    /// 弹窗出来时背景模糊变暗（第十版）。打开"降低透明度"后只变暗、不模糊。
+    /// 仅淡化未选中的卡片；加在卡片内容上，避免影响选中的卡片和弹窗。
     func popupBackdrop(_ active: Bool) -> some View {
         modifier(PopupBackdrop(active: active))
     }
@@ -359,17 +361,11 @@ extension View {
 
 private struct PopupBackdrop: ViewModifier {
     let active: Bool
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         content
-            .blur(radius: active && !reduceTransparency ? 8 : 0)
-            .overlay {
-                Color.black.opacity(active ? (reduceTransparency ? 0.45 : 0.25) : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-            }
+            .opacity(active ? 0.45 : 1)
             .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: active)
     }
 }

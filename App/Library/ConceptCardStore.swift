@@ -15,7 +15,7 @@ enum ConceptCardStore {
         (try? context.fetch(FetchDescriptor<ConceptLink>())) ?? []
     }
 
-    /// 拆卡后的原资料仍然可以查看、编辑和导出；新建知识卡的空容器不单独显示。
+    /// 尚未拆卡的资料保留原文入口。
     static func hasOriginalContent(_ note: ResearchNote) -> Bool {
         !note.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -65,79 +65,89 @@ enum ConceptCardStore {
 
     // MARK: - 保存整理结果
 
-    /// 把模型整理出的知识卡和关联存起来。`note` 不为 nil 时是拆旧资料：卡片挂到这份资料上，原来的正文留着。
-    /// 返回这份资料。和旧卡的关联只留同一科目的（第十版不做跨科目的关联）。
+    /// 原资料 ID 继续作为卡片分组 ID；新卡和关联保存成功后不再保留原资料。
+    /// 返回分组 ID，避免预览持有已经删除的 ResearchNote。和旧卡的关联只留同一科目的。
     @discardableResult
     static func save(
         _ draft: ConceptCardWriter.Draft,
         candidates: [ConceptCardWriter.Candidate],
         modelName: String,
         conversationID: UUID?,
-        into existing: ResearchNote? = nil,
-        context: ModelContext
-    ) -> ResearchNote {
-        // 同一份原资料只拆一次。另一个预览还开着时再次保存，不重复插入知识卡。
-        if let existing, allCards(in: context).contains(where: { $0.noteID == existing.id }) {
-            return existing
+        into originalID: UUID? = nil,
+        context: ModelContext,
+        persist: (ModelContext) throws -> Void = { try $0.save() }
+    ) throws -> UUID {
+        try Task.checkCancellation()
+        guard !draft.cards.isEmpty else { throw OriginalCleanupError.noCards }
+        let groupID = originalID ?? UUID()
+        let storedCards = try context.fetch(FetchDescriptor<ConceptCard>())
+        let existing: ResearchNote?
+        if let originalID {
+            existing = try context.fetch(FetchDescriptor<ResearchNote>(predicate: #Predicate { $0.id == originalID })).first
+            let alreadySaved = storedCards.filter { $0.noteID == originalID }
+            if !alreadySaved.isEmpty {
+                if let existing { try removeOriginals([(existing, alreadySaved)], context: context, persist: persist) }
+                return groupID
+            }
+            guard existing != nil else { throw OriginalCleanupError.missingOriginal }
+        } else {
+            existing = nil
         }
+        // 先保存调用前的编辑，后续失败只回滚本次拆卡，不丢其他页面的待保存内容。
+        try persist(context)
         let subject = existing?.subject ?? draft.subject ?? .other
         let topic = existing.map { $0.topic } ?? (draft.topic.isEmpty ? "未分类" : draft.topic)
-        let note = existing ?? ResearchNote(title: draft.title, content: "")
-        if existing == nil {
-            note.subject = subject
-            note.topic = topic
-            note.modelName = modelName
-            note.sourceConversationID = conversationID
-            context.insert(note)
-        }
-        note.isCardBased = true
-        note.updatedAt = .now
-
-        var sources: [WebSource] = []
-        let cards: [ConceptCard] = draft.cards.map { item in
-            let card = ConceptCard(title: item.title, content: item.content)
-            card.example = item.example
-            card.sources = item.sources
-            card.subject = subject
-            card.topic = topic
-            card.noteID = note.id
-            card.sourceConversationID = conversationID ?? existing?.sourceConversationID
-            card.modelName = modelName
-            context.insert(card)
-            for source in item.sources where !sources.contains(where: { $0.url == source.url }) { sources.append(source) }
-            return card
-        }
-        if existing == nil { note.sources = sources }
-
-        // 引用换成 ID。旧卡不是这个科目的、已经被删的，丢掉。
-        let liveIDs = Set(allCards(in: context).map(\.id))
-        func id(_ ref: ConceptCardWriter.Ref) -> UUID? {
-            switch ref {
-            case let .new(index): return cards.indices.contains(index) ? cards[index].id : nil
-            case let .old(index):
-                guard candidates.indices.contains(index), liveIDs.contains(candidates[index].id),
-                      (candidates[index].subject ?? .other) == subject
-                else { return nil }
-                return candidates[index].id
+        do {
+            let cards: [ConceptCard] = draft.cards.map { item in
+                let card = ConceptCard(title: item.title, content: item.content)
+                card.example = item.example
+                card.sources = item.sources
+                card.subject = subject
+                card.topic = topic
+                card.noteID = groupID
+                card.sourceConversationID = conversationID ?? existing?.sourceConversationID
+                card.modelName = modelName
+                context.insert(card)
+                return card
             }
+            if let existing { preserveOriginalReferences(existing, in: cards) }
+            try validateImages(in: cards, context: context)
+
+            // 引用换成 ID。旧卡不是这个科目的、已经被删的，丢掉。
+            let liveIDs = Set(storedCards.map(\.id)).union(cards.map(\.id))
+            func id(_ ref: ConceptCardWriter.Ref) -> UUID? {
+                switch ref {
+                case let .new(index): return cards.indices.contains(index) ? cards[index].id : nil
+                case let .old(index):
+                    guard candidates.indices.contains(index), liveIDs.contains(candidates[index].id),
+                          (candidates[index].subject ?? .other) == subject
+                    else { return nil }
+                    return candidates[index].id
+                }
+            }
+            let proposed = draft.links.compactMap { link -> (LinkEdge, String)? in
+                guard let from = id(link.from), let to = id(link.to) else { return nil }
+                return (LinkEdge(from: from, to: to, kind: link.kind), link.reason)
+            }
+            let links = try context.fetch(FetchDescriptor<ConceptLink>())
+            let kept = LinkRules.accept(
+                proposed.map(\.0),
+                knownCards: liveIDs,
+                existing: activeEdges(links),
+                dismissed: links.filter(\.dismissed).compactMap(edge)
+            )
+            for index in kept {
+                let (edge, reason) = proposed[index]
+                context.insert(ConceptLink(from: edge.from, to: edge.to, kind: edge.kind, reason: reason))
+            }
+            if let existing { context.delete(existing) }
+            try Task.checkCancellation()
+            try persist(context)
+            return groupID
+        } catch {
+            context.rollback()
+            throw error
         }
-        let proposed = draft.links.compactMap { link -> (LinkEdge, String)? in
-            guard let from = id(link.from), let to = id(link.to) else { return nil }
-            return (LinkEdge(from: from, to: to, kind: link.kind), link.reason)
-        }
-        let links = allLinks(in: context)
-        let kept = LinkRules.accept(
-            proposed.map(\.0),
-            knownCards: liveIDs.union(cards.map(\.id)),
-            existing: activeEdges(links),
-            dismissed: links.filter(\.dismissed).compactMap(edge)
-        )
-        for index in kept {
-            let (edge, reason) = proposed[index]
-            context.insert(ConceptLink(from: edge.from, to: edge.to, kind: edge.kind, reason: reason))
-        }
-        try? context.save()
-        return note
     }
 
     // MARK: - 改
@@ -171,7 +181,7 @@ enum ConceptCardStore {
     }
 
     /// 真正删掉一张知识卡（撤销的 5 秒过后）：连同两头带它的关联。
-    /// 最后一张卡删掉后恢复原资料；没有原文的新资料容器直接删除。
+    /// 原资料已在拆卡保存时删除；旧版无原文容器随最后一张卡清理。
     static func delete(_ card: ConceptCard, context: ModelContext) {
         let id = card.id
         for link in allLinks(in: context) where link.fromID == id || link.toID == id {

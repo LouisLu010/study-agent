@@ -246,6 +246,7 @@ struct ConceptMapView: View {
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isButton)
             .accessibilityHint("打开这张知识卡")
+            .accessibilityIdentifier(selected ? "concept-map-selected-card" : "concept-map-card-\(card.id.uuidString)")
     }
 
     /// 连线。前置是实线带箭头，对比是虚线不带箭头，应用是点线带箭头，三种同一个颜色。

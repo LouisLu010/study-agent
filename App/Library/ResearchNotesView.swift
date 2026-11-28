@@ -2,7 +2,7 @@ import StudyKit
 import SwiftData
 import SwiftUI
 
-/// 资料页（第十版）：知识卡按科目、知识点分组；原资料放在最后，拆卡后仍可阅读。点知识卡弹出弹窗，不切换页面。
+/// 资料页：知识卡按科目、知识点分组；尚未拆卡的原资料放在最后。
 struct ResearchNotesView: View {
     @Environment(\.modelContext) private var context
     @Environment(ToastCenter.self) private var toasts
@@ -17,6 +17,14 @@ struct ResearchNotesView: View {
     @State private var mode = Mode.cards
     @State private var mapSubject: Subject?
     @State private var mapFocus: UUID?
+    @State private var assistant = LibraryAssistant()
+    @State private var panel: Panel?
+    @State private var cleanupError: String?
+
+    private enum Panel: String, Identifiable {
+        case assistant
+        var id: String { rawValue }
+    }
 
     enum Mode: String, CaseIterable, Identifiable {
         case cards = "知识卡"
@@ -41,10 +49,10 @@ struct ResearchNotesView: View {
         }
     }
 
-    /// 完整原文独立保留，拆成知识卡后仍有入口。
+    /// 已拆卡原文由迁移删除；异常旧资料在清理失败时仍可阅读。
     private var originalNotes: [ResearchNote] {
         notes.filter { note in
-            guard (!note.isCardBased || ConceptCardStore.hasOriginalContent(note)), !toasts.isHidden(note) else { return false }
+            guard !toasts.isHidden(note) else { return false }
             if let subject, (note.subject ?? .other) != subject { return false }
             guard !query.isEmpty else { return true }
             return note.title.localizedStandardContains(query) || note.topic.localizedStandardContains(query)
@@ -71,13 +79,13 @@ struct ResearchNotesView: View {
     }
 
     private var subjects: [Subject] {
-        let present = Set(cards.map { $0.subject ?? .other } + notes.filter { !$0.isCardBased || ConceptCardStore.hasOriginalContent($0) }.map { $0.subject ?? .other })
+        let present = Set(cards.map { $0.subject ?? .other } + notes.map { $0.subject ?? .other })
         return Subject.allCases.filter(present.contains)
     }
 
     private var isEmpty: Bool {
         cards.allSatisfy { toasts.isHidden($0) }
-            && notes.filter { !$0.isCardBased || ConceptCardStore.hasOriginalContent($0) }.allSatisfy { toasts.isHidden($0) }
+            && notes.allSatisfy { toasts.isHidden($0) }
     }
 
     var body: some View {
@@ -97,6 +105,26 @@ struct ResearchNotesView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 200)
             }
+            ToolbarItem(placement: .primaryAction) {
+                Button("资料助手", systemImage: "sparkles") {
+                    toasts.flush()
+                    panel = .assistant
+                }
+                .accessibilityIdentifier("library-assistant-open")
+            }
+        }
+        .sheet(item: $panel) { _ in
+            LibraryAssistantView(assistant: assistant)
+        }
+        .task {
+            do { try ConceptCardStore.removeCardBasedOriginals(context: context) }
+            catch is CancellationError { }
+            catch { cleanupError = "清理原资料失败：\(error.localizedDescription)" }
+        }
+        .alert("原资料已保留", isPresented: Binding(get: { cleanupError != nil }, set: { if !$0 { cleanupError = nil } })) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(cleanupError ?? "")
         }
         .onAppear(perform: takeMapFocus)
         .onChange(of: navigation.mapFocusCardID) { takeMapFocus() }
@@ -181,7 +209,6 @@ struct ResearchNotesView: View {
             .frame(maxWidth: .infinity)
         }
         .groupedPageBackground()
-        .popupBackdrop(popup != nil)
         .toastBar(.notes)
         .overlay {
             if isEmpty {
@@ -226,8 +253,10 @@ struct ResearchNotesView: View {
             popup = anchor
         } label: {
             ConceptCardTile(card: card, color: color, links: links)
+                .popupBackdrop(popup != nil && popup != anchor)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(popup == anchor ? "concept-card-selected" : "concept-card-\(section)-\(card.id.uuidString)")
         .popover(isPresented: Binding(get: { popup == anchor }, set: { if !$0, popup == anchor { popup = nil } })) {
             ConceptCardPopup(startID: card.id, onShowInMap: showInMap)
         }
@@ -270,6 +299,16 @@ struct ResearchNoteDetailView: View {
     private var canSplit: Bool { !cards.contains { $0.noteID == note.id } }
 
     var body: some View {
+        Group {
+            if note.isDeleted || note.modelContext == nil {
+                Color.clear.onAppear { dismiss() }
+            } else {
+                detail
+            }
+        }
+    }
+
+    private var detail: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 // 第十版：以前的整篇资料可以拆成知识卡，点了才调一次模型。
@@ -379,7 +418,9 @@ struct ResearchNoteDetailView: View {
             }
         }
         .onChange(of: showsPreview) { previewID = UUID() }
-        .sheet(item: $splitRequest) { request in
+        .sheet(item: $splitRequest, onDismiss: {
+            if note.isDeleted || note.modelContext == nil { dismiss() }
+        }) { request in
             NoteDraftSheet(request: request)
         }
         .onDisappear { try? context.save() }
