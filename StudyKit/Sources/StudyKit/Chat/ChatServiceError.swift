@@ -25,6 +25,11 @@ public enum ChatServiceError: Error, Equatable, LocalizedError {
     case missingAPIKey
     case invalidBaseURL
     case invalidResponse
+    case incompleteStream
+    case truncated
+    case blocked
+    case emptyResponse
+    case invalidToolArguments(name: String)
     case http(status: Int, message: String?)
     case server(message: String)
 
@@ -36,6 +41,16 @@ public enum ChatServiceError: Error, Equatable, LocalizedError {
             return "服务商的 API 地址无效，需要以 https:// 开头。"
         case .invalidResponse:
             return "服务商返回了无法识别的数据。"
+        case .incompleteStream:
+            return "服务商的响应提前断开，回答可能还没有写完。"
+        case .truncated:
+            return "回答达到了服务商的长度限制，还没有写完。"
+        case .blocked:
+            return "服务商阻止了这次回答，请调整问题后重试。"
+        case .emptyResponse:
+            return "服务商没有返回回答，请重试或更换模型。"
+        case let .invalidToolArguments(name):
+            return "模型给出的工具参数不完整或不是 JSON 对象（\(name)），没有执行。"
         case let .http(status, message):
             let reason = switch status {
             case 401, 403: "API Key 无效或没有权限"

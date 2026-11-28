@@ -154,6 +154,7 @@ public struct AnthropicService: ChatService {
     }
 
     public func makeURLRequest(for request: ChatRequest) throws -> URLRequest {
+        for call in request.messages.flatMap(\.toolCalls) { _ = try call.validatedInput() }
         // 只在用户设置了思考强度时才打开思考，避免不支持的旧模型报错。
         let effort = request.reasoningEffort
         let tools: [RequestBody.Tool] = (request.webSearch ? [.webSearch] : []) + request.tools.map { .custom($0) }
@@ -195,10 +196,12 @@ public struct AnthropicService: ChatService {
             let signature: String?
             let partialJSON: String?
             let citation: CitationInfo?
+            let stopReason: String?
 
             enum CodingKeys: String, CodingKey {
                 case type, text, thinking, citation, signature
                 case partialJSON = "partial_json"
+                case stopReason = "stop_reason"
             }
         }
 
@@ -279,13 +282,29 @@ public struct AnthropicService: ChatService {
             let type: String
             let id: String?
             let name: String?
-            let input: ToolInput?
+            let input: JSONValue?
             let content: Results?
             /// redacted_thinking 块的内容。
             let data: String?
             /// thinking 块开始时可能已经带着文字和签名。
             let thinking: String?
             let signature: String?
+
+            enum CodingKeys: String, CodingKey {
+                case type, id, name, input, content, data, thinking, signature
+            }
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                type = try container.decode(String.self, forKey: .type)
+                id = try container.decodeIfPresent(String.self, forKey: .id)
+                name = try container.decodeIfPresent(String.self, forKey: .name)
+                input = container.contains(.input) ? try container.decode(JSONValue.self, forKey: .input) : nil
+                content = try container.decodeIfPresent(Results.self, forKey: .content)
+                data = try container.decodeIfPresent(String.self, forKey: .data)
+                thinking = try container.decodeIfPresent(String.self, forKey: .thinking)
+                signature = try container.decodeIfPresent(String.self, forKey: .signature)
+            }
         }
 
         let type: String
@@ -304,7 +323,10 @@ public struct AnthropicService: ChatService {
 
     /// 解析一个 SSE 事件的 data 字段（不跨事件记状态，联网搜索的搜索词和引用需要 `StreamDecoder`）。
     public static func decodeStreamData(_ data: String) throws -> StreamPayload {
-        try StreamDecoder().decode(data)
+        let decoder = StreamDecoder()
+        let payload = try decoder.decode(data)
+        try decoder.checkCompletionError()
+        return payload
     }
 
     /// 一次流式回答的解析器。联网搜索的搜索词分几段给出，引用要等文字块结束才能定位，所以要记状态。
@@ -315,9 +337,11 @@ public struct AnthropicService: ChatService {
         /// 文字块的序号 → 这个块里的引用。
         private var blockCitations: [Int: [WebSource]] = [:]
         /// App 工具调用块的序号 → ID、名字和已收到的参数 JSON 片段。
-        private var toolUses: [Int: (id: String, name: String, json: String)] = [:]
+        private var toolUses: [Int: (id: String, name: String, initial: JSONValue?, json: String)] = [:]
         /// 思考块的序号 → 文字和签名。
         private var thinkingBlocks: [Int: ThinkingBlock] = [:]
+        private var receivedEnd = false
+        private var completionError: ChatServiceError?
 
         public init() {}
 
@@ -364,7 +388,7 @@ public struct AnthropicService: ChatService {
                 }
                 return .events([])
             case "content_block_stop":
-                return .events(blockStop(index: event.index))
+                return .events(try blockStop(index: event.index))
             case "message_start":
                 // 开始时给出输入数；输出数这时还不准，等 message_delta。
                 if let usage = event.message?.usage, let input = usage.totalInput {
@@ -374,6 +398,14 @@ public struct AnthropicService: ChatService {
                 }
                 return .events([])
             case "message_delta":
+                if let reason = event.delta?.stopReason {
+                    switch reason {
+                    case "end_turn", "stop_sequence", "tool_use": break
+                    case "max_tokens", "model_context_window_exceeded": completionError = .truncated
+                    case "refusal": completionError = .blocked
+                    default: completionError = .incompleteStream
+                    }
+                }
                 // output_tokens 和搜索次数都是累计值。
                 var events: [ChatStreamEvent] = []
                 if let usage = event.usage, usage.outputTokens != nil || usage.totalInput != nil {
@@ -385,12 +417,23 @@ public struct AnthropicService: ChatService {
                 }
                 return .events(events)
             case "message_stop":
+                receivedEnd = true
                 return .done
             case "error":
                 throw ChatServiceError.server(message: event.error?.message ?? "未知错误")
             default:
                 return .events([])
             }
+        }
+
+        func checkCompletionError() throws {
+            if let completionError { throw completionError }
+        }
+
+        func finishStream() throws -> [ChatStreamEvent] {
+            try checkCompletionError()
+            guard receivedEnd, toolUses.isEmpty else { throw ChatServiceError.incompleteStream }
+            return []
         }
 
         private func blockStart(_ event: StreamEvent) -> [ChatStreamEvent] {
@@ -400,7 +443,12 @@ public struct AnthropicService: ChatService {
                 guard block.name == nil || block.name?.contains("search") == true else { return [] }
                 // 搜索词通常在后面的 input_json_delta 里，块结束时再解析。
                 if let index = event.index { toolInputs[index] = "" }
-                return [.searching(query: block.input?.text)]
+                let query = block.input.flatMap { input -> String? in
+                    if let query = input["query"]?.stringValue, !query.isEmpty { return query }
+                    let queries = input["queries"]?.arrayValue?.compactMap(\.stringValue) ?? []
+                    return queries.isEmpty ? nil : queries.joined(separator: " / ")
+                }
+                return [.searching(query: query)]
             case "web_search_tool_result":
                 let sources = (block.content?.items ?? []).compactMap { result -> WebSource? in
                     guard let url = result.url, !url.isEmpty else { return nil }
@@ -409,7 +457,7 @@ public struct AnthropicService: ChatService {
                 return sources.isEmpty ? [] : [.searchResults(sources)]
             case "tool_use":
                 if let index = event.index, let name = block.name {
-                    toolUses[index] = (block.id ?? ToolCall.localIDPrefix + "\(index)", name, "")
+                    toolUses[index] = (block.id ?? ToolCall.localIDPrefix + "\(index)", name, block.input, "")
                 }
                 return []
             case "thinking":
@@ -425,11 +473,13 @@ public struct AnthropicService: ChatService {
             }
         }
 
-        private func blockStop(index: Int?) -> [ChatStreamEvent] {
+        private func blockStop(index: Int?) throws -> [ChatStreamEvent] {
             guard let index else { return [] }
             if let call = toolUses.removeValue(forKey: index) {
                 let json = call.json.trimmingCharacters(in: .whitespacesAndNewlines)
-                return [.toolCall(ToolCall(id: call.id, name: call.name, arguments: json.isEmpty ? "{}" : json))]
+                let tool = ToolCall(id: call.id, name: call.name, arguments: json.isEmpty ? (call.initial ?? .object([:])).jsonString : json)
+                _ = try tool.validatedInput()
+                return [.toolCall(tool)]
             }
             if let thinking = thinkingBlocks.removeValue(forKey: index) {
                 return (thinking.signature ?? "").isEmpty ? [] : [.thinkingBlock(thinking)]
@@ -453,9 +503,12 @@ public struct AnthropicService: ChatService {
     public func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
         do {
             let decoder = StreamDecoder()
-            return SSEStreaming.stream(session: session, request: try makeURLRequest(for: request)) { event in
-                try decoder.decode(event.data)
-            }
+            return SSEStreaming.stream(
+                session: session,
+                request: try makeURLRequest(for: request),
+                decode: { try decoder.decode($0.data) },
+                finish: { try decoder.finishStream() }
+            )
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }
         }

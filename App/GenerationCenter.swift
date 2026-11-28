@@ -376,6 +376,11 @@ final class GenerationCenter {
                     reply.status = .interrupted
                 } else if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     reply.status = .stopped
+                } else if !reply.content.isEmpty,
+                          ((error as? ChatServiceError) == .truncated || (error as? ChatServiceError) == .incompleteStream) {
+                    // 已有的正文保留下来，可以继续写；服务商明确拒绝或空响应仍按失败提示。
+                    reply.status = .interrupted
+                    reply.errorText = ChatErrorDescription.describe(error)
                 } else if CompilationCenter.isBackgroundInterruption(error, since: started) {
                     // 切到后台被系统断开了连接：不算失败，保留写出的部分，可以继续生成。
                     reply.status = .interrupted

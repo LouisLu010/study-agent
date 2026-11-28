@@ -88,7 +88,7 @@ final class CompilationToolbox {
             log(.warning, "模型调用了这一步不能用的工具 \(call.name)")
             return ToolLoop.Outcome(["error": .string("这一步不能用 \(call.name)。可以用：\(allowed.map(\.rawValue).joined(separator: "、"))")])
         }
-        let input = call.input
+        let input = try call.validatedInput()
         let step: Step
         switch name {
         case .searchWeb: step = try await searchWeb(input)

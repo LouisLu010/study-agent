@@ -146,6 +146,7 @@ public struct OpenAICompatibleService: ChatService {
             messages.append(.init(role: "system", content: .text(system)))
         }
         for message in request.messages {
+            for call in message.toolCalls { _ = try call.validatedInput() }
             // 工具结果每个调用一条 tool 消息；同一条里还有文字或图片时，再跟一条 user 消息。
             for result in message.toolResults {
                 messages.append(.init(role: "tool", content: .text(result.content), toolCallID: result.callID))
@@ -155,7 +156,7 @@ public struct OpenAICompatibleService: ChatService {
             if message.role == .assistant {
                 if !message.toolCalls.isEmpty {
                     item.toolCalls = message.toolCalls.map {
-                        .init(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments.isEmpty ? "{}" : $0.arguments))
+                        .init(id: $0.id, function: .init(name: $0.name, arguments: $0.arguments.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "{}" : $0.arguments))
                     }
                 }
                 let reasoning = message.thinking.map(\.text).joined()
@@ -328,7 +329,7 @@ public struct OpenAICompatibleService: ChatService {
         let decoder = StreamDecoder()
         let payload = try decoder.decode(data)
         guard case let .events(events) = payload else { return payload }
-        return .events(events + decoder.finish())
+        return .events(events + (try decoder.finish()))
     }
 
     /// 一次流式回答的解析器：把分几段给出的工具调用拼完整，在 finish_reason 或流结束时发出。
@@ -343,12 +344,15 @@ public struct OpenAICompatibleService: ChatService {
         /// 按 index 收集的工具调用；没有 index 的服务商按出现顺序编号。
         private var pending: [Int: PendingCall] = [:]
         private var order: [Int] = []
+        private var receivedEnd = false
+        private var completionError: ChatServiceError?
 
         public init() {}
 
         public func decode(_ data: String) throws -> StreamPayload {
             let trimmed = data.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed == "[DONE]" {
+                receivedEnd = true
                 return .done
             }
 
@@ -378,22 +382,38 @@ public struct OpenAICompatibleService: ChatService {
                 }
                 pending[index]?.arguments += delta.function?.arguments ?? ""
             }
-            if chunk.choices?.first?.finishReason != nil {
-                events += finish()
+            if let reason = chunk.choices?.first?.finishReason {
+                receivedEnd = true
+                switch reason {
+                case "stop", "tool_calls", "function_call":
+                    events += try finish()
+                case "length": completionError = .truncated
+                case "content_filter": completionError = .blocked
+                default: completionError = .incompleteStream
+                }
             }
             return .events(events)
         }
 
         /// 发出收完整的工具调用。流结束时调用一次。
-        public func finish() -> [ChatStreamEvent] {
-            let calls = order.compactMap { pending[$0] }.enumerated().compactMap { offset, call -> ChatStreamEvent? in
-                guard !call.name.isEmpty else { return nil }
+        public func finish() throws -> [ChatStreamEvent] {
+            if let completionError { throw completionError }
+            let calls = try order.compactMap { pending[$0] }.enumerated().map { offset, call -> ChatStreamEvent in
+                guard !call.name.isEmpty else { throw ChatServiceError.invalidResponse }
                 let id = call.id.isEmpty ? ToolCall.localIDPrefix + "\(offset)" : call.id
-                return .toolCall(ToolCall(id: id, name: call.name, arguments: call.arguments))
+                let tool = ToolCall(id: id, name: call.name, arguments: call.arguments)
+                _ = try tool.validatedInput()
+                return .toolCall(tool)
             }
             pending = [:]
             order = []
             return calls
+        }
+
+        /// `finish_reason` 后可能还有用量帧；到真正的流尾再验证，不能把裸 EOF 当作完成。
+        func finishStream() throws -> [ChatStreamEvent] {
+            guard receivedEnd else { throw ChatServiceError.incompleteStream }
+            return try finish()
         }
     }
 
@@ -457,7 +477,7 @@ public struct OpenAICompatibleService: ChatService {
                 session: session,
                 request: try makeURLRequest(for: request),
                 decode: { try decoder.decode($0.data) },
-                finish: { decoder.finish() }
+                finish: { try decoder.finishStream() }
             )
         } catch {
             return AsyncThrowingStream { $0.finish(throwing: error) }

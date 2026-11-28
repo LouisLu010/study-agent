@@ -90,12 +90,16 @@ public struct ToolLoop: Sendable {
             let turn: Turn
             do {
                 turn = try await Self.stream(service: service, request: request, onEvent: onEvent)
+                try Task.checkCancellation()
             } catch {
                 // 第一次请求就因为工具被拒绝：多半是这个模型不支持工具调用。
                 if calls == 0, Self.rejectsTools(error) { throw ToolLoopError.toolsUnsupported }
                 throw error
             }
+            // 即使是假服务或第三方适配器，也不能让损坏的参数进入执行器。
+            for call in turn.toolCalls { _ = try call.validatedInput() }
             await onUsage(turn.usage)
+            try Task.checkCancellation()
             request.messages.append(ChatMessage(
                 role: .assistant, text: turn.text, toolCalls: turn.toolCalls, thinking: turn.thinking
             ))
@@ -111,6 +115,7 @@ public struct ToolLoop: Sendable {
             var stop = false
             var limited = false
             for call in turn.toolCalls {
+                try Task.checkCancellation()
                 // 同一轮里到了上限的调用不执行，但也要给出结果，否则下一次请求格式不对。
                 if stop || calls >= maxCalls {
                     limited = limited || (!stop && calls >= maxCalls)
@@ -127,6 +132,7 @@ public struct ToolLoop: Sendable {
                     if Task.isCancelled { throw CancellationError() }
                     outcome = Outcome(["error": .string(ChatErrorDescription.describe(error))])
                 }
+                try Task.checkCancellation()
                 results.append(ToolResult(callID: call.id, name: call.name, content: outcome.content))
                 stop = stop || outcome.stop
             }
@@ -167,7 +173,9 @@ public struct ToolLoop: Sendable {
         var turn = Turn(usage: Usage())
         var recorder = WebSearchRecorder()
         for try await event in service.streamChat(request) {
+            try Task.checkCancellation()
             await onEvent(event)
+            try Task.checkCancellation()
             switch event {
             case let .text(delta): turn.text += delta
             case let .reasoning(delta): turn.reasoning += delta
@@ -181,6 +189,8 @@ public struct ToolLoop: Sendable {
                 _ = recorder.handle(event, content: turn.text)
             }
         }
+        // AsyncThrowingStream 在取消时可能正常结束迭代。
+        try Task.checkCancellation()
         turn.usage.searches = recorder.record.effectiveCount
         // OpenAI 兼容协议（DeepSeek）的思考内容没有单独的块，整段作为 reasoning_content 传回。
         // Anthropic 的思考块自带文字；Gemini 只传签名，思考摘要不用传回。

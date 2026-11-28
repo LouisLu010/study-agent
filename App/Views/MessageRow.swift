@@ -228,7 +228,7 @@ private struct AssistantMessageView: View {
                     .foregroundStyle(.secondary)
             case .interrupted:
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("回答被系统中断", systemImage: "pause.circle")
+                    Label(message.errorText ?? "回答被系统中断", systemImage: "pause.circle")
                         .font(.callout)
                         .foregroundStyle(.orange)
                     if canRegenerate {
