@@ -92,6 +92,7 @@ public enum CompilationTools {
                     "title": string("试卷全称，例如 2025 年普通高等学校招生全国统一考试（北京卷）化学"),
                     "short": string("简称，例如 北京卷、新课标卷（理综）、海淀一模"),
                     "year": string("年份，例如 2025"),
+                    "sources": ["type": "array", "items": ["type": "string"], "description": "核实试卷时找到的整卷、目录或题目出处，最多 6 个 http/https 网址"],
                 ], required: ["title", "year"]),
             ],
         ], required: ["title", "subject", "papers"])
@@ -231,9 +232,10 @@ public enum CompilationTools {
         return value.isEmpty ? .failure(ArgumentError("缺少参数 \(key)")) : .success(value)
     }
 
-    public struct ArgumentError: Error, Equatable, Sendable {
+    public struct ArgumentError: Error, Equatable, Sendable, LocalizedError {
         public var message: String
         public init(_ message: String) { self.message = message }
+        public var errorDescription: String? { message }
         public var forModel: JSONValue { ["error": .string(message)] }
     }
 
@@ -255,7 +257,14 @@ public enum CompilationTools {
                 continue
             }
             let short = item["short"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            papers.append(PaperPlan(title: title, shortTitle: short, year: year))
+            var sources: [String] = []
+            if let sourceValue = item["sources"] {
+                guard let values = sourceValue.arrayValue,
+                      values.allSatisfy({ if case .string = $0 { return true }; return false })
+                else { problems.append("\(title) 的 sources 要写成网址字符串数组"); continue }
+                sources = CompilationBatch.validSourceURLs(values.compactMap(\.stringValue))
+            }
+            papers.append(PaperPlan(title: title, shortTitle: short, year: year, sourceURLs: sources))
         }
         if !problems.isEmpty { return .failure(ArgumentError(problems.joined(separator: "；") + "。请改正后重新调用 submit_papers。")) }
         guard !papers.isEmpty else { return .failure(ArgumentError("papers 是空的。没有找到符合要求的试卷时，直接用文字说明原因，不要调用 submit_papers。")) }

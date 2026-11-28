@@ -34,8 +34,12 @@ public struct PaperPlan: Codable, Sendable, Equatable, Identifiable {
     public var found: Int
     /// 失败原因或说明。
     public var note: String
+    /// 搜索时已经核实的整卷、目录或题目出处，后续在设备上直接下载。
+    public var sourceURLs: [String]
+    /// 批量收集已经核实整份试卷且没有缺题；旧版本的 done 不代表完整。
+    public var collectionComplete: Bool
 
-    public init(title: String, shortTitle: String = "", year: String, selected: Bool = true) {
+    public init(title: String, shortTitle: String = "", year: String, selected: Bool = true, sourceURLs: [String] = [], collectionComplete: Bool = false) {
         self.id = UUID()
         self.title = title
         self.shortTitle = shortTitle
@@ -44,6 +48,26 @@ public struct PaperPlan: Codable, Sendable, Equatable, Identifiable {
         self.state = .pending
         self.found = 0
         self.note = ""
+        self.sourceURLs = sourceURLs
+        self.collectionComplete = collectionComplete
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, shortTitle, year, selected, state, found, note, sourceURLs, collectionComplete
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        title = try values.decode(String.self, forKey: .title)
+        shortTitle = try values.decode(String.self, forKey: .shortTitle)
+        year = try values.decode(String.self, forKey: .year)
+        selected = try values.decode(Bool.self, forKey: .selected)
+        state = try values.decode(State.self, forKey: .state)
+        found = try values.decode(Int.self, forKey: .found)
+        note = try values.decode(String.self, forKey: .note)
+        sourceURLs = try values.decodeIfPresent([String].self, forKey: .sourceURLs) ?? []
+        collectionComplete = try values.decodeIfPresent(Bool.self, forKey: .collectionComplete) ?? false
     }
 }
 

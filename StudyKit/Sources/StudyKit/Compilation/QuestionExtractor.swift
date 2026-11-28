@@ -68,6 +68,11 @@ public enum QuestionExtractor {
         let isGroup = group || block !== found || passageMarkers.contains { found.text.contains($0) }
         var renderer = MarkdownRenderer(baseURL: baseURL)
         renderer.render(block)
+        return renderedResult(&renderer, group: isGroup)
+    }
+
+    /// 锚点提取和整卷范围提取共用：分开网站答案并检查题目长度。
+    static func renderedResult(_ renderer: inout MarkdownRenderer, group: Bool) -> Swift.Result<Result, Failure> {
         var (content, answer) = renderer.finish()
         // 有的网站把答案接在题目后面，用【答案】【解析】分开。
         for marker in ["【答案】", "【解析】", "【分析】", "【详解】", "【点睛】"] {
@@ -83,7 +88,7 @@ public enum QuestionExtractor {
         content = tidy(stripLeadingNumber(content))
         answer = tidy(answer)
         let length = han(content).count
-        guard length <= (isGroup ? maxGroupLength : maxQuestionLength) else { return .failure(.tooLong) }
+        guard length <= (group ? maxGroupLength : maxQuestionLength) else { return .failure(.tooLong) }
         return .success(Result(content: content, answer: answer, imageURLs: renderer.imageURLs, questionLength: length))
     }
 
