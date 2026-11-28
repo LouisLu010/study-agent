@@ -399,7 +399,8 @@ struct ConceptMapView: View {
             .onChanged { value in
                 let start = pinchStart ?? scale
                 pinchStart = start
-                scale = min(2.5, max(0.25, start * value.magnification))
+                let minimum = CGFloat(fittedViewport?.minimumScale ?? 0.25)
+                scale = min(2.5, max(minimum, start * value.magnification))
                 bubble = nil
             }
             .onEnded { _ in pinchStart = nil }
@@ -507,18 +508,21 @@ struct ConceptMapView: View {
     }
 
     /// 缩放和平移到能看到所有显示中的节点。
+    private var fittedViewport: ConceptMapLayout.Viewport? {
+        ConceptMapLayout.fittedViewport(
+            for: visibleCards.compactMap { positions[$0.id] },
+            width: viewSize.width, height: viewSize.height,
+            nodeWidth: Self.nodeSize.width, nodeHeight: Self.nodeSize.height
+        )
+    }
+
     @discardableResult
     private func fit(animated: Bool) -> Bool {
-        let points = visibleCards.compactMap { positions[$0.id] }
-        guard !points.isEmpty, viewSize.width > 0 else { return false }
-        let minX = points.map(\.x).min()!, maxX = points.map(\.x).max()!
-        let minY = points.map(\.y).min()!, maxY = points.map(\.y).max()!
-        let width = maxX - minX + Self.nodeSize.width + 40
-        let height = maxY - minY + Self.nodeSize.height + 40
-        let fitted = min(1.2, max(0.3, min(viewSize.width / width, viewSize.height / height)))
+        guard let viewport = fittedViewport else { return false }
+        let fitted = CGFloat(viewport.scale)
         let change = {
             scale = fitted
-            offset = CGSize(width: -(minX + maxX) / 2 * fitted, height: -(minY + maxY) / 2 * fitted)
+            offset = CGSize(width: -viewport.center.x * fitted, height: -viewport.center.y * fitted)
         }
         if animated && !reduceMotion { withAnimation(.smooth(duration: 0.35), change) } else { change() }
         return true

@@ -17,6 +17,7 @@ struct ConceptCardPopup: View {
     @Environment(ToastCenter.self) private var toasts
     @Query(sort: \ConceptCard.updatedAt, order: .reverse) private var cards: [ConceptCard]
     @Query private var links: [ConceptLink]
+    @Query private var notes: [ResearchNote]
 
     private enum Mode { case view, edit, addLink }
 
@@ -32,6 +33,7 @@ struct ConceptCardPopup: View {
     @State private var linkReason = ""
     @State private var linkError: String?
     @State private var errorMessage: String?
+    @State private var originalNote: ResearchNote?
 
     private var currentID: UUID { stack.last ?? startID }
     private var current: ConceptCard? { cards.first { $0.id == currentID && !toasts.isHidden($0) } }
@@ -54,6 +56,11 @@ struct ConceptCardPopup: View {
         .presentationDragIndicator(.visible)
         .presentationCompactAdaptation(.sheet)
         .onAppear { if stack.isEmpty { stack = [startID] } }
+        .sheet(item: $originalNote) { note in
+            NavigationStack {
+                ResearchNoteDetailView(note: note, showsCloseButton: true)
+            }
+        }
         .alert("提示", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("好", role: .cancel) {}
         } message: {
@@ -188,6 +195,9 @@ struct ConceptCardPopup: View {
                 draftExample = card.example
                 mode = .edit
                 detent = .large
+            }
+            if let note = ConceptCardStore.originalNote(for: card, in: notes), !toasts.isHidden(note) {
+                Button("查看原资料", systemImage: "doc.text") { originalNote = note }
             }
             if card.sourceConversationID != nil {
                 Button("回到原会话", systemImage: "bubble.left.and.text.bubble.right") {

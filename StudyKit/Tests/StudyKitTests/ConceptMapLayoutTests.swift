@@ -63,4 +63,43 @@ import Testing
         // 新卡落在它关联的那张卡附近。
         #expect((second[id[9]]! - second[id[4]]!).length < ConceptMapLayout.spacing * 2)
     }
+
+    @Test(arguments: [30, 80]) func fitsEveryNodeOnPhone(_ count: Int) throws {
+        let id = ids(count)
+        let edges = (1..<count).map { LinkEdge(from: id[$0 / 2], to: id[$0], kind: .prerequisite) }
+        let points = Array(ConceptMapLayout.layout(id.map { .init(id: $0) }, edges: edges).values)
+        let width = 375.0, height = 650.0, padding = 40.0
+        let viewport = try #require(ConceptMapLayout.fittedViewport(for: points, width: width, height: height, padding: padding))
+        let horizontalLimit = (width - padding) / 2 + 0.001
+        let verticalLimit = (height - padding) / 2 + 0.001
+        #expect(viewport.scale < 0.25)
+        #expect(viewport.minimumScale <= viewport.scale)
+        for point in points {
+            let screen = (point - viewport.center) * viewport.scale
+            let horizontalExtent = abs(screen.x) + 75.0 * viewport.scale
+            let verticalExtent = abs(screen.y) + 25.0 * viewport.scale
+            #expect(horizontalExtent <= horizontalLimit)
+            #expect(verticalExtent <= verticalLimit)
+        }
+    }
+
+    @Test func fitCentersOffsetNodesAndLimitsSmallGraphMagnification() throws {
+        let viewport = try #require(ConceptMapLayout.fittedViewport(
+            for: [MapPoint(x: 900, y: -400)], width: 1024, height: 768
+        ))
+        #expect(viewport.center == MapPoint(x: 900, y: -400))
+        #expect(viewport.scale == 1.2)
+        #expect(viewport.minimumScale == 0.25)
+    }
+
+    @Test func fitRejectsInvalidViewportAndCoordinates() {
+        let point = MapPoint(x: 0, y: 0)
+        #expect(ConceptMapLayout.fittedViewport(for: [], width: 375, height: 650) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [point], width: 0, height: 650) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [point], width: 375, height: 40) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [point], width: .infinity, height: 650) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [point], width: 375, height: 650, nodeWidth: 0) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [point], width: 375, height: 650, padding: -1) == nil)
+        #expect(ConceptMapLayout.fittedViewport(for: [MapPoint(x: .nan, y: 0)], width: 375, height: 650) == nil)
+    }
 }

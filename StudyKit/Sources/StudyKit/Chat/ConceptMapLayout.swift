@@ -21,6 +21,31 @@ public enum ConceptMapLayout {
     /// 两个节点中心之间理想的距离。节点上写标题，大约 140×44。
     public static let spacing: Double = 190
 
+    /// 让所有节点完整落在视口里的缩放和中心。手势也使用这个动态下限，较大的图不会被固定比例裁掉。
+    public struct Viewport: Sendable, Equatable {
+        public let scale: Double
+        public let center: MapPoint
+
+        public var minimumScale: Double { min(0.25, scale) }
+    }
+
+    public static func fittedViewport(
+        for points: [MapPoint], width: Double, height: Double,
+        nodeWidth: Double = 150, nodeHeight: Double = 50, padding: Double = 40
+    ) -> Viewport? {
+        guard width.isFinite, height.isFinite, nodeWidth.isFinite, nodeHeight.isFinite, padding.isFinite,
+              width > padding, height > padding, nodeWidth > 0, nodeHeight > 0, padding >= 0,
+              !points.isEmpty, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite })
+        else { return nil }
+        let minX = points.map(\.x).min()!, maxX = points.map(\.x).max()!
+        let minY = points.map(\.y).min()!, maxY = points.map(\.y).max()!
+        let contentWidth = maxX - minX + nodeWidth
+        let contentHeight = maxY - minY + nodeHeight
+        guard contentWidth.isFinite, contentHeight.isFinite else { return nil }
+        let scale = min(1.2, (width - padding) / contentWidth, (height - padding) / contentHeight)
+        return Viewport(scale: scale, center: MapPoint(x: minX / 2 + maxX / 2, y: minY / 2 + maxY / 2))
+    }
+
     /// 上一次排过的节点这次最多挪多远。
     static let maxDrift = spacing * 0.3
 

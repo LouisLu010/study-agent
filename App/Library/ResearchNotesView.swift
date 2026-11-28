@@ -2,7 +2,7 @@ import StudyKit
 import SwiftData
 import SwiftUI
 
-/// 资料页（第十版）：知识卡按科目、知识点分组；以前的整篇资料放在最后。点知识卡弹出弹窗，不切换页面。
+/// 资料页（第十版）：知识卡按科目、知识点分组；原资料放在最后，拆卡后仍可阅读。点知识卡弹出弹窗，不切换页面。
 struct ResearchNotesView: View {
     @Environment(\.modelContext) private var context
     @Environment(ToastCenter.self) private var toasts
@@ -41,10 +41,10 @@ struct ResearchNotesView: View {
         }
     }
 
-    /// 以前的整篇资料（还没拆成知识卡的）。
-    private var oldNotes: [ResearchNote] {
+    /// 完整原文独立保留，拆成知识卡后仍有入口。
+    private var originalNotes: [ResearchNote] {
         notes.filter { note in
-            guard !note.isCardBased, !toasts.isHidden(note) else { return false }
+            guard (!note.isCardBased || ConceptCardStore.hasOriginalContent(note)), !toasts.isHidden(note) else { return false }
             if let subject, (note.subject ?? .other) != subject { return false }
             guard !query.isEmpty else { return true }
             return note.title.localizedStandardContains(query) || note.topic.localizedStandardContains(query)
@@ -71,12 +71,13 @@ struct ResearchNotesView: View {
     }
 
     private var subjects: [Subject] {
-        let present = Set(cards.map { $0.subject ?? .other } + notes.filter { !$0.isCardBased }.map { $0.subject ?? .other })
+        let present = Set(cards.map { $0.subject ?? .other } + notes.filter { !$0.isCardBased || ConceptCardStore.hasOriginalContent($0) }.map { $0.subject ?? .other })
         return Subject.allCases.filter(present.contains)
     }
 
     private var isEmpty: Bool {
-        cards.allSatisfy { toasts.isHidden($0) } && notes.filter { !$0.isCardBased }.allSatisfy { toasts.isHidden($0) }
+        cards.allSatisfy { toasts.isHidden($0) }
+            && notes.filter { !$0.isCardBased || ConceptCardStore.hasOriginalContent($0) }.allSatisfy { toasts.isHidden($0) }
     }
 
     var body: some View {
@@ -141,10 +142,10 @@ struct ResearchNotesView: View {
                         grid(topic.cards, section: group.subject.rawValue, colors: colors, linkCounts: linkCounts)
                     }
                 }
-                if !oldNotes.isEmpty {
-                    sectionHeader("以前的资料")
+                if !originalNotes.isEmpty {
+                    sectionHeader("原资料")
                     VStack(spacing: 0) {
-                        ForEach(oldNotes) { note in
+                        ForEach(originalNotes) { note in
                             NavigationLink {
                                 ResearchNoteDetailView(note: note)
                             } label: {
@@ -169,7 +170,7 @@ struct ResearchNotesView: View {
                                     }
                                 }
                             }
-                            if note.id != oldNotes.last?.id { Divider().padding(.leading, Theme.Spacing.l) }
+                            if note.id != originalNotes.last?.id { Divider().padding(.leading, Theme.Spacing.l) }
                         }
                     }
                     .groupedCardBackground()
@@ -188,7 +189,7 @@ struct ResearchNotesView: View {
                     title: "还没有资料",
                     message: "在会话标题菜单或回答下方点\"整理成资料\"。"
                 )
-            } else if visibleCards.isEmpty && oldNotes.isEmpty {
+            } else if visibleCards.isEmpty && originalNotes.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             }
         }
@@ -251,10 +252,12 @@ struct ResearchNotesView: View {
 /// 一份资料：显示、编辑原文、删出处、导出。
 struct ResearchNoteDetailView: View {
     @Bindable var note: ResearchNote
+    var showsCloseButton = false
 
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Environment(AppNavigation.self) private var navigation
+    @Query private var cards: [ConceptCard]
     @State private var isEditing = false
     @State private var showsPreview = false
     @State private var draftText = ""
@@ -264,11 +267,13 @@ struct ResearchNoteDetailView: View {
     @State private var errorMessage: String?
     @State private var splitRequest: NoteDraftRequest?
 
+    private var canSplit: Bool { !cards.contains { $0.noteID == note.id } }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 // 第十版：以前的整篇资料可以拆成知识卡，点了才调一次模型。
-                if !note.isCardBased && !isEditing {
+                if canSplit && !isEditing {
                     Button("拆成知识卡", systemImage: "rectangle.split.2x2", action: split)
                         .buttonStyle(.borderedProminent)
                 }
@@ -338,10 +343,15 @@ struct ResearchNoteDetailView: View {
                     Button("完成", action: finishEditing)
                 }
             } else {
+                if showsCloseButton {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") { dismiss() }
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
                         Button("编辑", systemImage: "pencil", action: startEditing)
-                        if !note.isCardBased {
+                        if canSplit {
                             Button("拆成知识卡", systemImage: "rectangle.split.2x2", action: split)
                         }
                         Button("复制", systemImage: "doc.on.doc") {
@@ -350,7 +360,9 @@ struct ResearchNoteDetailView: View {
                         Button("导出为 Markdown", systemImage: "square.and.arrow.up", action: export)
                         if note.sourceConversationID != nil {
                             Button("查看原会话", systemImage: "bubble.left.and.text.bubble.right") {
-                                if !navigation.open(conversationID: note.sourceConversationID, in: context) {
+                                if navigation.open(conversationID: note.sourceConversationID, in: context) {
+                                    if showsCloseButton { dismiss() }
+                                } else {
                                     errorMessage = "原会话已经删除了。"
                                 }
                             }
@@ -370,8 +382,6 @@ struct ResearchNoteDetailView: View {
         .sheet(item: $splitRequest) { request in
             NoteDraftSheet(request: request)
         }
-        // 拆好以后这份资料由知识卡组成，回到资料页看那些卡。
-        .onChange(of: note.isCardBased) { if note.isCardBased { dismiss() } }
         .onDisappear { try? context.save() }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: item.items)
@@ -402,6 +412,7 @@ struct ResearchNoteDetailView: View {
     }
 
     private func split() {
+        guard canSplit else { return }
         guard let model = ModelLookup.defaultModel(in: context) else {
             errorMessage = GenerationError.noModel.localizedDescription
             return

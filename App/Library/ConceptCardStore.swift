@@ -15,6 +15,15 @@ enum ConceptCardStore {
         (try? context.fetch(FetchDescriptor<ConceptLink>())) ?? []
     }
 
+    /// 拆卡后的原资料仍然可以查看、编辑和导出；新建知识卡的空容器不单独显示。
+    static func hasOriginalContent(_ note: ResearchNote) -> Bool {
+        !note.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func originalNote(for card: ConceptCard, in notes: [ResearchNote]) -> ResearchNote? {
+        notes.first { $0.id == card.noteID && hasOriginalContent($0) }
+    }
+
     static func edge(_ link: ConceptLink) -> LinkEdge? {
         guard let from = link.fromID, let to = link.toID else { return nil }
         return LinkEdge(from: from, to: to, kind: link.kind)
@@ -67,6 +76,10 @@ enum ConceptCardStore {
         into existing: ResearchNote? = nil,
         context: ModelContext
     ) -> ResearchNote {
+        // 同一份原资料只拆一次。另一个预览还开着时再次保存，不重复插入知识卡。
+        if let existing, allCards(in: context).contains(where: { $0.noteID == existing.id }) {
+            return existing
+        }
         let subject = existing?.subject ?? draft.subject ?? .other
         let topic = existing.map { $0.topic } ?? (draft.topic.isEmpty ? "未分类" : draft.topic)
         let note = existing ?? ResearchNote(title: draft.title, content: "")
@@ -157,7 +170,8 @@ enum ConceptCardStore {
         try? context.save()
     }
 
-    /// 真正删掉一张知识卡（撤销的 5 秒过后）：连同两头带它的关联；资料里一张卡都不剩、也没有旧正文时，资料也删掉。
+    /// 真正删掉一张知识卡（撤销的 5 秒过后）：连同两头带它的关联。
+    /// 最后一张卡删掉后恢复原资料；没有原文的新资料容器直接删除。
     static func delete(_ card: ConceptCard, context: ModelContext) {
         let id = card.id
         for link in allLinks(in: context) where link.fromID == id || link.toID == id {
@@ -168,9 +182,13 @@ enum ConceptCardStore {
         if let noteID {
             let remaining = allCards(in: context).filter { $0.noteID == noteID && $0.id != id }
             if remaining.isEmpty,
-               let note = try? context.fetch(FetchDescriptor<ResearchNote>(predicate: #Predicate { $0.id == noteID })).first,
-               note.content.isEmpty {
-                context.delete(note)
+               let note = try? context.fetch(FetchDescriptor<ResearchNote>(predicate: #Predicate { $0.id == noteID })).first {
+                if hasOriginalContent(note) {
+                    note.isCardBased = false
+                    note.updatedAt = .now
+                } else {
+                    context.delete(note)
+                }
             }
         }
         try? context.save()
