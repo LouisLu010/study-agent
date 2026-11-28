@@ -642,7 +642,8 @@
       });
       // 方程曲线（第十版 Beta 3）：F(x, y) = G(x, y) 形式的隐函数，例如圆、椭圆、双曲线。
       // 画的是 F − G = 0 的整条曲线，缩放平移后跟着延伸，不用拆成几段 y = ±√… 的函数。
-      if (names.includes('y')) throw new Error('参数不能叫 y');
+      // 旧的函数图允许把 y 当作参数；只有隐式方程需要保留 y 作为纵坐标。
+      if ((raw.equations || []).length && names.includes('y')) throw new Error('方程曲线的参数不能叫 y');
       const equations = (raw.equations || []).map((e, i) => {
         const what = '第 ' + (i + 1) + ' 个方程';
         if (!e || typeof e.expr !== 'string') throw new Error(what + '缺少 expr');
@@ -655,10 +656,8 @@
           const values = Object.assign({}, scope, { y });
           return left(x, values) - right(x, values);
         };
-        // 检查一下在范围里能算出数，免得写错的方程画出一片空白。
-        if (!Number.isFinite(at(0.37, 0.61, defaults)) && !Number.isFinite(at(1.3, -0.7, defaults))) {
-          throw new Error(what + '算不出数值');
-        }
+        // 表达式编译已经检查了语法和变量。定义域外的 NaN 交给绘图层跳过，
+        // 不能用几个固定点拒绝根号、对数等只在部分范围内有定义的合法方程。
         return {
           expr: e.expr,
           /** F(x, y) − G(x, y)，曲线是它等于 0 的地方。 */
@@ -2222,7 +2221,8 @@
       label: '坐标图',
       parse: parseGraphSpec,
       toText(spec) {
-        const parts = spec.functions.map((f) => f.label || 'y = ' + f.expr);
+        const parts = spec.functions.map((f) => f.label || 'y = ' + f.expr)
+          .concat((spec.equations || []).map((e) => e.label ? e.label + '：' + e.expr : e.expr));
         const params = spec.params.length ? '（参数 ' + spec.params.map((p) => p.name).join('、') + '）' : '';
         return '[坐标图：' + (spec.title || parts.join('，') || '点和线段') + params + ']';
       },

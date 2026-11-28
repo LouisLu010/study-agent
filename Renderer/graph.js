@@ -94,6 +94,15 @@
     container.appendChild(element);
   }
 
+  /** JSXGraph 默认把标签当作 HTML；模型给出的标签一律按纯文本显示。 */
+  function labelAttributes(text, style) {
+    return {
+      name: window.StudyRenderer.escapeHTML(text || ''),
+      withLabel: !!text,
+      label: Object.assign({ parse: false, useMathJax: false, useKatex: false }, style),
+    };
+  }
+
   const core = window.StudyCore;
 
   function tex(source) {
@@ -316,29 +325,24 @@
     });
 
     spec.segments.forEach((s) => {
-      board.create('segment', [hiddenPoint(s.from), hiddenPoint(s.to)], {
+      board.create('segment', [hiddenPoint(s.from), hiddenPoint(s.to)], Object.assign({
         strokeColor: colors.axis,
         strokeWidth: 1.5,
         dash: s.dashed ? 2 : 0,
         fixed: true,
         highlight: false,
-        name: s.label,
-        withLabel: !!s.label,
-      });
+      }, labelAttributes(s.label)));
     });
 
     spec.points.forEach((p) => {
-      board.create('point', [() => p.xAt(values), () => p.yAt(values)], {
-        name: p.label,
-        withLabel: !!p.label,
+      board.create('point', [() => p.xAt(values), () => p.yAt(values)], Object.assign({
         fixed: true,
         size: 3,
         strokeColor: colors.text,
         fillColor: colors.text,
         highlight: false,
         showInfobox: false,
-        label: { offset: [6, 8] },
-      });
+      }, labelAttributes(p.label, { offset: [6, 8] })));
     });
 
     if (spec.params.length || spec.readouts.length) {
@@ -589,5 +593,5 @@
     },
   });
 
-  window.StudyGraph = { loadJSXGraph, createBoard, addTitle, palette, COLORS };
+  window.StudyGraph = { loadJSXGraph, createBoard, addTitle, labelAttributes, palette, COLORS };
 })();

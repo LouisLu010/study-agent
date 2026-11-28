@@ -1,7 +1,7 @@
 // 用 `node --test RendererTests/*.test.js` 运行。
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { compileExpression, parseGraphSpec } = require('../Renderer/core.js');
+const { compileExpression, parseGraphSpec, toPlainText } = require('../Renderer/core.js');
 
 function close(actual, expected) {
   assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} ≠ ${expected}`);
@@ -156,6 +156,16 @@ test('参数的初始值超出范围时取边界', () => {
   assert.equal(result.value.params[0].value, 2);
 });
 
+test('函数图继续支持名为 y 的参数', () => {
+  const result = parseGraphSpec(JSON.stringify({
+    params: [{ name: 'y', min: 0, max: 5, value: 2 }],
+    functions: [{ expr: 'y*x' }],
+  }));
+  assert.equal(result.ok, true, result.error);
+  close(result.value.functions[0].fn(3), 6);
+  close(result.value.functions[0].at(3, { y: 4 }), 12);
+});
+
 test('不合法的参数报错', () => {
   const bad = [
     '{"params":[{"name":"x","min":0,"max":1}],"functions":[{"expr":"x"}]}',
@@ -246,4 +256,33 @@ test('方程曲线：格式不对时报错', () => {
   assert.equal(parseGraphSpec(JSON.stringify({ params: [{ name: 'y', min: 0, max: 1 }], equations: [{ expr: 'x = y' }] })).ok, false);
   // 只有方程也算有内容。
   assert.equal(bad('x^2 + y^2 = 4').ok, true);
+});
+
+test('方程曲线允许采样原点之外的合法定义域', () => {
+  for (const [expr, x, y] of [['sqrt(x-4)=y', 8, 2], ['ln(x-4)=y', 5, 0]]) {
+    const result = parseGraphSpec(JSON.stringify({
+      xRange: [4, 10],
+      yRange: [0, 3],
+      equations: [{ expr }],
+    }));
+    assert.equal(result.ok, true, result.error);
+    close(result.value.equations[0].at(x, y, {}), 0);
+    assert.equal(Number.isNaN(result.value.equations[0].at(0, 0, {})), true);
+  }
+});
+
+test('方程曲线仍拒绝未声明变量和语法错误', () => {
+  for (const expr of ['sqrt(z-4)=y', 'sqrt(x-4)+=y']) {
+    const result = parseGraphSpec(JSON.stringify({ equations: [{ expr }] }));
+    assert.equal(result.ok, false, expr);
+  }
+});
+
+test('方程曲线的纯文本导出保留表达式', () => {
+  const render = (spec) => toPlainText('```graph\n' + JSON.stringify(spec) + '\n```');
+  assert.equal(render({ equations: [{ expr: 'x^2+y^2=4' }] }), '[坐标图：x^2+y^2=4]');
+  assert.equal(render({
+    functions: [{ expr: 'x', label: '直线' }],
+    equations: [{ expr: 'x^2+y^2=4', label: '圆' }],
+  }), '[坐标图：直线，圆：x^2+y^2=4]');
 });

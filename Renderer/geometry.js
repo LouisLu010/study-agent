@@ -67,8 +67,9 @@
     // 初始位置（限制在圆或直线上的点已经放到线上），复位和判断"是否拖动过"都以它为准。
     const defaults = core.computeGeometry(spec, null).points;
     // 第八版：可以拖的点画大一圈，外面一圈淡淡的光圈（半透明的粗描边）。
-    const pointStyle = (e, draggable) => ({
-      name: e.label !== null ? e.label : e.id,
+    const pointStyle = (e, draggable) => Object.assign(graph.labelAttributes(e.label !== null ? e.label : e.id, {
+      offset: [9, 11], strokeColor: colors.text,
+    }), {
       withLabel: !e.hidden,
       visible: !e.hidden,
       size: draggable ? 6 : 3,
@@ -82,19 +83,16 @@
       highlightStrokeOpacity: 0.4,
       highlightFillColor: accent,
       showInfobox: false,
-      label: { offset: [9, 11], strokeColor: colors.text },
     });
     const angleRadius = Math.min(xmax - xmin, ymax - ymin) * 0.08;
-    const lineStyle = (e) => ({
+    const lineStyle = (e) => Object.assign({
       strokeColor: colors.text,
       strokeWidth: 2,
       dash: e.dashed ? 2 : 0,
       fixed: true,
       highlight: false,
       visible: !e.hidden,
-      name: e.label || '',
-      withLabel: !!e.label,
-    });
+    }, graph.labelAttributes(e.label));
 
     /**
      * 垂足处的直角符号：从垂足沿那条直线取一个辅助点，和"从哪个点作垂线"组成一个角。
@@ -169,20 +167,18 @@
             Object.assign(lineStyle(e), { fillColor: 'none' }));
           break;
         case 'polygon':
-          jsx[e.id] = board.create('polygon', e.vertices.map((id) => jsx[id]), {
+          jsx[e.id] = board.create('polygon', e.vertices.map((id) => jsx[id]), Object.assign({
             fillColor: accent,
             fillOpacity: e.hidden ? 0 : 0.1,
             highlight: false,
             fixed: true,
             vertices: { visible: false },
             borders: { strokeColor: colors.text, strokeWidth: e.hidden ? 0 : 2, highlight: false, fixed: true },
-            name: e.label || '',
-            withLabel: !!e.label,
-          });
+          }, graph.labelAttributes(e.label)));
           break;
         case 'angle':
           // 浅色扇形；正好 90° 时自动画成直角符号。
-          jsx[e.id] = board.create('nonreflexangle', e.points.map((id) => jsx[id]), {
+          jsx[e.id] = board.create('nonreflexangle', e.points.map((id) => jsx[id]), Object.assign({
             radius: angleRadius,
             fillColor: '#ff9500',
             fillOpacity: 0.18,
@@ -193,10 +189,7 @@
             highlight: false,
             fixed: true,
             visible: !e.hidden,
-            name: e.label || '',
-            withLabel: !!e.label,
-            label: { strokeColor: '#ff9500' },
-          });
+          }, graph.labelAttributes(e.label, { strokeColor: '#ff9500' })));
           break;
         default:
           break;
