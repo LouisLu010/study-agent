@@ -28,31 +28,28 @@ final class StudyAssistantReply {
                                         references: reply.studyReferences, hiddenIDs: hiddenIDs)
     }
 
-    /// false 表示到达本轮上限，已保留当前内容。
+    /// false 表示到达本轮内容长度上限，已保留当前内容。
     func run(service: any ChatService, request: ChatRequest) async throws -> Bool {
         let prefix = reply.content
         onActivity("正在查找学习内容…")
         defer { reply.studyReferences = toolbox.references }
         do {
-            let result = try await ToolLoop(maxCalls: StudyAssistantTools.maxCalls).run(
+            let result = try await ToolLoop(maxCalls: nil).run(
                 service: service, request: StudyAssistantTools.prepare(request),
                 onEvent: { event in try await self.receive(event) },
                 onUsage: { usage in await self.record(usage) },
                 execute: { call in try await self.execute(call) }
             )
             try Task.checkCancellation()
-            switch result.ending {
-            case let .answered(answer):
+            if case let .answered(answer) = result.ending {
                 guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     throw StudyAssistantTools.ArgumentError("模型没有给出回答，请重试或换一个模型。")
                 }
                 reply.content = prefix + (prefix.isEmpty ? "" : "\n\n") + answer
                 return true
-            case .limitReached:
-                append("本轮已达到查找次数上限，已保留读到的资料。可以缩小范围后继续提问。")
-            case .stopped:
-                append("本轮读取内容已达到上限，已保留读到的资料。可以缩小范围后继续提问。")
             }
+            // 不限制调用次数，工具只会在累计读取内容过长时主动停止。
+            append("本轮读取内容已达到上限，已保留读到的资料。可以缩小范围后继续提问。")
         } catch is OutputLimit {
             append("本轮输出较长，已停止并保留现有内容。")
         }

@@ -11,7 +11,7 @@ public enum ToolLoopError: Error, Equatable, LocalizedError {
 }
 
 /// 工具循环：请模型回答 → 模型调用工具 → App 执行 → 把结果交回模型继续，直到某个工具说结束、
-/// 模型不再调用工具，或者调用次数到了上限（见 docs/adr/0014）。三种协议共用，具体格式由各自的服务处理。
+/// 模型不再调用工具，或者调用次数到了配置的上限（见 docs/adr/0014）。三种协议共用，具体格式由各自的服务处理。
 public struct ToolLoop: Sendable {
     /// 一次工具调用的执行结果。
     public struct Outcome: Sendable {
@@ -65,11 +65,12 @@ public struct ToolLoop: Sendable {
         public var messages: [ChatMessage]
     }
 
-    public var maxCalls: Int
+    /// 最多执行多少次工具调用；nil 表示不限制次数。
+    public var maxCalls: Int?
     /// 模型没调用工具就结束时，提醒它一次继续用工具（例如"请调用 finish_paper"）。为 nil 时直接结束。
     public var nudge: String?
 
-    public init(maxCalls: Int, nudge: String? = nil) {
+    public init(maxCalls: Int?, nudge: String? = nil) {
         self.maxCalls = maxCalls
         self.nudge = nudge
     }
@@ -113,12 +114,11 @@ public struct ToolLoop: Sendable {
             }
             var results: [ToolResult] = []
             var stop = false
-            var limited = false
             for call in turn.toolCalls {
                 try Task.checkCancellation()
                 // 同一轮里到了上限的调用不执行，但也要给出结果，否则下一次请求格式不对。
-                if stop || calls >= maxCalls {
-                    limited = limited || (!stop && calls >= maxCalls)
+                let limitReached = maxCalls.map { calls >= $0 } ?? false
+                if stop || limitReached {
                     results.append(ToolResult(callID: call.id, name: call.name, content: Self.skipped.jsonString))
                     continue
                 }
@@ -138,7 +138,7 @@ public struct ToolLoop: Sendable {
             }
             request.messages.append(ChatMessage(role: .user, text: "", toolResults: results))
             if stop { return Result(ending: .stopped, calls: calls, messages: request.messages) }
-            if limited || calls >= maxCalls {
+            if let maxCalls, calls >= maxCalls {
                 return Result(ending: .limitReached, calls: calls, messages: request.messages)
             }
         }

@@ -251,38 +251,68 @@ private final class StudyAssistantFixture {
         #expect(service.requests.last?.messages.last?.toolResults.first?.content.contains(fixture.card.content) == true)
     }
 
-    @Test func stopsOnCallAndOutputLimits() async throws {
+    @Test func answersAfterMoreThanSixteenSearchesAndReads() async throws {
         let fixture = try StudyAssistantFixture()
-        let service = StudyAssistantService { _, _ in .events([.toolCall(studySearch(kind: "card"))]) }
+        let id = fixture.card.id
+        let count = 24
+        let service = StudyAssistantService { _, index in
+            if index == count { return .events([.text("函数递减 [资料1]。"), .usage(input: 100, output: 10)]) }
+            let call = index.isMultiple(of: 2) ? studySearch(kind: "card") : studyRead(kind: .card, id: id)
+            return .events([.toolCall(call), .usage(input: 100, output: 10)])
+        }
         let reply = fixture.reply()
         let request = ChatRequest(model: "test", messages: [ChatMessage(role: .user, text: "查找")])
-        #expect(try await !fixture.runner(reply).run(service: service, request: request))
-        #expect(service.requests.count == StudyAssistantTools.maxCalls)
-        #expect(reply.content.contains("次数上限"))
+        #expect(try await fixture.runner(reply).run(service: service, request: request))
+        #expect(service.requests.count == count + 1)
+        #expect(reply.content == "函数递减 [资料1]。")
+        #expect(reply.studyReferences.map(\.recordID) == [id])
+        #expect(reply.inputTokens == 2_500 && reply.outputTokens == 250)
+        #expect(abs((reply.costCNY ?? 0) - 0.006) < 0.0000001)
+        let results = try #require(service.requests.last).messages.flatMap(\.toolResults)
+        #expect(results.count == count)
+        #expect(results.last?.content.contains(fixture.card.content) == true)
+    }
+
+    @Test func stopsOnOutputLimit() async throws {
+        let fixture = try StudyAssistantFixture()
+        let request = ChatRequest(model: "test", messages: [ChatMessage(role: .user, text: "查找")])
         let longReply = fixture.reply()
         let long = StudyAssistantService { _, _ in .events([.text(String(repeating: "字", count: StudyAssistantTools.maxOutputLength + 1))]) }
         #expect(try await !fixture.runner(longReply).run(service: long, request: request))
         #expect(longReply.content.count < 100 && longReply.content.contains("输出较长"))
     }
 
-    @Test func cancelPreservesReadReferencesAndDoesNotContinueTools() async throws {
+    @Test func stopsOnReadContentLimitAndPreservesReferences() async throws {
+        let fixture = try StudyAssistantFixture()
+        fixture.card.content = String(repeating: "字", count: 8_000)
+        let id = fixture.card.id
+        let service = StudyAssistantService { _, _ in .events([.toolCall(studyRead(kind: .card, id: id))]) }
+        let reply = fixture.reply()
+        let request = ChatRequest(model: "test", messages: [ChatMessage(role: .user, text: "阅读")])
+        #expect(try await !fixture.runner(reply).run(service: service, request: request))
+        #expect(reply.content.contains("读取内容已达到上限"))
+        #expect(reply.studyReferences.map(\.recordID) == [id])
+    }
+
+    @Test(arguments: [1, 20])
+    func cancelPreservesReadReferencesAndDoesNotContinueTools(reads: Int) async throws {
         let fixture = try StudyAssistantFixture()
         let id = fixture.card.id
         let service = StudyAssistantService { _, index in
-            index == 0 ? .events([.toolCall(studyRead(kind: .card, id: id))]) : .hold
+            index < reads ? .events([.toolCall(studyRead(kind: .card, id: id))]) : .hold
         }
         let reply = fixture.reply()
         let runner = fixture.runner(reply)
         let task = Task { try await runner.run(service: service, request: ChatRequest(model: "test", messages: [ChatMessage(role: .user, text: "查找")])) }
         for _ in 0..<200 {
-            if service.requests.count >= 2 { break }
+            if service.requests.count >= reads + 1 { break }
             try await Task.sleep(for: .milliseconds(5))
         }
-        #expect(service.requests.count == 2)
+        #expect(service.requests.count == reads + 1)
         task.cancel()
         await #expect(throws: CancellationError.self) { try await task.value }
         #expect(reply.studyReferences.first?.recordID == id)
-        #expect(service.requests.count == 2)
+        #expect(service.requests.count == reads + 1)
     }
 
     @Test func continuingKeepsPrefixAndRejectsEmptyAnswers() async throws {
@@ -303,9 +333,9 @@ private final class StudyAssistantFixture {
     @Test func generationCenterPersistsAssistantAndDoesNotExposeToolsToOrdinaryChats() async throws {
         let fixture = try StudyAssistantFixture()
         let id = fixture.card.id
-        let service = StudyAssistantService { request, _ in
+        let service = StudyAssistantService { request, index in
             if request.tools.isEmpty { return .events([.text("普通回答")]) }
-            if request.messages.last?.toolResults.isEmpty == false { return .events([.text("导数知识 [资料1]"), .usage(input: 50, output: 5)]) }
+            if index == 20 { return .events([.text("导数知识 [资料1]"), .usage(input: 50, output: 5)]) }
             return .events([.toolCall(studyRead(kind: .card, id: id)), .usage(input: 20, output: 2)])
         }
         let generation = GenerationCenter(service: service)
@@ -316,10 +346,12 @@ private final class StudyAssistantFixture {
         }
         let reply = try #require(fixture.current.sortedMessages.last)
         #expect(reply.status == .complete && reply.studyReferences.first?.recordID == id)
-        #expect(reply.inputTokens == 70 && reply.outputTokens == 7)
+        #expect(reply.content == "导数知识 [资料1]" && service.requests.count == 21)
+        #expect(reply.inputTokens == 450 && reply.outputTokens == 45)
         #expect(generation.studyActivity.isEmpty)
         let saved = try ModelContext(fixture.container).fetch(FetchDescriptor<Conversation>()).first { $0.id == fixture.current.id }
         #expect(saved?.isStudyAssistant == true && saved?.sortedMessages.last?.studyReferences.first?.recordID == id)
+        #expect(saved?.sortedMessages.last?.status == .complete)
         #expect(ConversationExporter.markdown(for: fixture.current).contains("[资料1] 知识卡"))
         #expect(NoteDraftRequest.reply(reply).items.last?.content.contains("[资料1] 知识卡") == true)
         fixture.conversation.model = fixture.model

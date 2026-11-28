@@ -52,7 +52,6 @@ public struct StudyReference: Codable, Equatable, Identifiable, Sendable {
 }
 
 public enum StudyAssistantTools {
-    public static let maxCalls = 16
     public static let maxPageSize = 20
     public static let maxReadLength = 8_000
     public static let maxToolBytes = 160_000

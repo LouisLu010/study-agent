@@ -237,14 +237,15 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
 @Suite struct ToolLoopTests {
     let request = ChatRequest(model: "m", messages: [ChatMessage(role: .user, text: "开始")], tools: [fetchTool])
 
-    @Test func runsToolsUntilOneSaysStop() async throws {
+    @Test(arguments: [10, nil] as [Int?])
+    func runsToolsUntilOneSaysStop(maxCalls: Int?) async throws {
         let service = ScriptedService([
             [.reasoning("想"), .text("先搜"), call("a", "search_web"), .usage(input: 100, output: 10), .cachedInput(60)],
-            [call("b", "fetch_question", #"{"number":"17"}"#), call("c", "finish_paper")],
+            [call("b", "fetch_question", #"{"number":"17"}"#), call("c", "finish_paper"), call("d", "search_web")],
         ])
         let executed = Recorder()
         let usages = Recorder()
-        let result = try await ToolLoop(maxCalls: 10).run(
+        let result = try await ToolLoop(maxCalls: maxCalls).run(
             service: service, request: request,
             onUsage: { await usages.add("\($0.input ?? 0)/\($0.cachedInput)/\($0.output ?? 0)") }
         ) { call in
@@ -255,6 +256,8 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         #expect(result.calls == 3)
         #expect(await executed.items == ["search_web", "fetch_question", "finish_paper"])
         #expect(await usages.items == ["100/60/10", "0/0/0"])
+        #expect(result.messages.last?.toolResults.count == 3)
+        #expect(result.messages.last?.toolResults.last?.content.contains("没有执行") == true)
         // 第二次请求带着第一轮的思考、调用和结果。
         let second = service.requests[1].messages
         #expect(second.count == 3)
@@ -270,6 +273,28 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         #expect(result.calls == 2)
         #expect(result.messages.last?.toolResults.count == 3)
         #expect(result.messages.last?.toolResults.last?.content.contains("没有执行") == true)
+    }
+
+    @Test(arguments: [1, 20])
+    func unlimitedCallsReturnEveryResultBeforeTheFinalAnswer(batchSize: Int) async throws {
+        let count = 40
+        let ids = (0..<count).map { "call-\($0)" }
+        let turns = stride(from: 0, to: count, by: batchSize).map { start in
+            ids[start..<(start + batchSize)].map { call($0, "read_page") }
+        }
+        let service = ScriptedService(turns + [[.text("读完了")]])
+        let executed = Recorder()
+        let result = try await ToolLoop(maxCalls: nil).run(service: service, request: request) { call in
+            await executed.add(call.id)
+            return ToolLoop.Outcome(content: "结果 \(call.id)")
+        }
+        #expect(result.ending == .answered("读完了"))
+        #expect(result.calls == count)
+        #expect(await executed.items == ids)
+        #expect(service.requests.count == count / batchSize + 1)
+        let results = try #require(service.requests.last).messages.flatMap(\.toolResults)
+        #expect(results.map(\.callID) == ids)
+        #expect(results.map(\.content) == ids.map { "结果 \($0)" })
     }
 
     @Test func nudgesOnceThenReturnsTheAnswer() async throws {
@@ -312,11 +337,12 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         #expect(await executed.items.isEmpty)
     }
 
-    @Test func cancellationDuringEventDeliveryDoesNotExecuteTools() async {
+    @Test(arguments: [5, nil] as [Int?])
+    func cancellationDuringEventDeliveryDoesNotExecuteTools(maxCalls: Int?) async {
         let service = ScriptedService([[call("a", "finish_paper")]])
         let executed = Recorder()
         let task = Task {
-            try await ToolLoop(maxCalls: 5).run(
+            try await ToolLoop(maxCalls: maxCalls).run(
                 service: service, request: request,
                 onEvent: { _ in withUnsafeCurrentTask { $0?.cancel() } }
             ) { call in
@@ -328,7 +354,8 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         #expect(await executed.items.isEmpty)
     }
 
-    @Test func cancellationWithNormalStreamEOFCannotReturnSuccess() async {
+    @Test(arguments: [5, nil] as [Int?])
+    func cancellationWithNormalStreamEOFCannotReturnSuccess(maxCalls: Int?) async {
         struct CancellingService: ChatService {
             func streamChat(_ request: ChatRequest) -> AsyncThrowingStream<ChatStreamEvent, any Error> {
                 withUnsafeCurrentTask { $0?.cancel() }
@@ -336,18 +363,19 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
             }
         }
         let task = Task {
-            try await ToolLoop(maxCalls: 5).run(service: CancellingService(), request: request) { _ in
+            try await ToolLoop(maxCalls: maxCalls).run(service: CancellingService(), request: request) { _ in
                 ToolLoop.Outcome(["ok": true], stop: true)
             }
         }
         await #expect(throws: CancellationError.self) { try await task.value }
     }
 
-    @Test func cancellationDuringUsageDeliveryDoesNotExecuteTools() async {
+    @Test(arguments: [5, nil] as [Int?])
+    func cancellationDuringUsageDeliveryDoesNotExecuteTools(maxCalls: Int?) async {
         let service = ScriptedService([[call("a", "finish_paper")]])
         let executed = Recorder()
         let task = Task {
-            try await ToolLoop(maxCalls: 5).run(
+            try await ToolLoop(maxCalls: maxCalls).run(
                 service: service, request: request,
                 onUsage: { _ in withUnsafeCurrentTask { $0?.cancel() } }
             ) { call in
@@ -359,11 +387,12 @@ private func call(_ id: String, _ name: String, _ arguments: String = "{}") -> C
         #expect(await executed.items.isEmpty)
     }
 
-    @Test func cancellationInsideToolCannotReturnSuccessOrExecuteTheNextTool() async {
+    @Test(arguments: [5, nil] as [Int?])
+    func cancellationInsideToolCannotReturnSuccessOrExecuteTheNextTool(maxCalls: Int?) async {
         let service = ScriptedService([[call("a", "read_page"), call("b", "finish_paper")]])
         let executed = Recorder()
         let task = Task {
-            try await ToolLoop(maxCalls: 5).run(service: service, request: request) { call in
+            try await ToolLoop(maxCalls: maxCalls).run(service: service, request: request) { call in
                 await executed.add(call.name)
                 withUnsafeCurrentTask { $0?.cancel() }
                 return ToolLoop.Outcome(["ok": true], stop: true)
