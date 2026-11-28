@@ -376,7 +376,7 @@ final class GenerationCenter {
                     reply.status = .interrupted
                 } else if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
                     reply.status = .stopped
-                } else if !reply.content.isEmpty,
+                } else if !reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                           ((error as? ChatServiceError) == .truncated || (error as? ChatServiceError) == .incompleteStream) {
                     // 已有的正文保留下来，可以继续写；服务商明确拒绝或空响应仍按失败提示。
                     reply.status = .interrupted
@@ -389,7 +389,7 @@ final class GenerationCenter {
                     reply.errorText = ChatErrorDescription.describe(error)
                 }
             }
-            if reply.status == .interrupted && reply.content.isEmpty {
+            if reply.status == .interrupted && reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // 一个字都还没写出来：没有可以接着写的，按失败处理，给"重试"。
                 reply.status = .failed
                 reply.errorText = "切到别的 App 后被系统中断了，还没有写出内容。"
