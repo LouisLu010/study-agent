@@ -225,6 +225,13 @@ _Avoid_: 答案, 参考答案
 
 ### 界面
 
+<spec-entry category="coding" keywords="条件探索,变式" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/ConditionExploration.swift:3">
+
+**条件探索 (Condition Exploration)**：保留原题，改变或去掉一个条件，查看推导和结论如何变化。
+**变式 (Variant)**：由用户确认的条件修改产生的独立题目副本，不称为原题。反例检查是 AI 推演，未找到反例不代表证明成立。
+
+</spec-entry>
+
 <spec-entry category="coding" keywords="知识缺口定位,作答证据,前置" date="2026-11-28" source="StudyKit/Sources/StudyKit/Chat/KnowledgeGap.swift:3">
 
 **知识缺口定位 (Knowledge Gap Check)**：沿知识卡的前置关联，通过少量检查题和真实作答提供补学建议。建议必须附作答证据，未作答不等于不会，单次答对不等于全面掌握。

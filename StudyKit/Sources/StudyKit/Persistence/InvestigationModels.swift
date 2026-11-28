@@ -4,17 +4,20 @@ import SwiftData
 public enum InvestigationKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case comparison
     case gaps
+    case conditions
     public var id: String { rawValue }
     public var title: String {
         switch self {
         case .comparison: "多解对照"
         case .gaps: "知识缺口定位"
+        case .conditions: "条件探索"
         }
     }
     public var symbol: String {
         switch self {
         case .comparison: "rectangle.split.2x1"
         case .gaps: "point.3.connected.trianglepath.dotted"
+        case .conditions: "arrow.triangle.branch"
         }
     }
 }

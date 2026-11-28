@@ -16,6 +16,9 @@ struct InvestigationsView: View {
                 NavigationLink { KnowledgeGapComposer() } label: {
                     Label("知识缺口定位", systemImage: InvestigationKind.gaps.symbol)
                 }
+                NavigationLink { ConditionExplorationComposer() } label: {
+                    Label("条件探索", systemImage: InvestigationKind.conditions.symbol)
+                }
             }
             Section("已保存的探索") {
                 if records.isEmpty { Text("分析材料、作答和结果会保存在这里。").foregroundStyle(.secondary) }
@@ -116,12 +119,14 @@ struct InvestigationDetailView: View {
                     Button { selection = material } label: { Label(material.title, systemImage: "doc.text.magnifyingglass") }
                 }
                 if !record.inputText.isEmpty {
-                    DisclosureGroup("自己的原解法") { StudyMarkdown(content: record.inputText) }
+                    DisclosureGroup(record.kind == .conditions ? "原解法" : "自己的原解法") { StudyMarkdown(content: record.inputText) }
                 }
                 generationControls
                 if !record.resultJSON.isEmpty {
                     Label("AI 分析 · \(record.modelName)", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary)
-                    if let result = try? SolutionComparison.parse(record.resultJSON, ownSolution: record.inputText) {
+                    if record.kind == .conditions, let result = try? ConditionExploration.parse(record.resultJSON, solution: record.inputText) {
+                        ConditionExplorationResultView(result: result)
+                    } else if let result = try? SolutionComparison.parse(record.resultJSON, ownSolution: record.inputText) {
                         ComparisonResultView(result: result)
                     }
                 }
@@ -169,13 +174,23 @@ struct InvestigationDetailView: View {
     private func start() {
         guard let model, let question = materials.first, !runner.isRunning else { return }
         do {
-            let request = try SolutionComparison.request(model: model.modelID, question: question, ownSolution: record.inputText, reasoning: model.reasoningEffort)
-            let prepared = try InvestigationRunner.attachImages(materials, to: request, model: model)
+            let request: ChatRequest
+            if record.kind == .conditions {
+                let change = try StudyToolJSON.decode(ConditionExploration.Change.self, from: record.detailJSON)
+                guard materials.count == 2, try ConditionExploration.variant(original: question, change: change).content == materials[1].content else {
+                    throw StudyToolError.invalidInput("变式与保存的条件变化不一致，请重新创建探索。")
+                }
+                request = try ConditionExploration.request(model: model.modelID, original: question, change: change, solution: record.inputText, reasoning: model.reasoningEffort)
+            } else {
+                request = try SolutionComparison.request(model: model.modelID, question: question, ownSolution: record.inputText, reasoning: model.reasoningEffort)
+            }
+            let prepared = try InvestigationRunner.attachImages([question], to: request, model: model)
             let service = try ModelLookup.service(for: model)
             task = Task {
                 do {
                     try await runner.run(record: record, request: prepared, model: model, context: context, service: service) { raw in
-                        try StudyToolJSON.encode(SolutionComparison.parse(raw, ownSolution: record.inputText))
+                        if record.kind == .conditions { return try StudyToolJSON.encode(ConditionExploration.parse(raw, solution: record.inputText)) }
+                        return try StudyToolJSON.encode(SolutionComparison.parse(raw, ownSolution: record.inputText))
                     }
                 } catch { if !Task.isCancelled { errorText = ChatErrorDescription.describe(error) } }
             }
