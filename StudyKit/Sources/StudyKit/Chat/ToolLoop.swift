@@ -78,7 +78,7 @@ public struct ToolLoop: Sendable {
     public func run(
         service: any ChatService,
         request: ChatRequest,
-        onEvent: @Sendable (ChatStreamEvent) async -> Void = { _ in },
+        onEvent: @Sendable (ChatStreamEvent) async throws -> Void = { _ in },
         onUsage: @Sendable (Usage) async -> Void = { _ in },
         execute: @Sendable (ToolCall) async throws -> Outcome
     ) async throws -> Result {
@@ -168,13 +168,13 @@ public struct ToolLoop: Sendable {
 
     /// 发一次请求，收集文字、思考、工具调用和用量。
     static func stream(
-        service: any ChatService, request: ChatRequest, onEvent: @Sendable (ChatStreamEvent) async -> Void
+        service: any ChatService, request: ChatRequest, onEvent: @Sendable (ChatStreamEvent) async throws -> Void
     ) async throws -> Turn {
         var turn = Turn(usage: Usage())
         var recorder = WebSearchRecorder()
         for try await event in service.streamChat(request) {
             try Task.checkCancellation()
-            await onEvent(event)
+            try await onEvent(event)
             try Task.checkCancellation()
             switch event {
             case let .text(delta): turn.text += delta

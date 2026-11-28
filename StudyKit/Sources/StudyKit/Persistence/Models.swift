@@ -109,6 +109,8 @@ public final class Conversation {
     public var personaID: String = ""
     /// 输入框旁的"联网"开关，按会话记住。模型不支持联网搜索时不生效。
     public var webSearchEnabled: Bool = false
+    /// 第十一版：这个会话可用只读工具查找本机学习内容。
+    public var isStudyAssistant: Bool = false
     public var createdAt: Date = Date()
     public var updatedAt: Date = Date()
 
@@ -183,6 +185,8 @@ public final class Message {
     public var versionsJSON: String = ""
     /// 联网搜索记录（`WebSearchRecord` 的 JSON）：搜索词、出处、搜索次数。没有搜索时为空。
     public var webSearchJSON: String = ""
+    /// 学习助手实际读取的本地引用，和当前回答版本对应。
+    public var studyReferencesJSON: String = ""
     public var statusRaw: String = "complete"
     public var errorText: String?
     /// 生成这条回答的模型名（显示在回答上方）。第六版之前的回答为空。
@@ -225,6 +229,17 @@ public final class Message {
     /// 这条回答的联网搜索记录。没有搜索时为 nil。
     public var webSearch: WebSearchRecord? {
         WebSearchRecord.decode(webSearchJSON)
+    }
+
+    public var studyReferences: [StudyReference] {
+        get { StudyReference.decode(studyReferencesJSON) }
+        set { studyReferencesJSON = StudyReference.encode(newValue) }
+    }
+
+    /// 复制到独立内容时保留本地引用的名称，避免只剩没有含义的编号。
+    public var contentWithStudySources: String {
+        let sources = StudyReference.sourceText(studyReferences)
+        return sources.isEmpty ? content : content + "\n\n" + sources
     }
 }
 

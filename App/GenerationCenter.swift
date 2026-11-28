@@ -22,6 +22,13 @@ enum GenerationError: LocalizedError {
 @Observable
 final class GenerationCenter {
     private var tasks: [UUID: Task<Void, Never>] = [:]
+    private(set) var studyActivity: [UUID: String] = [:]
+    @ObservationIgnored weak var studyToasts: ToastCenter?
+    @ObservationIgnored private let serviceOverride: (any ChatService)?
+
+    init(service: (any ChatService)? = nil) {
+        serviceOverride = service
+    }
     /// 被系统结束后台运行而停下的会话。它们的回答标为"被系统中断"，不算用户点了停止。
     @ObservationIgnored private var interruptedBySystem: Set<UUID> = []
 
@@ -247,6 +254,7 @@ final class GenerationCenter {
         if hasImages && !model.supportsImages {
             throw GenerationError.modelDoesNotSupportImages
         }
+        if let serviceOverride { return serviceOverride }
         return try ChatServiceFactory.makeService(
             kind: provider.kind,
             baseURL: provider.baseURL,
@@ -274,9 +282,19 @@ final class GenerationCenter {
         guard let model = conversation.model else { return }
 
         // 只有会话打开了"联网"、模型也支持时才联网搜索。接着写被中断的回答时不搜索。
-        let webSearch = !continuing && conversation.webSearchEnabled && model.supportsWebSearch
+        let studyAssistant = conversation.isStudyAssistant
+        let webSearch = !studyAssistant && !continuing && conversation.webSearchEnabled && model.supportsWebSearch
         // 历史里带着被中断的这条回答（已经写出的部分），后面加一句固定的说明。
         var history = conversation.chatHistory()
+        if studyAssistant {
+            let references = conversation.sortedMessages.suffix(12).flatMap(\.studyReferences)
+            if !references.isEmpty, !history.isEmpty {
+                let directory = references.map {
+                    "\($0.kind.rawValue) id=\($0.recordID.uuidString) \($0.title)"
+                }.joined(separator: "\n")
+                history[history.count - 1].text += "\n\n[上轮引用目录，仅供定位，需重新读取]\n" + String(directory.prefix(8_000))
+            }
+        }
         // 会话中途换成了不支持图片的模型：以前发过的图片换成文字"[图片]"，不然服务商会拒绝整个请求。
         if !model.supportsImages {
             history = history.map { $0.replacingImagesWithPlaceholders() }
@@ -341,35 +359,51 @@ final class GenerationCenter {
             var search = WebSearchRecorder()
             var events = 0
             do {
-                for try await event in service.streamChat(request) {
-                    switch event {
-                    case let .text(delta): reply.content += delta
-                    case let .reasoning(delta): reply.reasoning += delta
-                    case let .usage(input, output):
-                        if let input { reply.inputTokens = input }
-                        if let output { reply.outputTokens = output }
-                    case let .cachedInput(cached):
-                        reply.cachedInputTokens = cached
-                    case .searching, .searchResults, .citations, .searchCount:
-                        if let marker = search.handle(event, content: reply.content) {
-                            reply.content += marker
+                var limited = false
+                if studyAssistant {
+                    let runner = StudyAssistantReply(
+                        reply: reply, context: context, conversationID: conversationID, price: price, rate: AppSettingsKey.usdToCNYRate,
+                        hiddenIDs: { [weak self] in self?.studyToasts?.hiddenIDs ?? [] },
+                        onActivity: { [weak self] value in self?.studyActivity[conversationID] = value },
+                        onProgress: {
+                            events += 1
+                            if events % 40 == 0 {
+                                keeper.update(id: jobID, completed: events / 40, total: events / 40 + 1, subtitle: "正在查阅资料和回答")
+                            }
                         }
-                        reply.webSearchJSON = search.record.encode()
-                    case .toolCall, .thinkingBlock:
-                        // 普通对话不声明工具，不会出现。
-                        break
-                    }
-                    // 系统长任务要看到进度在走，否则会当成卡住结束它。
-                    events += 1
-                    if events % 40 == 0 {
-                        let step = events / 40
-                        keeper.update(id: jobID, completed: step, total: step + 1, subtitle: "已写 \(reply.content.count) 字")
+                    )
+                    limited = !(try await runner.run(service: service, request: request))
+                } else {
+                    for try await event in service.streamChat(request) {
+                        switch event {
+                        case let .text(delta): reply.content += delta
+                        case let .reasoning(delta): reply.reasoning += delta
+                        case let .usage(input, output):
+                            if let input { reply.inputTokens = input }
+                            if let output { reply.outputTokens = output }
+                        case let .cachedInput(cached):
+                            reply.cachedInputTokens = cached
+                        case .searching, .searchResults, .citations, .searchCount:
+                            if let marker = search.handle(event, content: reply.content) {
+                                reply.content += marker
+                            }
+                            reply.webSearchJSON = search.record.encode()
+                        case .toolCall, .thinkingBlock:
+                            // 普通对话不声明工具，不会出现。
+                            break
+                        }
+                        // 系统长任务要看到进度在走，否则会当成卡住结束它。
+                        events += 1
+                        if events % 40 == 0 {
+                            let step = events / 40
+                            keeper.update(id: jobID, completed: step, total: step + 1, subtitle: "已写 \(reply.content.count) 字")
+                        }
                     }
                 }
                 if Task.isCancelled {
                     reply.status = self?.interruptedBySystem.contains(conversationID) == true ? .interrupted : .stopped
                 } else {
-                    reply.status = .complete
+                    reply.status = limited ? .stopped : .complete
                 }
             } catch {
                 if self?.interruptedBySystem.contains(conversationID) == true {
@@ -386,7 +420,9 @@ final class GenerationCenter {
                     reply.status = .interrupted
                 } else {
                     reply.status = .failed
-                    reply.errorText = ChatErrorDescription.describe(error)
+                    reply.errorText = studyAssistant && error as? ToolLoopError == .toolsUnsupported
+                        ? "这个模型不支持工具调用，学习助手需要换一个支持工具调用的模型。"
+                        : ChatErrorDescription.describe(error)
                 }
             }
             if reply.status == .interrupted && reply.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -399,7 +435,7 @@ final class GenerationCenter {
                 reply.content = search.finish(content: reply.content)
                 reply.webSearchJSON = search.record.encode()
             }
-            if let price, reply.inputTokens != nil || reply.outputTokens != nil {
+            if !studyAssistant, let price, reply.inputTokens != nil || reply.outputTokens != nil {
                 let cost = price.costCNY(
                     inputTokens: reply.inputTokens ?? 0,
                     cachedInputTokens: reply.cachedInputTokens ?? 0,
@@ -419,6 +455,7 @@ final class GenerationCenter {
             conversation.updatedAt = .now
             try? context.save()
             self?.tasks[conversationID] = nil
+            self?.studyActivity[conversationID] = nil
             self?.interruptedBySystem.remove(conversationID)
             keeper.end(id: jobID, success: reply.status == .complete)
 
